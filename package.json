@@ -1,0 +1,21 @@
+{
+  "name": "visual-grilling",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Скилл Codex и Claude Code для визуального грилинга проекта + тестовый проект для отладки",
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "link": "node dev/link-skill.mjs",
+    "link:global": "node dev/link-skill.mjs --global",
+    "link:codex": "node dev/link-skill.mjs --codex",
+    "link:codex:global": "node dev/link-skill.mjs --codex --global",
+    "sim": "node dev/simulate.mjs",
+    "sim:keep": "node dev/simulate.mjs --keep",
+    "start": "cd test-project && node ../skills/grill/grill.mjs start",
+    "status": "cd test-project && node ../skills/grill/grill.mjs status",
+    "list": "cd test-project && node ../skills/grill/grill.mjs list",
+    "stop": "node dev/reset.mjs --keep-state",
+    "reset": "node dev/reset.mjs"
+  }
+}

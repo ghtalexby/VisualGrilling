@@ -1,0 +1,14 @@
+.grill/
+node_modules/
+.DS_Store
+# Local skill links created by npm run link
+test-project/.claude/skills/grill
+
+# Explicit runtime paths for the repository and simulator workspace.
+/.grill/
+/test-project/.grill/
+/test-project/.agents/skills/grill
+
+/docs/specs/
+/docs/todo/
+/docs/plans/

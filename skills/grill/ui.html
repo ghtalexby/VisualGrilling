@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Грилинг-карта</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky header with status ledger, dotted pannable canvas holding a left-to-right question tree, side drawer for answering. */
+:root{
+  --bg:#E9EDF1; --surface:#FFFFFF; --ink:#141C28; --muted:#5A6576; --line:#C6CED8; --dot:#C3CBD6;
+  --accent:#2440C2; --accent-ink:#FFFFFF;
+  --ok:#1D7A4C; --weak:#A86300; --gap:#C02D27; --verify:#6939C0; --open:#5A6576;
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0E131A; --surface:#17202B; --ink:#E5EAF1; --muted:#95A1B3; --line:#2B3646; --dot:#253041;
+  --accent:#8199FF; --accent-ink:#0E131A;
+  --ok:#4BC389; --weak:#EFA83A; --gap:#FF6B5F; --verify:#B293FF; --open:#95A1B3; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.45;display:flex;flex-direction:column;overflow:hidden}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.s-open{--sc:var(--open)} .s-ok{--sc:var(--ok)} .s-weak{--sc:var(--weak)} .s-gap{--sc:var(--gap)} .s-verify{--sc:var(--verify)} .s-think{--sc:var(--accent)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--sc);white-space:nowrap}
+.pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--sc)}
+.pill.s-open::before,.s-open>.nhead .pill::before{background:transparent;border:1.5px solid var(--sc);width:5px;height:5px}
+.pill.s-think::before{animation:pulse 1s infinite alternate}
+
+header{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-direction:column;gap:8px;z-index:5}
+.hrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.ptitle{color:var(--muted);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
+.actions{display:flex;gap:6px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 12px;font-size:14px;font-weight:500;cursor:pointer}
+.btn:hover{border-color:var(--ink)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.btn.small{padding:4px 9px;font-size:13px}
+.lrow{display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.ledger{display:flex;gap:14px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+.ledger .pill b{color:var(--ink);font-weight:500;margin-left:2px}
+.ledger button.pill{background:none;border:1px solid transparent;border-radius:4px;padding:2px 6px;margin:-3px -6px;cursor:pointer}
+.ledger button.pill:hover:not(:disabled){border-color:color-mix(in srgb,var(--sc) 45%,var(--line))}
+.ledger button.pill[aria-pressed="true"]{background:color-mix(in srgb,var(--sc) 16%,transparent);border-color:var(--sc)}
+.ledger button.pill:disabled{opacity:.45;cursor:default}
+.conn{font-family:var(--f-mono);font-size:11.5px;display:flex;align-items:center;gap:6px;color:var(--muted)}
+.conn i{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
+.conn.off i{background:transparent;border:1.5px solid var(--weak)}
+.conn.dead i{background:var(--gap)}
+.conn b{font-weight:500;color:var(--ink)}
+
+main{flex:1;position:relative;min-height:0}
+#viewport{position:absolute;inset:0;overflow:hidden;cursor:grab;background-color:var(--bg);background-image:radial-gradient(var(--dot) 1px,transparent 1.2px);background-size:22px 22px}
+#viewport.panning{cursor:grabbing;user-select:none}
+#viewport.panning .node{cursor:grabbing}
+#stage{position:absolute;left:0;top:0;transform-origin:0 0}
+#edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+#edges path{fill:none;stroke-width:1.6}
+.node{position:absolute;width:252px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:10px 12px 11px;cursor:pointer;display:flex;flex-direction:column;gap:6px;transition:border-color .15s,box-shadow .15s}
+.node.q{border-color:color-mix(in srgb,var(--sc) 45%,var(--line))}
+.node.q.s-open{border-style:dashed;border-color:var(--line)}
+.node.q.s-think{border-style:solid;border-color:var(--accent)}
+.node:hover{border-color:var(--sc,var(--ink));box-shadow:0 2px 10px color-mix(in srgb,var(--ink) 10%,transparent)}
+.node.sel{box-shadow:0 0 0 2px var(--accent)}
+.node.fresh{animation:fresh 1.8s ease-out}
+.node.ctx{opacity:.5}
+@keyframes fresh{0%{box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 45%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes pulse{from{opacity:.25}to{opacity:1}}
+.nhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.area{font-family:var(--f-mono);font-size:11px;color:var(--muted);letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.area b{color:var(--ink);font-weight:500}
+.qtext{font-size:14px;font-weight:500;line-height:1.35}
+.ans{font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:6px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.ans::before{content:"↳ ";color:var(--sc)}
+.node.root{background:var(--ink);color:var(--bg);border-color:var(--ink);padding:14px 14px 13px}
+.node.root .eyebrow{color:color-mix(in srgb,var(--bg) 65%,var(--ink))}
+.rtitle{font-family:var(--f-display);font-weight:500;font-size:16px;line-height:1.25;text-wrap:balance}
+.rmeta{font-family:var(--f-mono);font-size:11px;color:color-mix(in srgb,var(--bg) 65%,var(--ink))}
+.eyebrow{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.busy-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1s infinite alternate;flex:none}
+
+.hint{position:absolute;left:16px;bottom:16px;right:16px;max-width:460px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:13.5px;color:var(--muted);display:flex;gap:10px;align-items:center;z-index:2}
+.hint b{color:var(--ink)}
+.zoom{position:absolute;right:16px;bottom:16px;display:flex;border:1px solid var(--line);border-radius:6px;background:var(--surface);overflow:hidden;z-index:2}
+.zoom button{border:0;background:none;width:34px;height:32px;cursor:pointer;font-family:var(--f-mono)}
+.zoom button+button{border-left:1px solid var(--line)}
+.zoom button:hover{background:var(--bg)}
+
+#panel{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--surface);border-left:1px solid var(--line);z-index:20;display:flex;flex-direction:column;box-shadow:-8px 0 30px color-mix(in srgb,var(--ink) 12%,transparent)}
+.ph{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 18px 10px;border-bottom:1px solid var(--line)}
+.ph .close{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px}
+.pb{flex:1;overflow:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:14px}
+.pb h2{font-family:var(--f-display);font-weight:500;font-size:19px;line-height:1.3;margin:0;text-wrap:balance}
+.pb h3{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:6px 0 0;font-weight:500}
+.why{margin:0;color:var(--muted);font-size:14px}
+.crumbs{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted);border-left:2px solid var(--line);padding-left:10px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:6px 12px;font-size:13.5px;cursor:pointer;text-align:left}
+.chip:hover{border-color:var(--accent)}
+.chip.idk{border-style:dashed;background:transparent}
+.chip.recommended{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.isolation{position:absolute;top:16px;left:16px;z-index:3;display:flex;align-items:center;gap:6px}
+textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:10px 12px;font:inherit;font-size:14.5px;resize:vertical}
+textarea:focus{outline:none;border-color:var(--accent)}
+label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.verdict{border:1px solid color-mix(in srgb,var(--sc) 40%,var(--line));background:color-mix(in srgb,var(--sc) 7%,var(--surface));border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.verdict p{margin:0;font-size:14px}
+.verdict[data-verdict]{cursor:context-menu}
+.verdict .atext{color:var(--muted);white-space:pre-wrap}
+.sublist{display:flex;flex-direction:column;gap:6px}
+.subq{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:8px 10px;text-align:left;cursor:pointer;display:flex;gap:10px;justify-content:space-between;align-items:flex-start;font-size:14px}
+.subq:hover{border-color:var(--ink)}
+.subq .pill,.subq .mono{flex:none;margin-top:2px}
+.note{font-size:13px;color:var(--muted);background:var(--bg);border-radius:6px;padding:10px 12px}
+.note code{font-family:var(--f-mono);font-size:12px;color:var(--ink)}
+.err{font-size:13.5px;color:var(--gap);border:1px solid color-mix(in srgb,var(--gap) 40%,var(--line));border-radius:6px;padding:10px 12px}
+.warn{font-size:13.5px;border:1px solid color-mix(in srgb,var(--weak) 45%,var(--line));background:color-mix(in srgb,var(--weak) 8%,var(--surface));border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
+.tab{border:0;border-bottom:2px solid transparent;background:none;margin-bottom:-1px;padding:8px 12px;font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.chat{display:flex;flex-direction:column;gap:8px}
+.msg{max-width:92%;border-radius:6px;padding:9px 12px;font-size:14px;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.user{align-self:flex-end;background:color-mix(in srgb,var(--accent) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line))}
+.msg.claude{align-self:flex-start;background:var(--bg);border:1px solid var(--line)}
+.quote{display:block;border-left:2px solid var(--accent);padding-left:8px;margin-bottom:4px;color:var(--muted);font-size:13px}
+.qbox{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;font-size:13.5px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px;background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.qbox button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0 4px}
+#ctxmenu{position:fixed;z-index:40;min-width:180px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px;box-shadow:0 6px 24px color-mix(in srgb,var(--ink) 18%,transparent)}
+#ctxmenu button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:4px;padding:7px 10px;font-size:14px;cursor:pointer}
+#ctxmenu button:hover,#ctxmenu button:focus-visible{background:var(--bg);outline:none}
+.msg .who{display:block;font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:3px}
+.working{display:flex;align-items:center;gap:10px;font-size:14px}
+.bar{display:flex;height:12px;border-radius:3px;overflow:hidden;background:var(--bg)}
+.bar span{background:var(--sc)}
+.bar span.s-open{background:repeating-linear-gradient(45deg,var(--line) 0 3px,transparent 3px 6px)}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-variant-numeric:tabular-nums}
+.stats div{display:flex;flex-direction:column;gap:2px}
+.stats b{font-family:var(--f-display);font-weight:500;font-size:20px}
+.mono{font-family:var(--f-mono);font-size:12px}
+.final{border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:14px;white-space:pre-wrap;background:var(--bg)}
+#md{font-family:var(--f-mono);font-size:12px;min-height:140px}
+[hidden]{display:none!important}
+@media (max-width:520px){.brand span{display:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.map-picker{position:relative}
+.map-list{position:absolute;top:100%;left:0;width:min(440px,85vw);max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #0003;padding:8px;z-index:10}
+.map-row{display:block;padding:10px;color:var(--ink);text-decoration:none;border-radius:5px;overflow-wrap:anywhere}
+.map-row[aria-current="page"]{outline:1px solid var(--muted)}
+.map-row small{display:block;color:var(--muted);margin-top:4px}
+.map-row a{color:inherit}
+#finishedNotice{font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow">
+    <div class="brand"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg><span>Грилинг-карта</span></div>
+    <div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
+    <div class="ptitle" id="ptitle"></div>
+    <div class="actions"><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bSummary">Сводка и итог</button></div>
+  </div>
+  <div class="lrow"><div class="ledger" id="ledger"></div><div class="actions"><button class="btn small" id="bMore">Добавить 3 главных вопроса</button><button class="btn small" id="bQuestion">Добавить свой вопрос</button></div><div class="conn" id="conn"></div></div>
+  <div id="finishedNotice" hidden></div>
+</header>
+<main>
+  <div id="viewport"><div id="stage"><svg id="edges"></svg></div></div>
+  <button class="btn isolation" id="bIsolation" hidden aria-label="Отменить изоляцию карточки" title="Отменить изоляцию карточки"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10 5a12 12 0 0 1 11 7 16 16 0 0 1-4 5M6 6a16 16 0 0 0-3 6s3 7 9 7a12 12 0 0 0 4-1M10 10a3 3 0 0 0 4 4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+  <div class="hint" id="hint" hidden></div>
+  <div class="zoom"><button id="zOut" aria-label="Уменьшить">−</button><button id="zReset" aria-label="Масштаб 100%">1:1</button><button id="zIn" aria-label="Увеличить">+</button></div>
+</main>
+<aside id="panel" hidden aria-live="polite"></aside>
+
+<script>
+const STATUS={open:"Открыт",ok:"Закрыт",weak:"Слабо",gap:"Дыра",verify:"Проверить"};
+const ORDER=["gap","weak","verify","open","ok"];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
+let listening=false, offline=false, loaded=false, seenFinished=null;
+let panel=null, errMsg=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
+const QLABEL={option:"Вариант ответа",verdict:"Вердикт"};
+const KEYS=`<span class="mono" style="color:var(--muted)">Enter — отправить · Ctrl+Enter — перенос</span>`;
+let fresh=new Set(); const drafts={},draftQuotes={}; let zoom=1,px=0,py=0;
+let flt=null; /* status picked in the ledger: map keeps only such questions and their ancestor chains */
+let isolated=null, clickTimer=0;
+
+const get=id=>S.nodes.find(n=>n.id===id);
+const kids=id=>{const c=S.nodes.filter(n=>n.parentId===id);return id==="root"?c.sort((a,b)=>(a.prio||99)-(b.prio||99)):c};
+function depth(n){let d=0;while(n&&n.parentId){d++;n=get(n.parentId)}return d}
+function ancestors(n){const a=[];let p=get(n.parentId);while(p&&p.kind!=="root"){a.unshift(p);p=get(p.parentId)}return a}
+function rootPrio(n){let p=n;while(p.parentId&&p.parentId!=="root")p=get(p.parentId);return p.prio}
+function descendants(id){const out=[];kids(id).forEach(k=>{out.push(k.id,...descendants(k.id))});return out}
+const qs=()=>S.nodes.filter(n=>n.kind==="q");
+const vis=n=>n.pending?"think":n.status;
+
+async function api(p,body){
+  const r=await fetch(p,{method:body?"POST":"GET",headers:{"content-type":"application/json","x-grill":"1"},body:body?JSON.stringify(body):undefined});
+  const t=await r.text();let j;try{j=JSON.parse(t)}catch{j={error:t}}
+  if(!r.ok)throw new Error(j.error||("Ошибка "+r.status));return j;
+}
+
+function closeMaps(){ $("#mapList").hidden=true;$("#bMaps").setAttribute("aria-expanded","false") }
+$("#bMaps").onclick=async()=>{
+  const list=$("#mapList");
+  if(!list.hidden){closeMaps();return}
+  list.hidden=false;$("#bMaps").setAttribute("aria-expanded","true");list.textContent="Загрузка карт…";
+  try{
+    const {maps}=await api("/api/maps");
+    list.innerHTML=maps.map(m=>{
+      const name=m.name??"Без имени";
+      const activity=!m.url?"Остановлена":m.listening?"Агент слушает":"Агент не слушает";
+      const badge=(m.finished?"Завершена · ":"")+activity;
+      const detail=ORDER.map(s=>`${STATUS[s]}: ${esc(m.counts[s]??0)}`).join(" · ");
+      // Accept only local server URLs, even if disk metadata has been edited.
+      const url=/^http:\/\/127\.0\.0\.1:\d+\/$/.test(m.url||"")?m.url:null;
+      const title=`<b>${esc(name)}</b> · ${esc(m.title)}`;
+      return `<div class="map-row"${m.current?' aria-current="page"':""}>${url?`<a href="${esc(url)}">${title}</a>`:`<span aria-disabled="true">${title}</span>`}<small>${esc(badge)} · ${detail}</small>${!url?`<small>Попросите агента продолжить карту: ${esc(name)}</small>`:""}</div>`;
+    }).join("");
+  }catch(e){list.textContent="Не удалось загрузить карты"}
+};
+document.addEventListener("click",e=>{if(!e.target.closest("#mapPicker"))closeMaps()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#mapList").hidden){closeMaps();$("#bMaps").focus()}});
+
+/* ---------- map ---------- */
+function nodeHTML(n){
+  if(n.kind==="root"){
+    const q=qs(),open=q.filter(x=>x.status==="open"&&!x.pending).length;
+    return `<span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span><span class="rmeta">${q.length} вопр. · ${open} открыто</span>`;
+  }
+  const p=n.parentId==="root"?`<b>P${n.prio}</b> · `:"";
+  const pill=n.pending?`<span class="pill s-think">${n.pending.stage==="thinking"?"Разбор":"В очереди"}</span>`:`<span class="pill">${STATUS[n.status]}</span>`;
+  const a=n.pending?n.pending.answer:n.answer,c=(n.chat||[]).length;
+  return `<span class="nhead"><span class="area">${p}${esc(n.area||"")}${c?` · обсужд. ${c}`:""}</span>${pill}</span><span class="qtext">${esc(n.q)}</span>${a?`<span class="ans">${esc(a)}</span>`:""}`;
+}
+function render(){
+  const stage=$("#stage"),svg=$("#edges");
+  const existing=new Map([...stage.querySelectorAll(".node")].map(e=>[e.dataset.id,e]));
+  const els={},shown=new Set(["root"]),hit=new Set();
+  const chain=n=>{for(let p=n;p&&!shown.has(p.id);p=get(p.parentId))shown.add(p.id)};
+  if(isolated&&!get(isolated.id)){flt=isolated.filter;isolated=null;requestAnimationFrame(focusFilter)}
+  if(isolated)chain(get(isolated.id));
+  else{
+    S.nodes.forEach(n=>{if(n.kind!=="q"||flt&&n.status!==flt)return;hit.add(n.id);chain(n)});
+    if(panel&&panel.mode==="node")chain(get(panel.id));
+  }
+  $("#bIsolation").hidden=!isolated;
+  existing.forEach((e,id)=>{if(!shown.has(id))e.remove()});
+  const vk=id=>kids(id).filter(k=>shown.has(k.id));
+  S.nodes.forEach(n=>{if(!shown.has(n.id))return;
+    const b=existing.get(n.id)||document.createElement("button");
+    b.className="node "+(n.kind==="root"?"root":"q s-"+vis(n))+(panel&&panel.id===n.id?" sel":"")+(fresh.has(n.id)?" fresh":"")+(flt&&n.kind==="q"&&!hit.has(n.id)?" ctx":"");
+    // Keep gesture targets and focus stable when polling redraws unchanged cards.
+    const html=nodeHTML(n);if(b.contentHTML!==html){b.innerHTML=html;b.contentHTML=html}
+    b.dataset.id=n.id;if(!b.isConnected)stage.appendChild(b);els[n.id]=b;
+  });
+  const NW=252,HG=64,VG=14,PAD=28,h={},sub={},pos={};
+  S.nodes.forEach(n=>{if(els[n.id])h[n.id]=els[n.id].offsetHeight});
+  const calc=id=>{const c=vk(id);if(!c.length)return sub[id]=h[id];const t=c.reduce((s,k)=>s+calc(k.id),0)+VG*(c.length-1);return sub[id]=Math.max(h[id],t)};
+  let maxD=0;
+  const place=(id,top,d)=>{maxD=Math.max(maxD,d);const c=vk(id);pos[id]={x:PAD+d*(NW+HG),y:top+(sub[id]-h[id])/2};
+    const t=c.reduce((s,k)=>s+sub[k.id],0)+VG*Math.max(0,c.length-1);let y=top+(sub[id]-t)/2;c.forEach(k=>{place(k.id,y,d+1);y+=sub[k.id]+VG})};
+  calc("root");place("root",PAD,0);
+  const W=PAD*2+(maxD+1)*NW+maxD*HG,H=sub.root+PAD*2;
+  S.nodes.forEach(n=>{if(!pos[n.id])return;els[n.id].style.left=pos[n.id].x+"px";els[n.id].style.top=pos[n.id].y+"px"});
+  svg.setAttribute("width",W);svg.setAttribute("height",H);
+  svg.innerHTML=S.nodes.filter(n=>n.parentId&&pos[n.parentId]&&pos[n.id]).map(n=>{
+    const p=pos[n.parentId],c=pos[n.id],x1=p.x+NW,y1=p.y+h[n.parentId]/2,x2=c.x,y2=c.y+h[n.id]/2,m=HG/2,v=vis(n);
+    const col=v==="open"?"var(--line)":v==="think"?"var(--accent)":`var(--${v})`;
+    return `<path d="M${x1} ${y1}C${x1+m} ${y1},${x2-m} ${y2},${x2} ${y2}" stroke="${col}"${v==="open"?' stroke-dasharray="4 4"':""}/>`}).join("");
+  stage.style.width=W+"px";stage.style.height=H+"px";applyView();
+  renderHeader();
+}
+function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};qs().forEach(n=>c[n.status]++);return c}
+function renderHeader(){
+  $("#bMore").disabled=!!S.morePending;
+  $("#bMore").textContent=S.morePending?"Агент ищет вопросы…":"Добавить 3 главных вопроса";
+  $("#bQuestion").disabled=!!S.questionRequests?.some(j=>j.parentId==="root");
+  $("#bQuestion").textContent=$("#bQuestion").disabled?"Вопрос готовится…":"Добавить свой вопрос";
+  $("#bMaps").textContent=loaded?(S.name??"Без имени"):"Карты";
+  $("#finishedNotice").hidden=!S.finished||listening||offline;
+  $("#finishedNotice").textContent=`Карта завершена, агент больше не слушает. Попросите продолжить карту: ${S.name??"Без имени"}`;
+  $("#bSpec").textContent=S.specPending?"Спека в работе…":S.specUpdatedAt?"Обновить спеку":"Создать спеку";
+  $("#bSpec").disabled=!!S.specPending;
+  $("#ptitle").textContent=S.title||"";document.title=S.title?`Грилинг: ${S.title}`:"Грилинг-карта";
+  const c=counts();
+  const refocus=document.activeElement&&document.activeElement.closest("#ledger")?document.activeElement.dataset.flt:null;
+  $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}"${!c[s]&&flt!==s?" disabled":""} title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");
+  if(refocus){const b=$(`#ledger [data-flt="${refocus}"]:not(:disabled)`)||$("#ledger button:not(:disabled)");if(b)b.focus()}
+  const conn=$("#conn");
+  if(offline){conn.className="conn dead";conn.innerHTML="<i></i>Сервер карты остановлен. Попросите агента продолжить грилинг"}
+  else if(listening){conn.className="conn";conn.innerHTML="<i></i>Агент на связи"}
+  else{conn.className="conn off";conn.innerHTML="<i></i>Агент не слушает. Напишите в терминале: <b>продолжай грилинг</b>"}
+  const hint=$("#hint");
+  if(loaded&&!qs().length&&!panel){hint.hidden=false;hint.innerHTML=`<span class="busy-dot"></span><div><b>Агент изучает проект</b> и готовит 5 главных вопросов. Карта появится здесь сама.</div>`}
+  else hint.hidden=true;
+}
+
+/* ---------- panel ---------- */
+function working(t){return`<div class="working"><span class="busy-dot"></span><span>${t}</span></div>`}
+function waitNote(){return listening?"":`<div class="note">Агент сейчас не слушает карту. Ответ встанет в очередь и будет разобран, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`}
+function nextOpen(){const o=[];const w=id=>kids(id).forEach(k=>{o.push(k);w(k.id)});w("root");return o.find(n=>n.status==="open"&&!n.pending)}
+function nodePanel(n){
+  const head=`<span class="eyebrow">P${rootPrio(n)} · ${esc(n.area)} · уровень ${depth(n)}</span>`;
+  let b="";const anc=ancestors(n);
+  if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
+  if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
+  b+=`<h2>${esc(n.q)}</h2>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
+  const tab=panel.tab||"answer",cn=(n.chat||[]).length;
+  b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
+  if(tab==="discuss")b+=discussTab(n);
+  else if(n.pending){
+    b+=`<div class="verdict s-think"><span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p></div>`;
+    b+=n.pending.stage==="thinking"?working("Агент оценивает ответ и ищет слабые места…"):waitNote()+`<div class="row"><button class="btn small" data-act="cancel">Отозвать ответ</button></div>`;
+  }else if(n.answer&&!panel.edit){
+    b+=`<div class="verdict s-${n.status}"${n.verdict?` data-verdict tabindex="0" title="Правый клик — обсудить вердикт"`:""}><span class="pill">${STATUS[n.status]}</span><p class="atext">Ваш ответ: ${esc(n.answer)}</p>${n.verdict?`<p>${esc(n.verdict)}</p>`:""}</div>`;
+    const ch=kids(n.id);
+    if(ch.length)b+=`<h3>Подвопросы</h3><div class="sublist">${ch.map(c=>`<button class="subq s-${vis(c)}" data-open="${c.id}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
+    else if(n.status==="ok")b+=`<p class="why">Ветка закрыта, копать глубже не нужно.</p>`;
+    if(confirmReset)b+=`<div class="warn"><span>Новый ответ заменит текущий. Агент пересмотрит связи ветки, сохранит актуальные вопросы и может удалить устаревшие решения.</span><div class="row"><button class="btn small primary" data-act="edit">Ответить заново</button><button class="btn small" data-act="noreset">Отмена</button></div></div>`;
+    else b+=`<div class="row"><button class="btn small" data-act="reset">Изменить ответ</button></div>`;
+    const nx=nextOpen();if(nx&&nx.id!==n.id)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Следующий открытый вопрос →</button></div>`;
+  }else{
+    b+=waitNote();
+    b+=`<div class="chips">${(n.options||[]).map(o=>`<button class="chip${n.recommendation?.option===o?" recommended":""}" data-chip="${esc(o)}"${n.recommendation?.option===o?' aria-describedby="recommendation"':""}>${n.recommendation?.option===o?"★ ":""}${esc(o)}</button>`).join("")}<button class="chip idk" data-chip="Не знаю">Не знаю</button></div>`;
+    if(n.recommendation&&(n.options||[]).includes(n.recommendation.option))b+=`<div class="note" id="recommendation"><b>Рекомендация агента:</b> ${esc(n.recommendation.reason)}</div>`;
+    b+=`<label class="fl">Ваш ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?n.answer:""))}</textarea></label>`;
+    b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
+  }
+  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+  return{head,body:b};
+}
+function discussTab(n){
+  const chat=n.chat||[];
+  let b=chat.length?`<div class="chat">${chat.map(m=>`<div class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}</div>`).join("")}</div>`
+    :n.kind==="root"?`<p class="why">Задайте общий вопрос агенту о проекте. Переписка не меняет ответы и карту.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».</p>`;
+  const busy=n.discuss==="thinking";
+  if(busy)b+=working("Агент пишет ответ…");
+  else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
+  else if(!listening)b+=`<div class="note">Агент сейчас не слушает карту. Сообщение встанет в очередь и будет разобрано, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`;
+  if(panel.quote)b+=`<div class="qbox"><span>Обсуждаем — ${QLABEL[panel.quote.about].toLowerCase()}: «${esc(panel.quote.text)}»</span><button data-act="unquote" aria-label="Убрать цитату" title="Убрать цитату">×</button></div>`;
+  b+=`<label class="fl">Сообщение<textarea id="fMsg" rows="3" maxlength="2000" placeholder="Например: что именно спрашивается? почему мой ответ слабый?">${esc(drafts["d:"+n.id]??"")}</textarea></label>`;
+  const rst=!chat.length&&!n.discuss?"":panel.confirmChat?`<span class="row" style="margin-left:auto;gap:6px"><span style="font-size:13px">Удалить переписку?</span><button class="btn small" data-act="chatreset" ${busy?"disabled":""}>Удалить</button><button class="btn small" data-act="nochatreset">Отмена</button></span>`
+    :`<button class="btn small" data-act="askchatreset" style="margin-left:auto" ${busy?'disabled title="Дождитесь ответа агента"':""}>Сбросить чат</button>`;
+  b+=`<div class="row"><button class="btn primary" data-act="discuss" ${sending||busy?"disabled":""}>Отправить</button>${KEYS}${rst}</div>`;
+  return b;
+}
+function questionPanel(){
+  const parent=get(panel.id),job=(S.questionRequests||[]).find(j=>j.parentId===panel.id),created=S.nodes.find(n=>n.requestId===panel.requestId);
+  let b=`<h2>Добавить свой вопрос</h2><p class="why">${esc(parent.kind==="root"?S.title:parent.q)}</p>`;
+  if(job)b+=working("Агент готовит варианты ответа…")+`<p>${esc(job.q)}</p>`+waitNote();
+  else if(created)b+=`<button class="btn" data-open="${created.id}">Открыть вопрос</button>`;
+  else b+=`<label class="fl">Текст вопроса<textarea id="fQuestion" rows="4" maxlength="220">${esc(drafts["q:"+panel.id]||"")}</textarea></label><div class="row"><button class="btn primary" data-act="question" ${sending?"disabled":""}>Подготовить варианты</button></div>`+waitNote();
+  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+  return{head:`<span class="eyebrow">Свой вопрос</span>`,body:b};
+}
+function openQuestion(id){openPanel({mode:"question",id,requestId:crypto.randomUUID()})}
+function toMarkdown(){
+  let md=`# ${S.title}\n\n**Бриф:** ${S.brief||""}\n\n**MVP-архитектура:** ${S.arch||"—"}\n\n`;
+  const c=counts();md+=`Итого: ${ORDER.map(s=>`${STATUS[s]} ${c[s]}`).join(" · ")}\n\n`;
+  if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
+  kids("root").forEach(r=>{
+    md+=`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
+    if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;w(k.id,ind+"  ")});
+    w(r.id,"");md+="\n";
+  });
+  return md;
+}
+function summaryPanel(){
+  const head=`<span class="eyebrow">Сводка</span>`,c=counts();
+  let b=`<h2>${esc(S.title||"Проект")}</h2>`;
+  if(S.brief)b+=`<p class="why">${esc(S.brief)}</p>`;
+  b+=`<div class="bar">${ORDER.map(s=>c[s]?`<span class="s-${s}" style="flex:${c[s]}" title="${STATUS[s]}: ${c[s]}"></span>`:"").join("")}</div>`;
+  b+=`<div class="stats">${ORDER.map(s=>`<div class="s-${s}"><b>${c[s]}</b><span class="pill">${STATUS[s]}</span></div>`).join("")}</div>`;
+  if(S.summary)b+=`<h3>Итог от агента</h3><div class="final">${esc(S.summary)}</div>`;
+  const group=(st,t)=>{const l=qs().filter(n=>n.status===st&&!n.pending);return l.length?`<h3>${t}</h3><div class="sublist">${l.map(n=>`<button class="subq s-${st}" data-open="${n.id}"><span>${esc(n.q)}</span><span class="mono" style="color:var(--muted)">P${rootPrio(n)}</span></button>`).join("")}</div>`:""};
+  b+=group("gap","Дыры: ответа нет")+group("weak","Слабые ответы")+group("verify","Нужно проверить");
+  const nx=nextOpen();if(nx)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Ответить на следующий вопрос →</button></div>`;
+  b+=`<h3>Спецификация</h3><p class="why">План реализации по оценённым ответам. Обновление полностью заменяет файл, включая ручные правки.</p>`;
+  if(S.specPending)b+=working(S.specPending.waiting?"Сначала разбираем ответы, отправленные до запроса…":S.specPending.stage==="thinking"?"Агент составляет спеку…":listening?"Запрос спеки в очереди…":"Запрос сохранён. Ожидаем агента…");
+  else b+=`<div class="row"><button class="btn" data-act="spec">${S.specUpdatedAt?"Обновить спеку":"Создать спеку"}</button></div>`;
+  if(S.specFile)b+=`<p class="why mono">${esc(S.specFile)}</p>`;
+  if(S.specUpdatedAt)b+=`<p class="why">Последняя запись: ${esc(new Date(S.specUpdatedAt).toLocaleString(S.locale?.language||"ru"))}</p>`;
+  if(S.specError)b+=`<div class="err">${esc(S.specError)}. Исправьте причину и повторите запрос.</div>`;
+  b+=`<h3>Дальше</h3>`+waitNote();
+  b+=S.morePending?working("Агент ищет непокрытые слабые места…"):`<div class="row"><button class="btn" data-act="more">Добавить 3 главных вопроса</button></div>`;
+  b+=S.finishPending?working("Агент готовит итог…"):`<div class="row"><button class="btn primary" data-act="finish">${S.finished?"Обновить итог":"Завершить и получить итог"}</button></div>`;
+  b+=`<h3>Экспорт в Markdown</h3><p class="why" style="font-size:13px">Для Xmind, MindMeister, Markmap, Notion. Полный отчёт Агент сохраняет в папку карты: <code class="mono">.grill/&lt;имя&gt;/report.md</code> (у карты без имени — <code class="mono">.grill/report.md</code>).</p><textarea id="md" rows="8" readonly>${esc(toMarkdown())}</textarea><div class="row"><button class="btn" data-act="copy">Скопировать</button><span id="copied" class="mono" style="color:var(--ok)"></span></div>`;
+  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+  return{head,body:b};
+}
+function panelSig(){
+  if(!panel)return"";
+  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
+  if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
+  const n=get(panel.id);if(!n)return"gone";
+  return JSON.stringify([n.q,n.why,n.options,n.recommendation,n.status,n.answer,n.pending,n.verdict,n.chat,n.discuss,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+}
+function renderPanel(){
+  const p=$("#panel");
+  if(!panel){p.hidden=true;p.dataset.key="";return}
+  let r;
+  if(panel.mode==="summary")r=summaryPanel();
+  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="question"?questionPanel():n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)+(errMsg?`<div class="err">${esc(errMsg)}</div>`:"")}:nodePanel(n)}
+  /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
+  const key=[panel.mode,panel.id,panel.tab].join("|"),same=p.dataset.key===key;
+  if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
+  deferPanel=false;if(!same)composing=false; /* the composing textarea is gone; compositionend may never reach #panel */
+  p.dataset.key=key;
+  const keep=same?p.querySelector("#fMsg,#fAns,#fQuestion"):null;
+  const ae=same&&document.activeElement&&p.contains(document.activeElement)?document.activeElement:null;
+  const fsel=!ae?null:ae.id?"#"+ae.id:(ae.hasAttribute("data-verdict")?"[data-verdict]":["data-tab","data-act","data-chip","data-open"].map(a=>ae.hasAttribute(a)?`[${a}="${CSS.escape(ae.getAttribute(a))}"]`:"").find(Boolean))||null;
+  const sel=ae&&ae.id&&ae.selectionStart!=null?[ae.selectionStart,ae.selectionEnd]:null;
+  const ob=same?p.querySelector(".pb"):null,top=ob?ob.scrollTop:0,oc=p.querySelectorAll(".msg").length;
+  p.innerHTML=`<div class="ph">${r.head}<button class="close" data-act="close" aria-label="Закрыть">×</button></div><div class="pb">${r.body}</div>`;
+  p.hidden=false;
+  const nt=keep&&p.querySelector("#"+keep.id);if(nt){if(keep.value!==nt.value)keep.value=nt.value;nt.replaceWith(keep)}
+  const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
+  quietScroll=performance.now()+150; /* restoring scrollTop fires a scroll event that must not close the context menu */
+  pb.scrollTop=nc>oc&&ob?pb.scrollHeight:top;
+  /* a just-disabled or replaced control cannot hold focus: fall back to the input or the active tab */
+  let f=fsel&&p.querySelector(fsel);if(ae&&(!f||f.disabled))f=p.querySelector("#fMsg,#fAns")||p.querySelector('[data-tab][aria-selected="true"]');
+  if(f){f.focus({preventScroll:true});if(sel)f.setSelectionRange(...sel)}
+}
+function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id])panel.quote=draftQuotes[o.id];errMsg=null;confirmReset=false;render();renderPanel()}
+
+/* ---------- actions ---------- */
+async function submitAnswer(){
+  if(sending)return;
+  const id=panel.id,t=$("#fAns"),answer=(t?t.value:"").trim();
+  if(!answer){errMsg="Напишите ответ или выберите вариант.";renderPanel();return}
+  sending=id;errMsg=null;
+  try{await api("/api/answer",{id,answer});delete drafts[id];if(panel&&panel.id===id)panel.edit=false;await poll(true)}
+  catch(e){errMsg=e.message}
+  sending=null;render();renderPanel();
+}
+function saveExplanation(id,q,message){
+  const key="d:"+id,text=`«${q.text}»\n${message}`;
+  if(!drafts[key]?.includes(text))drafts[key]=drafts[key]?drafts[key]+"\n\n"+text:text;
+  draftQuotes[id]=q;if(panel?.id===id)panel.quote=q;
+}
+async function submitDiscuss(request){
+  const id=panel.id,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined;
+  if(sending||(get(id)||{}).discuss==="thinking"){
+    if(request){saveExplanation(id,q,message);errMsg="Дождитесь ответа агента. Запрос объяснения сохранён в поле сообщения.";renderPanel()}
+    return;
+  }
+  if(!message&&!quote){errMsg="Напишите сообщение.";renderPanel();return}
+  sending=id;errMsg=null;
+  try{
+    await api("/api/discuss",{id,message,quote,about});
+    if(!request&&drafts["d:"+id]===raw)delete drafts["d:"+id];
+    if(!request&&draftQuotes[id]===q)delete draftQuotes[id];
+    if(!request&&panel?.id===id&&panel.quote===q)panel.quote=null;
+    await poll(true);
+  }catch(e){if(request)saveExplanation(id,q,message);errMsg=e.message}
+  sending=null;render();renderPanel();
+}
+async function act(path,body){errMsg=null;try{await api(path,body||{});await poll(true)}catch(e){errMsg=e.message;renderPanel()}}
+async function submitQuestion(){
+  if(sending)return;
+  const target=panel,id=target.id,q=$("#fQuestion").value.trim();
+  if(!q){errMsg="Напишите вопрос.";renderPanel();return}
+  sending=id;errMsg=null;renderPanel();
+  try{await api("/api/question",{id:target.requestId,parentId:id,q});delete drafts["q:"+id];await poll(true)}
+  catch(e){errMsg=e.message}
+  sending=null;renderPanel();
+}
+
+async function poll(force){
+  try{
+    const d=await api("/api/state");
+    if(d.localeRevision && d.localeRevision!==PAGE_LOCALE){location.reload();return}
+    const wasOffline=offline;offline=false;
+    if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
+      const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
+      const first=!loaded;S=d;listening=d.listening;loaded=true;
+      if(!first)S.nodes.forEach(n=>{if(!oldIds.has(n.id))fresh.add(n.id)});
+      render();
+      if(seenFinished===null)seenFinished=!!S.finished;
+      else if(S.finished&&!seenFinished){seenFinished=true;openPanel({mode:"summary"});return}
+      if(panelSig()!==before)renderPanel();
+      setTimeout(()=>fresh.clear(),2000);
+    }
+  }catch(e){if(!offline){offline=true;renderHeader()}}
+}
+
+/* ---------- events ---------- */
+$("#stage").addEventListener("mousedown",e=>{if(e.button===0&&e.detail>1&&e.target.closest(".node"))clearTimeout(clickTimer)});
+$("#stage").addEventListener("click",e=>{const b=e.target.closest(".node");if(!b)return;
+  clearTimeout(clickTimer);if(e.detail>1)return;
+  const id=b.dataset.id,open=()=>{if(get(id))openPanel(id==="root"?{mode:"summary"}:{mode:"node",id})};
+  if(e.detail===0)open();else clickTimer=setTimeout(open,PAGE_DOUBLE_CLICK_MS);
+});
+$("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if(!b)return;
+  e.preventDefault();clearTimeout(clickTimer);const id=b.dataset.id;
+  isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);
+});
+$("#bIsolation").onclick=()=>{if(!isolated)return;flt=isolated.filter;isolated=null;render();focusFilter()};
+$("#ledger").addEventListener("click",e=>{const b=e.target.closest("[data-flt]");if(!b)return;clearTimeout(clickTimer);isolated=null;flt=flt===b.dataset.flt?null:b.dataset.flt;render();focusFilter()});
+$("#bMore").onclick=()=>{openPanel({mode:"summary"});act("/api/more")};
+$("#bQuestion").onclick=()=>openQuestion("root");
+$("#bSummary").onclick=()=>openPanel({mode:"summary"});
+$("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
+$("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value});
+$("#panel").addEventListener("compositionstart",()=>{composing=true});
+$("#panel").addEventListener("compositionend",()=>{composing=false;if(deferPanel)setTimeout(renderPanel)});
+/* Enter sends, Ctrl/Cmd+Enter (and Shift+Enter) inserts a line break */
+$("#panel").addEventListener("keydown",e=>{
+  const t=e.target;if(e.key!=="Enter"||e.isComposing||e.keyCode===229||e.altKey||!(t.id==="fAns"||t.id==="fMsg"))return;
+  if(e.shiftKey)return;
+  e.preventDefault();
+  if(e.ctrlKey||e.metaKey){t.setRangeText("\n",t.selectionStart,t.selectionEnd,"end");t.dispatchEvent(new Event("input",{bubbles:true}));return}
+  if(sending)return;if(t.id==="fAns")submitAnswer();else submitDiscuss();
+});
+$("#panel").addEventListener("click",e=>{
+  clearTimeout(clickTimer);
+  const o=e.target.closest("[data-open]");if(o){openPanel({mode:"node",id:o.dataset.open});return}
+  const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;errMsg=null;confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
+  const ch=e.target.closest("[data-chip]");if(ch){const t=$("#fAns");t.value=ch.dataset.chip;drafts[panel.id]=t.value;t.focus();return}
+  const a=e.target.closest("[data-act]");if(!a)return;
+  switch(a.dataset.act){
+    case "close":panel=null;render();renderPanel();break;
+    case "answer":submitAnswer();break;
+    case "question":submitQuestion();break;
+    case "discuss":submitDiscuss();break;
+    case "askchatreset":panel.confirmChat=true;renderPanel();break;
+    case "nochatreset":panel.confirmChat=false;renderPanel();break;
+    case "chatreset":{const id=panel.id;panel.confirmChat=false;errMsg=null;
+      api("/api/chatreset",{id}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{errMsg=err.message;renderPanel()});break}
+    case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
+    case "cancel":act("/api/cancel",{id:panel.id});break;
+    case "more":act("/api/more");break;
+    case "finish":act("/api/finish");break;
+    case "spec":act("/api/spec");break;
+    case "reset":confirmReset=true;renderPanel();break;
+    case "noreset":confirmReset=false;renderPanel();break;
+    case "edit":panel.edit=true;confirmReset=false;renderPanel();break;
+    case "canceledit":panel.edit=false;delete drafts[panel.id];renderPanel();break;
+    case "copy":{const t=$("#md"),ok=()=>{$("#copied").textContent="Скопировано"};
+      try{navigator.clipboard.writeText(t.value).then(ok,()=>{t.focus();t.select()})}catch(err){t.focus();t.select()}break}
+  }
+});
+/* right click on an answer option or on the verdict: context menu to discuss it */
+let ctx=null;
+function closeCtx(refocus){if(!ctx)return;const c=ctx;ctx=null;c.el.remove();if(!refocus)return;
+  /* a poll may have re-rendered the panel while the menu was open: look the target up again */
+  const t=c.target.isConnected?c.target:panel&&panel.id===c.id&&$(`#panel ${c.sel}`);if(t)t.focus()}
+document.addEventListener("contextmenu",()=>closeCtx(),true);
+$("#panel").addEventListener("contextmenu",e=>{
+  if(!panel)return;
+  const ch=e.target.closest("[data-chip]:not(.idk)"),vd=!ch&&e.target.closest("[data-verdict]");
+  if(!ch&&!vd||vd&&selBefore)return;
+  e.preventDefault();
+  const tg=ch||vd,n=get(panel.id);if(vd&&!(n&&n.verdict))return;
+  const el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
+  el.innerHTML=ch?`<button role="menuitem" data-ctx="explain">О чём этот ответ?</button><button role="menuitem" data-ctx="discuss">Обсудить вариант</button><button role="menuitem" data-ctx="pick">Выбрать как ответ</button>`
+    :`<button role="menuitem" data-ctx="discuss">Обсудить вердикт</button>`;
+  document.body.appendChild(el);
+  const r=tg.getBoundingClientRect(),x=e.clientX||r.left,y=e.clientY||r.bottom;
+  el.style.left=Math.max(8,Math.min(x,innerWidth-el.offsetWidth-8))+"px";el.style.top=Math.max(8,Math.min(y,innerHeight-el.offsetHeight-8))+"px";
+  ctx={el,target:tg,id:panel.id,sel:ch?`[data-chip="${CSS.escape(ch.dataset.chip)}"]`:"[data-verdict]",
+    quote:ch?{about:"option",text:ch.dataset.chip}:{about:"verdict",text:n.verdict}};el.querySelector("button").focus();
+  el.addEventListener("focusout",ev=>{if(ev.relatedTarget&&!el.contains(ev.relatedTarget))closeCtx()}); /* Tab out; Safari gives clicked buttons no focus, so mouse clicks are handled by pointerdown */
+});
+$("#stage").addEventListener("contextmenu",e=>{
+  const target=e.target.closest(".node");if(!target||selBefore)return;
+  e.preventDefault();clearTimeout(clickTimer);
+  const id=target.dataset.id,el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
+  el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="project">Задать вопрос</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
+  document.body.appendChild(el);const r=target.getBoundingClientRect();
+  el.style.left=Math.max(8,Math.min(e.clientX||r.left,innerWidth-el.offsetWidth-8))+"px";el.style.top=Math.max(8,Math.min(e.clientY||r.bottom,innerHeight-el.offsetHeight-8))+"px";
+  ctx={el,target,id,card:true};el.querySelector("button").focus();
+  el.addEventListener("focusout",ev=>{if(ev.relatedTarget&&!el.contains(ev.relatedTarget))closeCtx()});
+});
+document.addEventListener("click",e=>{
+  if(!ctx)return;const b=e.target.closest("#ctxmenu [data-ctx]");const c=ctx;closeCtx();
+  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else openQuestion(c.id)}return}
+  if(!b||!panel||panel.id!==c.id)return;
+  if(b.dataset.ctx==="discuss"||b.dataset.ctx==="explain"){
+    panel.tab="discuss";errMsg=null;confirmReset=false;
+    if(b.dataset.ctx==="explain"){
+      const message="Объясни, что означает этот вариант ответа и как он относится к проекту.";
+      const n=get(c.id),last=(n.chat||[]).at(-1);
+      if(last?.from==="user"&&last.quote===c.quote.text&&last.text===message&&n.discuss){renderPanel();return}
+      renderPanel();
+      submitDiscuss({message,quote:c.quote});
+    }else{panel.quote=c.quote;draftQuotes[c.id]=c.quote;renderPanel()}
+    const f=$("#fMsg");if(f)f.focus();
+  }
+  else{const t=$("#fAns");if(t){t.value=c.quote.text;drafts[panel.id]=t.value;t.focus()}}
+},true);
+/* selection made before the right click (macOS selects the clicked word itself, so it is snapshotted on pointerdown) keeps the browser menu for copying */
+let selBefore=false;
+document.addEventListener("pointerdown",e=>{if(!e.target.closest("#stage .node"))clearTimeout(clickTimer);selBefore=e.button===2&&String(getSelection()).trim()!=="";if(ctx&&!ctx.el.contains(e.target))closeCtx()},true);
+window.addEventListener("scroll",e=>{if(ctx&&!ctx.el.contains(e.target)&&performance.now()>quietScroll)closeCtx()},true);window.addEventListener("resize",()=>closeCtx());window.addEventListener("blur",e=>{if(e.target===window)closeCtx()});
+document.addEventListener("keydown",e=>{
+  if(ctx&&e.key==="Escape"){e.stopImmediatePropagation();closeCtx(true);return}
+  if(ctx&&(e.key==="ArrowDown"||e.key==="ArrowUp")){e.preventDefault();const bs=[...ctx.el.querySelectorAll("button")],i=bs.indexOf(document.activeElement);bs[(i+(e.key==="ArrowDown"?1:bs.length-1))%bs.length].focus()}
+},true);
+document.addEventListener("keydown",e=>{if(e.key==="Escape"){clearTimeout(clickTimer);if(panel){panel=null;render();renderPanel()}}});
+const vp=$("#viewport");
+/* infinite canvas: the map is moved by a (px,py) offset in screen px plus a scale, never clamped by the content size */
+function applyView(){
+  $("#stage").style.transform=`translate(${px}px,${py}px) scale(${zoom})`;
+  const v=$("#viewport");v.style.backgroundPosition=`${px}px ${py}px`;v.style.backgroundSize=`${22*zoom}px ${22*zoom}px`;
+}
+/* glide the map so its content sits in the middle of the visible canvas (left of an open panel); the root sits at the stage's vertical middle, so it stays in view; a too-wide map is pinned left, where the root is */
+let glide=0;
+const stopGlide=()=>{cancelAnimationFrame(glide);glide=0};
+function glideTo(tx,ty){
+  stopGlide();
+  if(matchMedia("(prefers-reduced-motion:reduce)").matches){px=tx;py=ty;applyView();return}
+  const x0=px,y0=py,t0=performance.now(),D=380;
+  const step=t=>{const k=Math.max(0,Math.min(1,(t-t0)/D)),e=1-Math.pow(1-k,3);px=x0+(tx-x0)*e;py=y0+(ty-y0)*e;applyView();glide=k<1?requestAnimationFrame(step):0};
+  glide=requestAnimationFrame(step);
+}
+function viewWidth(){const p=$("#panel");return Math.max(1,vp.clientWidth-(p.hidden?0:p.offsetWidth))}
+function centerNode(id){
+  const b=$(`#stage .node[data-id="${CSS.escape(id)}"]`);if(!b)return;
+  glideTo(viewWidth()/2-(b.offsetLeft+b.offsetWidth/2)*zoom,vp.clientHeight/2-(b.offsetTop+b.offsetHeight/2)*zoom);
+}
+function focusFilter(){
+  if(!flt){centerMap();return}
+  const matches=[...document.querySelectorAll("#stage .node.q")].filter(b=>get(b.dataset.id)?.status===flt).sort((a,b)=>a.offsetLeft-b.offsetLeft||a.offsetTop-b.offsetTop);
+  if(matches.length)centerNode(matches[0].dataset.id);else centerMap();
+}
+function centerMap(){
+  const st=$("#stage"),vw=viewWidth(),w=st.offsetWidth*zoom,h=st.offsetHeight*zoom;
+  glideTo(w<vw?(vw-w)/2:0,(vp.clientHeight-h)/2);
+}
+/* zoom keeps the map point under (ax,ay) — viewport-relative, default centre — in place */
+function setZoom(z,ax,ay){
+  stopGlide();
+  z=Math.min(2,Math.max(.3,z));if(z===zoom)return;
+  if(ax==null){ax=vp.clientWidth/2;ay=vp.clientHeight/2}
+  px=ax-(ax-px)*z/zoom;py=ay-(ay-py)*z/zoom;zoom=z;applyView();
+}
+const stepZoom=d=>setZoom(Math.round((zoom+d)*10)/10);
+$("#zIn").onclick=()=>stepZoom(.1);$("#zOut").onclick=()=>stepZoom(-.1);$("#zReset").onclick=()=>setZoom(1);
+/* wheel zooms toward the cursor; mostly-horizontal trackpad swipes pan */
+vp.addEventListener("wheel",e=>{
+  e.preventDefault();stopGlide();
+  const k=e.deltaMode===1?16:e.deltaMode===2?400:1;
+  if(!e.ctrlKey&&Math.abs(e.deltaX)>Math.abs(e.deltaY)){px-=e.deltaX*k;applyView();return}
+  const r=vp.getBoundingClientRect();
+  setZoom(zoom*Math.exp(-e.deltaY*k*.0015),e.clientX-r.left,e.clientY-r.top);
+},{passive:false});
+/* drag pans the map: middle button anywhere, left button on empty canvas; preventDefault also suppresses the browser's autoscroll */
+let pan=null;
+vp.addEventListener("mousedown",e=>{if(!(e.button===1||e.button===0&&!e.target.closest(".node")))return;
+  e.preventDefault();stopGlide();pan={b:e.button,x:e.clientX,y:e.clientY,px,py};vp.classList.add("panning")});
+window.addEventListener("mousemove",e=>{if(!pan)return;if(!(e.buttons&(pan.b===1?4:1))){pan=null;vp.classList.remove("panning");return}
+  px=pan.px+e.clientX-pan.x;py=pan.py+e.clientY-pan.y;applyView()});
+window.addEventListener("mouseup",e=>{if(pan&&e.button===pan.b){pan=null;vp.classList.remove("panning")}});
+vp.addEventListener("auxclick",e=>{if(e.button===1)e.preventDefault()});
+
+render();poll(true);setInterval(()=>poll(false),1200);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(render);
+</script>
+</body>
+</html>

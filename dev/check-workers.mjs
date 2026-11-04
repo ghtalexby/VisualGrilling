@@ -1,0 +1,180 @@
+// Exercise the real CLI in a disposable project, never in a user's map.
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
+const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-workers-check-"));
+const dir = path.join(cwd, "maps");
+const children = new Set();
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+let server, url;
+function run(args, command = cli) {
+  const child = spawn(process.execPath, [command, ...args, "--dir", dir, "--name", "check"], { cwd, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  children.add(child);
+  let stdout = "", stderr = "";
+  child.stdout.on("data", data => stdout += data);
+  child.stderr.on("data", data => stderr += data);
+  const done = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => { children.delete(child); resolve({ code, signal, stdout, stderr }); });
+  });
+  return { child, done, output: () => stdout };
+}
+async function until(check) {
+  for (let i = 0; i < 100; i++) { if (await check()) return; await sleep(50); }
+  throw new Error("Timed out waiting for state");
+}
+async function start() {
+  server = run(["serve", "--port", "0"]);
+  await until(() => {
+    try {
+      const info = JSON.parse(fs.readFileSync(path.join(dir, "check", "server.json")));
+      if (info.pid !== server.child.pid) return false;
+      url = info.url; return true;
+    } catch { return false; }
+  });
+}
+async function request(route, body) {
+  const response = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST",
+    headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(3000) });
+  assert.equal(response.status, 200, await response.clone().text());
+  return response.json();
+}
+async function event(watch, type) {
+  const result = await watch.done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.stdout.trim().split("\n").length, 1);
+  const value = JSON.parse(result.stdout);
+  assert.equal(value.type, type);
+  return value;
+}
+const watch = (...args) => run(["watch", "--timeout", "5", "--max-wait", "20", ...args]);
+// Prevent a failed command from leaving the check hanging indefinitely.
+const watchdog = setTimeout(() => { for (const child of children) child.kill(); }, 120000);
+const map = path.join(dir, "check");
+const read = name => fs.readFileSync(path.join(map, name), "utf8");
+const inbox = () => JSON.parse(read("inbox.json"));
+const init = { title: "Worker check", brief: "Product brief", arch: "Node architecture", questions: [{ q: "First?" }, { q: "Second?" }] };
+try {
+  let result = await run(["config"]).done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } } });
+  fs.mkdirSync(dir, { recursive: true });
+  const configFile = path.join(dir, "config.json");
+  for (const model of ["sonnet", "opus", "haiku", "inherit"]) {
+    fs.writeFileSync(configFile, JSON.stringify({ ignored: true, roles: { ignored: {}, griller: { model, ignored: 1 } } }));
+    result = await run(["config"]).done;
+    assert.equal(result.code, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } } });
+  }
+  fs.writeFileSync(configFile, JSON.stringify({ roles: { griller: { ignored: 1 } } }));
+  assert.equal(JSON.parse((await run(["config"]).done).stdout).roles.griller.model, "inherit");
+  for (const text of ['{"roles":{"griller":{"model":"bad"}}}', '{', 'null', '{"roles":[]}', '{"roles":{"griller":{"model":null}}}']) {
+    fs.writeFileSync(configFile, text);
+    result = await run(["config"]).done;
+    assert.equal(result.code, 1);
+    assert.ok(result.stderr.includes(configFile));
+  }
+  fs.unlinkSync(configFile);
+  fs.mkdirSync(configFile);
+  assert.equal((await run(["config"]).done).code, 1);
+  fs.rmdirSync(configFile);
+  // Use a disposable skill copy so malformed installed defaults cannot affect other sessions.
+  const skillCopy = path.join(cwd, "skill");
+  fs.cpSync(path.dirname(cli), skillCopy, { recursive: true });
+  const copiedCli = path.join(skillCopy, "grill.mjs");
+  const defaults = path.join(skillCopy, "config.default.json");
+  fs.writeFileSync(defaults, '{"roles":{"griller":{}}}');
+  result = await run(["config"], copiedCli).done;
+  assert.equal(result.code, 1);
+  assert.equal(result.stdout, "");
+  assert.ok(result.stderr.includes(defaults));
+  assert.ok(result.stderr.includes(configFile));
+  fs.writeFileSync(configFile, '{"roles":{"griller":{"model":"sonnet"}}}');
+  result = await run(["config"], copiedCli).done;
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } } });
+  fs.unlinkSync(configFile);
+  assert.equal((await watch("--inbox").done).code, 2);
+  await start();
+  assert.match(read("session.md"), /Generated by grill.mjs/);
+  assert.match(read("session.md"), /^# Проект$/m);
+  await request("locale", { language: "en" });
+  assert.match(read("session.md"), /^# Project$/m);
+  await request("init", init);
+  assert.ok(read("session.md").includes("Language: en"));
+  assert.ok(read("session.md").includes(init.brief));
+  assert.ok(read("session.md").includes(init.arch));
+  const [id, secondId] = (await request("state")).nodes.filter(n => n.kind === "q").map(n => n.id);
+  await request("answer", { id, answer: "Full answer with facts" });
+  const full = await event(watch(), "answer");
+  assert.equal(fs.existsSync(path.join(map, "inbox.json")), false);
+  const line = await event(watch("--inbox"), "answer");
+  assert.deepEqual(line, { type: "answer", id, token: line.token, name: "check", language: "en", inbox: path.join(map, "inbox.json") });
+  assert.notEqual(inbox().token, full.token);
+  assert.deepEqual({ ...inbox(), token: full.token }, full);
+  await request("answer", { id: secondId, answer: "Queued answer" });
+  const before = JSON.parse(read("state.json"));
+  assert.deepEqual(await request("apply", { type: "notes", text: "First facts" }), { ok: true });
+  await request("apply", { type: "notes", text: "  Replacement facts  " });
+  assert.equal((await request("state")).notes, "Replacement facts");
+  assert.match(read("session.md"), /Replacement facts/);
+  await request("apply", { type: "notes", text: "x".repeat(3100) });
+  assert.equal((await request("state")).notes.length, 3000);
+  assert.ok(read("session.md").includes("x".repeat(3000)));
+  await request("apply", { type: "notes", text: "" });
+  assert.match(read("session.md"), /## Agent notes\n—/);
+  const after = JSON.parse(read("state.json"));
+  assert.deepEqual(after.queue, before.queue);
+  assert.deepEqual(after.nodes, before.nodes);
+  const forbidden = await fetch(url + "api/apply", { method: "POST", body: JSON.stringify({ type: "notes", text: "forbidden" }) });
+  assert.equal(forbidden.status, 403);
+  await request("apply", { type: "notes", text: "Restart facts" });
+  await request("stop", {}); await server.done;
+  fs.writeFileSync(path.join(map, "session.md"), "overwritten manually");
+  await start();
+  assert.match(read("session.md"), /Restart facts/);
+  assert.ok(read("session.md").includes(init.arch));
+  assert.equal((await request("state")).nodes.find(n => n.id === id).pending.stage, "queued");
+  await request("init", init);
+  assert.equal((await request("state")).notes, "");
+  assert.match(read("session.md"), /## Agent notes\n—/);
+  const discussionId = (await request("state")).nodes.find(n => n.kind === "q").id;
+  await request("discuss", { id: discussionId, message: "Explain this option", quote: "A quoted option", about: "option" });
+  const fullDiscussion = await event(watch(), "discuss");
+  const discussionLine = await event(watch("--inbox"), "discuss");
+  assert.deepEqual(discussionLine, { type: "discuss", id: discussionId, token: discussionLine.token, name: "check", language: "en", inbox: path.join(map, "inbox.json") });
+  assert.notEqual(inbox().token, fullDiscussion.token);
+  assert.deepEqual({ ...inbox(), token: fullDiscussion.token }, fullDiscussion);
+  assert.match(inbox().message, /Explain this option/);
+  await request("apply", { type: "discuss", id: discussionId, token: discussionLine.token, reply: "Here is the explanation." });
+  assert.equal((await request("state")).nodes.find(n => n.id === discussionId).discuss, null);
+  await request("spec", {});
+  const spec = await event(watch("--inbox"), "spec");
+  assert.equal(spec.id, undefined);
+  assert.ok(spec.token);
+  assert.equal(spec.token, inbox().token);
+  assert.equal(spec.type, inbox().type);
+  await request("apply", { type: "spec", token: spec.token, markdown: "# Worker specification" });
+  await request("more", {});
+  const more = await event(watch("--inbox"), "more");
+  assert.deepEqual(Object.keys(more).sort(), ["inbox", "language", "name", "type"]);
+  assert.equal(inbox().type, "more");
+  await request("apply", { type: "more", questions: [] });
+  const savedInbox = read("inbox.json");
+  const expired = await event(watch("--inbox", "--max-wait", "5"), "timeout");
+  assert.equal(expired.expired, true);
+  assert.equal(expired.inbox, undefined);
+  assert.equal(read("inbox.json"), savedInbox);
+  assert.equal(fs.readdirSync(map).some(name => name.endsWith(".tmp")), false);
+  await request("stop", {}); await server.done;
+  console.log("worker checks passed");
+} finally {
+  clearTimeout(watchdog);
+  await Promise.all([...children].map(child => new Promise(resolve => { child.once("close", resolve); child.kill(); })));
+  fs.rmSync(cwd, { recursive: true, force: true });
+}
