@@ -433,6 +433,7 @@ function summaryPanel(){
   if(S.specError)b+=`<div class="err">${esc(S.specError)}. Исправьте причину и повторите запрос.</div>`;
   b+=`<h3>Дальше</h3>`+waitNote();
   b+=S.morePending?working("Агент ищет непокрытые слабые места…"):`<div class="row"><button class="btn" data-act="more">Добавить 3 главных вопроса</button></div>`;
+  b+=`<div class="row"><button class="btn" data-act="addquestion">${S.questionRequests?.some(j=>j.parentId==="root")?"Агент готовит варианты ответа…":"Добавить свой вопрос"}</button></div>`;
   b+=S.finishPending?working("Агент готовит итог…"):`<div class="row"><button class="btn primary" data-act="finish">${S.finished?"Обновить итог":"Завершить и получить итог"}</button></div>`;
   b+=`<h3>Экспорт в Markdown</h3><p class="why" style="font-size:13px">Для Xmind, MindMeister, Markmap, Notion. Полный отчёт Агент сохраняет в папку карты: <code class="mono">.grill/&lt;имя&gt;/report.md</code> (у карты без имени — <code class="mono">.grill/report.md</code>).</p><textarea id="md" rows="8" readonly>${esc(toMarkdown())}</textarea><div class="row"><button class="btn" data-act="copy">Скопировать</button><span id="copied" class="mono" style="color:var(--ok)"></span></div>`;
   if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
@@ -440,7 +441,7 @@ function summaryPanel(){
 }
 function panelSig(){
   if(!panel)return"";
-  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
+  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
   return JSON.stringify([n.q,n.why,n.options,n.recommendation,n.status,n.answer,n.pending,n.verdict,n.chat,n.discuss,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
@@ -596,6 +597,7 @@ $("#panel").addEventListener("click",e=>{
     case "close":panel=null;render();renderPanel();break;
     case "answer":submitAnswer();break;
     case "question":submitQuestion();break;
+    case "addquestion":openQuestion("root");break;
     case "discuss":submitDiscuss();break;
     case "unimage":draftImages[panel.id]?.splice(+a.dataset.i,1);renderPanel();break;
     case "askchatreset":panel.confirmChat=true;renderPanel();break;
