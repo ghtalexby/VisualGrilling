@@ -66,7 +66,7 @@ Tell the user in one localized line that the named map is open at its URL and th
 
 Question objects may include `recommendation:{option,reason}` with an exact existing option and a short project-specific reason (260 characters). Omit it when uncertain. This is visual guidance only.
 
-The UI also queues `question` for user-authored main or child questions, supports project discussion on `root`, and can request an immediate explanation of a quoted option. Follow `worker.md` for these events. Echo delivery tokens for answer/discuss/question. Answer grading preserves descendants unless explicit validated `branchChanges` removes or moves them; review the full branch snapshot, including user-authored questions, before restructuring. Do not apply the former blanket descendant-deletion rule.
+The UI also queues `question` for user-authored main or child questions, supports project discussion on `root`, and can request an immediate explanation of a quoted option. Discussion events can include attached images as absolute paths in `images`, including messages with no text; inspect them as described in `worker.md`. Follow `worker.md` for these events. Echo delivery tokens for answer/discuss/question. Answer grading preserves descendants unless explicit validated `branchChanges` removes or moves them; review the full branch snapshot, including user-authored questions, before restructuring. Do not apply the former blanket descendant-deletion rule.
 
 ## 3. Pass JSON safely
 

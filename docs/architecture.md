@@ -49,6 +49,7 @@ Files live in `.grill/` or `.grill/<name>/`:
 | `server.json` | `{port, pid, url}`; removed by `stop`, SIGINT, or SIGTERM |
 | `session.md` | Server-generated title, language, brief, architecture and agent notes; atomic replacement |
 | `inbox.json` | Full last event from `watch --inbox`; atomic replacement |
+| `images/` | Images pasted into discussions; files without a chat reference are deleted |
 | `report.md` | Report written by `grill.mjs report` |
 
 ## State model
@@ -74,7 +75,7 @@ A question (`kind: "q"`):
   addedFrom, // source question text for a main question added through newRoot
   pending: { answer, stage: "queued|thinking", at } /* or null */,
   answer, verdict,
-  chat: [{ from: "user|claude", text, quote, about, at }],
+  chat: [{ from: "user|claude", text, quote, about, images, at }],
   discuss: "queued|thinking" /* or null */
 }
 ```
@@ -100,7 +101,9 @@ The discussion tab sends messages without grading an answer. The root also has c
 
 Right-click an answer option to discuss or select it. Right-click a verdict (`[data-verdict]`) to discuss it. Existing text selection keeps the browser's copy menu; selection is captured on `pointerdown` because macOS may select a word on right-click. Discussion attaches `panel.quote = {about, text}` as `quote` and `about`.
 
-Reset chat, with confirmation, calls `/api/chatreset`: deletes chat and its queued event; thinking returns 409. Enter sends; Ctrl/Cmd+Enter or Shift+Enter inserts a newline.
+Reset chat, with confirmation, calls `/api/chatreset`: deletes chat, its queued event and its images; thinking returns 409. Enter sends; Ctrl/Cmd+Enter or Shift+Enter inserts a newline.
+
+Pasting an image into the discussion input adds a removable thumbnail held in memory (`draftImages`) until it is sent with the message. A clipboard that also holds text pastes the text. The agent receives saved file paths in the event's `images`. The browser reuses fetched image blob URLs and revokes them when a state update removes their last chat reference; pending fetches cannot recreate removed URLs. Answer, discussion and custom-question inputs grow with their text up to 40% of the window height.
 
 Chat belongs to a node: regrading and moves preserve it; explicit deletion removes only deleted nodes’ chats and events. Obsolete descendant events are skipped. `more` and `finish` use pending flags for deduplication; `apply` resets them.
 
@@ -123,6 +126,7 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 - Header status counters filter by status while retaining ancestor chains (`ctx`) and the open panel's question. A second click resets the filter. `focusFilter()` chooses the matching question with minimum X, then Y; `centerNode()` centers it without opening a panel or changing zoom. `centerMap()` animates centering in the visible canvas left of the drawer; wide maps align their root left. Manual movement interrupts animation. Filter state `flt` lives only in the browser.
 - `nodePanel()` shows ancestors, Answer/Discuss tabs (`panel.tab`, `discussTab()`), verdict, children, and answer input. Editing warns that the agent will review the branch and may remove obsolete decisions. `summaryPanel()` shows counts, problem groups, more/finish/spec controls, and Markdown export.
 - `panelSig()` prevents unnecessary redraws and input loss. `drafts` stores answers and `"d:"+id` discussion drafts. `renderPanel()` preserves focus, cursor, and scroll, scrolling chat down when messages arrive.
+- `#panelGrip` resizes the drawer by dragging or with Left/Right arrow keys, from 320 px up to the window width minus 120 px. It is a sibling of `#panel`, so re-renders do not drop its pointer capture. The width is kept per browser in `localStorage` (`grill.panelWidth`), which is per origin, so maps served on different ports remember separate widths. CSS caps a saved width to the current window; at 560 px and below the drawer is full-width and the grip is hidden.
 - A newly finished map opens the summary automatically.
 - Browser `toMarkdown()` and server `report()` are similar but separate export implementations.
 
@@ -131,7 +135,7 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 - Bind only to `127.0.0.1`.
 - Accept only `127.0.0.1` or `localhost` as Host to prevent DNS rebinding.
 - Require `x-grill: 1` on every `/api/*` request, including locale updates, to prevent CSRF.
-- Limit request bodies to 1 MB.
+- Limit request bodies to 1 MB, except `/api/discuss`, which allows about 44 MB for its images.
 - Escape user content with `esc()`; validate translation dictionaries before persisting or rendering.
 
 ## Per-event workers

@@ -94,23 +94,44 @@ main{flex:1;position:relative;min-height:0}
 .zoom button+button{border-left:1px solid var(--line)}
 .zoom button:hover{background:var(--bg)}
 
-#panel{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--surface);border-left:1px solid var(--line);z-index:20;display:flex;flex-direction:column;box-shadow:-8px 0 30px color-mix(in srgb,var(--ink) 12%,transparent)}
-.ph{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 18px 10px;border-bottom:1px solid var(--line)}
-.ph .close{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px}
-.pb{flex:1;overflow:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:14px}
-.pb h2{font-family:var(--f-display);font-weight:500;font-size:19px;line-height:1.3;margin:0;text-wrap:balance}
-.pb h3{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:6px 0 0;font-weight:500}
+/* --panel-w is the remembered width; the cap keeps part of the map reachable when the window is narrower than that width */
+:root{--panel-w:440px;--panel-cur:min(var(--panel-w),100vw - 120px)}
+@media (max-width:560px){:root{--panel-cur:100vw}#panelGrip{display:none}}
+#panel{position:fixed;top:0;right:0;bottom:0;width:var(--panel-cur);background:var(--surface);border-left:1px solid var(--line);z-index:20;display:flex;flex-direction:column;box-shadow:-8px 0 30px color-mix(in srgb,var(--ink) 12%,transparent)}
+#panelGrip{position:fixed;top:0;bottom:0;right:calc(var(--panel-cur) - 4px);width:8px;z-index:21;cursor:col-resize;touch-action:none;user-select:none}
+#panelGrip::before{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:var(--accent);opacity:0;transition:opacity .12s}
+#panelGrip:hover::before,#panelGrip.drag::before,#panelGrip:focus-visible::before{opacity:1}
+#panelGrip:focus-visible{outline-offset:-2px}
+#panel[hidden]+#panelGrip{display:none}
+.ph{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--line)}
+.ph .close{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px;margin-right:-6px}
+.ph .close:hover{color:var(--ink)}
+.pb{flex:1;overflow:auto;padding:16px 20px 24px;display:flex;flex-direction:column;gap:14px}
+.pb h2{font-weight:600;font-size:18px;line-height:1.3;margin:0;text-wrap:balance}
+.pb h2+.why{margin-top:-8px}
+.pb h3,label.fl{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500}
+.pb h3{margin:6px 0 0}
 .why{margin:0;color:var(--muted);font-size:14px}
-.crumbs{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--muted);border-left:2px solid var(--line);padding-left:10px}
+.crumbs{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted);border-left:2px solid var(--line);padding-left:10px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{border:1px solid var(--line);background:var(--bg);border-radius:999px;padding:6px 12px;font-size:13.5px;cursor:pointer;text-align:left}
-.chip:hover{border-color:var(--accent)}
-.chip.idk{border-style:dashed;background:transparent}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:6px 10px;font-size:14px;line-height:1.35;cursor:pointer;text-align:left}
+.chip:hover{border-color:var(--ink)}
+.chip.idk{border-style:dashed;color:var(--muted)}
+.chip.idk:hover{color:var(--ink)}
 .chip.recommended{border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .isolation{position:absolute;top:16px;left:16px;z-index:3;display:flex;align-items:center;gap:6px}
-textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:10px 12px;font:inherit;font-size:14.5px;resize:vertical}
+textarea{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:6px;padding:10px 12px;font:400 14px/1.45 var(--f-body);letter-spacing:normal;text-transform:none;resize:vertical}
+textarea::placeholder{color:var(--muted);opacity:.8}
 textarea:focus{outline:none;border-color:var(--accent)}
-label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:600}
+#fMsg,#fAns,#fQuestion{resize:none;overflow-y:auto;max-height:40vh}
+.thumbs{display:flex;flex-wrap:wrap;gap:6px}
+.thumb{position:relative;display:block}
+.thumb img{display:block;height:64px;max-width:120px;object-fit:cover;border:1px solid var(--line);border-radius:6px}
+.thumb button{position:absolute;top:2px;right:2px;width:20px;height:20px;border:0;border-radius:50%;background:var(--surface);color:var(--ink);cursor:pointer;font-size:14px;line-height:1;padding:0}
+.chatimg{display:block;height:160px;width:auto;max-width:100%;object-fit:contain;margin-top:6px;border-radius:4px;cursor:zoom-in}
+label.fl{display:flex;flex-direction:column;gap:6px}
+.fl+.row{margin-top:-4px}
+.keys{font-size:13px;color:var(--muted)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .verdict{border:1px solid color-mix(in srgb,var(--sc) 40%,var(--line));background:color-mix(in srgb,var(--sc) 7%,var(--surface));border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .verdict p{margin:0;font-size:14px}
@@ -122,10 +143,10 @@ label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:6
 .subq .pill,.subq .mono{flex:none;margin-top:2px}
 .note{font-size:13px;color:var(--muted);background:var(--bg);border-radius:6px;padding:10px 12px}
 .note code{font-family:var(--f-mono);font-size:12px;color:var(--ink)}
-.err{font-size:13.5px;color:var(--gap);border:1px solid color-mix(in srgb,var(--gap) 40%,var(--line));border-radius:6px;padding:10px 12px}
-.warn{font-size:13.5px;border:1px solid color-mix(in srgb,var(--weak) 45%,var(--line));background:color-mix(in srgb,var(--weak) 8%,var(--surface));border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line)}
-.tab{border:0;border-bottom:2px solid transparent;background:none;margin-bottom:-1px;padding:8px 12px;font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px}
+.err{font-size:13px;color:var(--gap);border:1px solid color-mix(in srgb,var(--gap) 40%,var(--line));border-radius:6px;padding:10px 12px}
+.warn{font-size:13px;border:1px solid color-mix(in srgb,var(--weak) 45%,var(--line));background:color-mix(in srgb,var(--weak) 8%,var(--surface));border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);margin-top:2px}
+.tab{border:0;border-bottom:2px solid transparent;background:none;margin-bottom:-1px;padding:8px 0;font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px}
 .tab:hover{color:var(--ink)}
 .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
 .chat{display:flex;flex-direction:column;gap:8px}
@@ -133,7 +154,7 @@ label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:6
 .msg.user{align-self:flex-end;background:color-mix(in srgb,var(--accent) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line))}
 .msg.claude{align-self:flex-start;background:var(--bg);border:1px solid var(--line)}
 .quote{display:block;border-left:2px solid var(--accent);padding-left:8px;margin-bottom:4px;color:var(--muted);font-size:13px}
-.qbox{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;font-size:13.5px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px;background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+.qbox{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;font-size:13px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px;background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
 .qbox button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:0 4px}
 #ctxmenu{position:fixed;z-index:40;min-width:180px;background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:4px;box-shadow:0 6px 24px color-mix(in srgb,var(--ink) 18%,transparent)}
 #ctxmenu button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:4px;padding:7px 10px;font-size:14px;cursor:pointer}
@@ -143,8 +164,8 @@ label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:6
 .bar{display:flex;height:12px;border-radius:3px;overflow:hidden;background:var(--bg)}
 .bar span{background:var(--sc)}
 .bar span.s-open{background:repeating-linear-gradient(45deg,var(--line) 0 3px,transparent 3px 6px)}
-.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;font-variant-numeric:tabular-nums}
-.stats div{display:flex;flex-direction:column;gap:2px}
+.stats{display:flex;flex-wrap:wrap;gap:6px;font-variant-numeric:tabular-nums}
+.stats div{flex:1 0 auto;display:flex;flex-direction:column;gap:2px}
 .stats b{font-family:var(--f-display);font-weight:500;font-size:20px}
 .mono{font-family:var(--f-mono);font-size:12px}
 .final{border:1px solid var(--line);border-radius:6px;padding:12px 14px;font-size:14px;white-space:pre-wrap;background:var(--bg)}
@@ -153,8 +174,8 @@ label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:6
 @media (max-width:520px){.brand span{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .map-picker{position:relative}
-.map-list{position:absolute;top:100%;left:0;width:min(440px,85vw);max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #0003;padding:8px;z-index:10}
-.map-row{display:block;padding:10px;color:var(--ink);text-decoration:none;border-radius:5px;overflow-wrap:anywhere}
+.map-list{position:absolute;top:100%;left:0;width:min(440px,85vw);max-height:60vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:6px;box-shadow:0 8px 24px #0003;padding:8px;z-index:10}
+.map-row{display:block;padding:10px;color:var(--ink);text-decoration:none;border-radius:6px;overflow-wrap:anywhere}
 .map-row[aria-current="page"]{outline:1px solid var(--muted)}
 .map-row small{display:block;color:var(--muted);margin-top:4px}
 .map-row a{color:inherit}
@@ -167,9 +188,9 @@ label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:6
     <div class="brand"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg><span>Грилинг-карта</span></div>
     <div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
-    <div class="actions"><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bSummary">Сводка и итог</button></div>
+    <div class="actions"><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bStop" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту">Остановить</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
-  <div class="lrow"><div class="ledger" id="ledger"></div><div class="actions"><button class="btn small" id="bMore">Добавить 3 главных вопроса</button><button class="btn small" id="bQuestion">Добавить свой вопрос</button></div><div class="conn" id="conn"></div></div>
+  <div class="lrow"><div class="ledger" id="ledger"></div><div class="conn" id="conn"></div></div>
   <div id="finishedNotice" hidden></div>
 </header>
 <main>
@@ -179,6 +200,7 @@ label.fl{display:flex;flex-direction:column;gap:6px;font-size:13px;font-weight:6
   <div class="zoom"><button id="zOut" aria-label="Уменьшить">−</button><button id="zReset" aria-label="Масштаб 100%">1:1</button><button id="zIn" aria-label="Увеличить">+</button></div>
 </main>
 <aside id="panel" hidden aria-live="polite"></aside>
+<div id="panelGrip" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Ширина панели"></div>
 
 <script>
 const STATUS={open:"Открыт",ok:"Закрыт",weak:"Слабо",gap:"Дыра",verify:"Проверить"};
@@ -190,8 +212,9 @@ let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, seenFinished=null;
 let panel=null, errMsg=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
 const QLABEL={option:"Вариант ответа",verdict:"Вердикт"};
-const KEYS=`<span class="mono" style="color:var(--muted)">Enter — отправить · Ctrl+Enter — перенос</span>`;
-let fresh=new Set(); const drafts={},draftQuotes={}; let zoom=1,px=0,py=0;
+const KEYS=`<span class="keys">Enter — отправить · Ctrl+Enter — перенос</span>`;
+let fresh=new Set(); const drafts={},draftQuotes={},draftImages={},imgUrls={}; let zoom=1,px=0,py=0;
+const IMG_TYPES=["image/png","image/jpeg","image/gif","image/webp"],IMG_MAX=8*1024*1024,IMG_COUNT=4;
 let flt=null; /* status picked in the ledger: map keeps only such questions and their ancestor chains */
 let isolated=null, clickTimer=0;
 
@@ -209,6 +232,20 @@ async function api(p,body){
   const t=await r.text();let j;try{j=JSON.parse(t)}catch{j={error:t}}
   if(!r.ok)throw new Error(j.error||("Ошибка "+r.status));return j;
 }
+/* <img> cannot send x-grill: fetch the protected file once and reuse its blob URL across panel re-renders */
+function imgUrl(f){
+  if(imgUrls[f])return imgUrls[f];
+  const job=fetch("/api/image?file="+encodeURIComponent(f),{headers:{"x-grill":"1"}}).then(r=>{if(!r.ok)throw new Error(r.status);return r.blob()}).then(b=>imgUrls[f]===job?URL.createObjectURL(b):null).catch(e=>{if(imgUrls[f]===job)delete imgUrls[f];throw e});
+  return imgUrls[f]=job;
+}
+function pruneImgUrls(){
+  const used=new Set(S.nodes.flatMap(n=>(n.chat||[]).flatMap(m=>m.images||[])));
+  for(const [f,job] of Object.entries(imgUrls))if(!used.has(f)){delete imgUrls[f];job.then(u=>{if(u)URL.revokeObjectURL(u)},()=>{})}
+}
+const showImages=p=>p.querySelectorAll("img[data-img]").forEach(i=>imgUrl(i.dataset.img).then(u=>{if(u&&i.isConnected)i.src=u},()=>{}));
+/* grow the input with its text up to the CSS max-height; shrinking through height:auto must not move the panel scroll */
+function fit(t){const pb=t.closest(".pb"),top=pb?pb.scrollTop:0,inner=t.scrollTop;t.style.height="auto";t.style.height=t.scrollHeight+t.offsetHeight-t.clientHeight+"px";t.scrollTop=inner;if(pb)pb.scrollTop=top}
+const readImage=f=>new Promise((ok,fail)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=()=>fail(r.error);r.readAsDataURL(f)});
 
 function closeMaps(){ $("#mapList").hidden=true;$("#bMaps").setAttribute("aria-expanded","false") }
 $("#bMaps").onclick=async()=>{
@@ -283,15 +320,14 @@ function render(){
 }
 function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};qs().forEach(n=>c[n.status]++);return c}
 function renderHeader(){
-  $("#bMore").disabled=!!S.morePending;
-  $("#bMore").textContent=S.morePending?"Агент ищет вопросы…":"Добавить 3 главных вопроса";
-  $("#bQuestion").disabled=!!S.questionRequests?.some(j=>j.parentId==="root");
-  $("#bQuestion").textContent=$("#bQuestion").disabled?"Вопрос готовится…":"Добавить свой вопрос";
   $("#bMaps").textContent=loaded?(S.name??"Без имени"):"Карты";
   $("#finishedNotice").hidden=!S.finished||listening||offline;
   $("#finishedNotice").textContent=`Карта завершена, агент больше не слушает. Попросите продолжить карту: ${S.name??"Без имени"}`;
   $("#bSpec").textContent=S.specPending?"Спека в работе…":S.specUpdatedAt?"Обновить спеку":"Создать спеку";
   $("#bSpec").disabled=!!S.specPending;
+  $("#bStop").textContent=S.finishPending?"Останавливаю…":"Остановить";
+  $("#bStop").disabled=!!S.finishPending||!qs().length;
+  $("#bStop").hidden=!listening||offline;
   $("#ptitle").textContent=S.title||"";document.title=S.title?`Грилинг: ${S.title}`:"Грилинг-карта";
   const c=counts();
   const refocus=document.activeElement&&document.activeElement.closest("#ledger")?document.activeElement.dataset.flt:null;
@@ -342,17 +378,19 @@ function nodePanel(n){
 }
 function discussTab(n){
   const chat=n.chat||[];
-  let b=chat.length?`<div class="chat">${chat.map(m=>`<div class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}</div>`).join("")}</div>`
+  let b=chat.length?`<div class="chat">${chat.map(m=>`<div class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="root"?`<p class="why">Задайте общий вопрос агенту о проекте. Переписка не меняет ответы и карту.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».</p>`;
   const busy=n.discuss==="thinking";
   if(busy)b+=working("Агент пишет ответ…");
   else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
   else if(!listening)b+=`<div class="note">Агент сейчас не слушает карту. Сообщение встанет в очередь и будет разобрано, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`;
   if(panel.quote)b+=`<div class="qbox"><span>Обсуждаем — ${QLABEL[panel.quote.about].toLowerCase()}: «${esc(panel.quote.text)}»</span><button data-act="unquote" aria-label="Убрать цитату" title="Убрать цитату">×</button></div>`;
+  const imgs=draftImages[n.id]||[];
+  if(imgs.length)b+=`<div class="thumbs">${imgs.map((src,i)=>`<span class="thumb"><img src="${esc(src)}" alt="Картинка"><button data-act="unimage" data-i="${i}" aria-label="Убрать картинку" title="Убрать картинку">×</button></span>`).join("")}</div>`;
   b+=`<label class="fl">Сообщение<textarea id="fMsg" rows="3" maxlength="2000" placeholder="Например: что именно спрашивается? почему мой ответ слабый?">${esc(drafts["d:"+n.id]??"")}</textarea></label>`;
   const rst=!chat.length&&!n.discuss?"":panel.confirmChat?`<span class="row" style="margin-left:auto;gap:6px"><span style="font-size:13px">Удалить переписку?</span><button class="btn small" data-act="chatreset" ${busy?"disabled":""}>Удалить</button><button class="btn small" data-act="nochatreset">Отмена</button></span>`
     :`<button class="btn small" data-act="askchatreset" style="margin-left:auto" ${busy?'disabled title="Дождитесь ответа агента"':""}>Сбросить чат</button>`;
-  b+=`<div class="row"><button class="btn primary" data-act="discuss" ${sending||busy?"disabled":""}>Отправить</button>${KEYS}${rst}</div>`;
+  b+=`<div class="row"><button class="btn primary" data-act="discuss" ${sending||busy?"disabled":""}>Отправить</button>${KEYS}<span class="keys">Ctrl+V — вставить картинку</span>${rst}</div>`;
   return b;
 }
 function questionPanel(){
@@ -424,8 +462,9 @@ function renderPanel(){
   const sel=ae&&ae.id&&ae.selectionStart!=null?[ae.selectionStart,ae.selectionEnd]:null;
   const ob=same?p.querySelector(".pb"):null,top=ob?ob.scrollTop:0,oc=p.querySelectorAll(".msg").length;
   p.innerHTML=`<div class="ph">${r.head}<button class="close" data-act="close" aria-label="Закрыть">×</button></div><div class="pb">${r.body}</div>`;
-  p.hidden=false;
+  p.hidden=false;syncGrip();
   const nt=keep&&p.querySelector("#"+keep.id);if(nt){if(keep.value!==nt.value)keep.value=nt.value;nt.replaceWith(keep)}
+  p.querySelectorAll("#fMsg,#fAns,#fQuestion").forEach(fit);showImages(p);
   const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
   quietScroll=performance.now()+150; /* restoring scrollTop fires a scroll event that must not close the context menu */
   pb.scrollTop=nc>oc&&ob?pb.scrollHeight:top;
@@ -451,15 +490,16 @@ function saveExplanation(id,q,message){
   draftQuotes[id]=q;if(panel?.id===id)panel.quote=q;
 }
 async function submitDiscuss(request){
-  const id=panel.id,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined;
+  const id=panel.id,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined,images=request?[]:[...(draftImages[id]||[])];
   if(sending||(get(id)||{}).discuss==="thinking"){
     if(request){saveExplanation(id,q,message);errMsg="Дождитесь ответа агента. Запрос объяснения сохранён в поле сообщения.";renderPanel()}
     return;
   }
-  if(!message&&!quote){errMsg="Напишите сообщение.";renderPanel();return}
+  if(!message&&!quote&&!images.length){errMsg="Напишите сообщение.";renderPanel();return}
   sending=id;errMsg=null;
   try{
-    await api("/api/discuss",{id,message,quote,about});
+    await api("/api/discuss",{id,message,quote,about,images});
+    if(images.length)draftImages[id]=(draftImages[id]||[]).filter(x=>!images.includes(x));
     if(!request&&drafts["d:"+id]===raw)delete drafts["d:"+id];
     if(!request&&draftQuotes[id]===q)delete draftQuotes[id];
     if(!request&&panel?.id===id&&panel.quote===q)panel.quote=null;
@@ -485,12 +525,13 @@ async function poll(force){
     const wasOffline=offline;offline=false;
     if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
       const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
-      const first=!loaded;S=d;listening=d.listening;loaded=true;
+      const first=!loaded;S=d;listening=d.listening;loaded=true;pruneImgUrls();
       if(!first)S.nodes.forEach(n=>{if(!oldIds.has(n.id))fresh.add(n.id)});
       render();
       if(seenFinished===null)seenFinished=!!S.finished;
       else if(S.finished&&!seenFinished){seenFinished=true;openPanel({mode:"summary"});return}
       if(panelSig()!==before)renderPanel();
+      else if(wasOffline)showImages($("#panel")); /* the signature ignores connectivity: retry images that failed during the outage */
       setTimeout(()=>fresh.clear(),2000);
     }
   }catch(e){if(!offline){offline=true;renderHeader()}}
@@ -509,11 +550,31 @@ $("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if
 });
 $("#bIsolation").onclick=()=>{if(!isolated)return;flt=isolated.filter;isolated=null;render();focusFilter()};
 $("#ledger").addEventListener("click",e=>{const b=e.target.closest("[data-flt]");if(!b)return;clearTimeout(clickTimer);isolated=null;flt=flt===b.dataset.flt?null:b.dataset.flt;render();focusFilter()});
-$("#bMore").onclick=()=>{openPanel({mode:"summary"});act("/api/more")};
-$("#bQuestion").onclick=()=>openQuestion("root");
 $("#bSummary").onclick=()=>openPanel({mode:"summary"});
 $("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
-$("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value});
+$("#bStop").onclick=()=>{openPanel({mode:"summary"});act("/api/finish")};
+$("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
+addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion").forEach(fit));
+/* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
+$("#panel").addEventListener("paste",async e=>{
+  if(e.target.id!=="fMsg"||!panel)return;
+  const files=[...e.clipboardData.files].filter(f=>f.type.startsWith("image/"));
+  if(!files.length||e.clipboardData.getData("text/plain").trim())return;
+  e.preventDefault();errMsg=null;
+  const id=panel.id;
+  for(const f of files){
+    if(!IMG_TYPES.includes(f.type)){errMsg="Неподдерживаемый формат картинки";continue}
+    if(f.size>IMG_MAX){errMsg="Картинка больше 8 МБ";continue}
+    try{
+      const data=await readImage(f),list=draftImages[id]||=[];
+      if(list.length>=IMG_COUNT){errMsg="Можно вставить не больше 4 картинок";break}
+      list.push(data);
+    }catch{errMsg="Не удалось прочитать картинку"}
+  }
+  renderPanel();
+  /* the new thumbnail row pushes the input down: keep the send button visible */
+  $('#panel [data-act="discuss"]')?.scrollIntoView({block:"nearest"});
+});
 $("#panel").addEventListener("compositionstart",()=>{composing=true});
 $("#panel").addEventListener("compositionend",()=>{composing=false;if(deferPanel)setTimeout(renderPanel)});
 /* Enter sends, Ctrl/Cmd+Enter (and Shift+Enter) inserts a line break */
@@ -526,15 +587,17 @@ $("#panel").addEventListener("keydown",e=>{
 });
 $("#panel").addEventListener("click",e=>{
   clearTimeout(clickTimer);
+  const im=e.target.closest("img[data-img]");if(im){if(im.src)window.open(im.src);return}
   const o=e.target.closest("[data-open]");if(o){openPanel({mode:"node",id:o.dataset.open});return}
   const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;errMsg=null;confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
-  const ch=e.target.closest("[data-chip]");if(ch){const t=$("#fAns");t.value=ch.dataset.chip;drafts[panel.id]=t.value;t.focus();return}
+  const ch=e.target.closest("[data-chip]");if(ch){const t=$("#fAns");t.value=ch.dataset.chip;drafts[panel.id]=t.value;fit(t);t.focus();return}
   const a=e.target.closest("[data-act]");if(!a)return;
   switch(a.dataset.act){
     case "close":panel=null;render();renderPanel();break;
     case "answer":submitAnswer();break;
     case "question":submitQuestion();break;
     case "discuss":submitDiscuss();break;
+    case "unimage":draftImages[panel.id]?.splice(+a.dataset.i,1);renderPanel();break;
     case "askchatreset":panel.confirmChat=true;renderPanel();break;
     case "nochatreset":panel.confirmChat=false;renderPanel();break;
     case "chatreset":{const id=panel.id;panel.confirmChat=false;errMsg=null;
@@ -599,7 +662,7 @@ document.addEventListener("click",e=>{
     }else{panel.quote=c.quote;draftQuotes[c.id]=c.quote;renderPanel()}
     const f=$("#fMsg");if(f)f.focus();
   }
-  else{const t=$("#fAns");if(t){t.value=c.quote.text;drafts[panel.id]=t.value;t.focus()}}
+  else{const t=$("#fAns");if(t){t.value=c.quote.text;drafts[panel.id]=t.value;fit(t);t.focus()}}
 },true);
 /* selection made before the right click (macOS selects the clicked word itself, so it is snapshotted on pointerdown) keeps the browser menu for copying */
 let selBefore=false;
@@ -665,6 +728,19 @@ window.addEventListener("mousemove",e=>{if(!pan)return;if(!(e.buttons&(pan.b===1
   px=pan.px+e.clientX-pan.x;py=pan.py+e.clientY-pan.y;applyView()});
 window.addEventListener("mouseup",e=>{if(pan&&e.button===pan.b){pan=null;vp.classList.remove("panning")}});
 vp.addEventListener("auxclick",e=>{if(e.button===1)e.preventDefault()});
+/* panel width: drag the grip or use arrow keys. It lives outside #panel, so polling re-renders cannot drop the pointer capture. The panel stays on the physical right, also in RTL */
+const grip=$("#panelGrip"),PANEL_KEY="grill.panelWidth",PANEL_MIN=320;
+let gripDrag=null,panelW=0; /* panelW: width the user set in this page; a saved width that is only capped by the window stays untouched until then */
+function syncGrip(){const p=$("#panel");grip.setAttribute("aria-valuemin",PANEL_MIN);grip.setAttribute("aria-valuemax",Math.max(PANEL_MIN,innerWidth-120));if(!p.hidden)grip.setAttribute("aria-valuenow",p.offsetWidth)}
+function setPanelWidth(w){const p=$("#panel"),n=Math.round(Math.min(Math.max(PANEL_MIN,innerWidth-120),Math.max(PANEL_MIN,w)));if(n===p.offsetWidth)return;panelW=n;document.documentElement.style.setProperty("--panel-w",n+"px");syncGrip();p.querySelectorAll("#fMsg,#fAns,#fQuestion").forEach(fit)}
+function savePanelWidth(){if(!panelW)return;try{localStorage.setItem(PANEL_KEY,panelW)}catch{}}
+try{const w=Number(localStorage.getItem(PANEL_KEY));if(Number.isFinite(w)&&w>=PANEL_MIN)document.documentElement.style.setProperty("--panel-w",Math.round(w)+"px")}catch{} /* not clamped to this window: the CSS cap restores the full width once the window grows */
+const endGrip=()=>{if(!gripDrag)return;gripDrag=null;grip.classList.remove("drag");savePanelWidth()};
+grip.addEventListener("pointerdown",e=>{if(e.button!==0||e.ctrlKey)return;e.preventDefault();grip.setPointerCapture(e.pointerId);gripDrag={off:$("#panel").offsetWidth-(innerWidth-e.clientX)};grip.classList.add("drag")}); /* preventDefault keeps focus in the input being typed in */
+grip.addEventListener("pointermove",e=>{if(!gripDrag)return;if($("#panel").hidden||!(e.buttons&1)){endGrip();if(grip.hasPointerCapture(e.pointerId))grip.releasePointerCapture(e.pointerId);return}setPanelWidth(innerWidth-e.clientX+gripDrag.off)}); /* the panel can close mid-drag (Escape, deleted node), and a native menu can swallow the button release */
+grip.addEventListener("lostpointercapture",endGrip); /* fires after pointerup and pointercancel alike */
+grip.addEventListener("keydown",e=>{const d=e.key==="ArrowLeft"?16:e.key==="ArrowRight"?-16:0;if(!d)return;e.preventDefault();setPanelWidth($("#panel").offsetWidth+d);savePanelWidth()});
+window.addEventListener("resize",syncGrip);
 
 render();poll(true);setInterval(()=>poll(false),1200);
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(render);

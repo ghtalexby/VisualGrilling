@@ -37,6 +37,12 @@ const BASE = path.resolve(opt("dir", ".grill"));
 const DIR = NAME ? path.join(BASE, NAME) : BASE;
 const STATE = path.join(DIR, "state.json");
 const INFO = path.join(DIR, "server.json");
+const IMAGES = path.join(DIR, "images");
+const IMG_RE = /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/;
+const IMG_TYPE = { png: "image/png", jpg: "image/jpeg", gif: "image/gif", webp: "image/webp" };
+const IMG_MAX = 8 * 1024 * 1024, IMG_COUNT = 4;
+// The type comes from the file signature, never from the client; SVG stays out because it can carry scripts.
+const sniffImage = b => b.toString("latin1", 0, 8) === "\x89PNG\r\n\x1a\n" ? "png" : b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? "jpg" : b.toString("latin1", 0, 4) === "GIF8" ? "gif" : b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP" ? "webp" : null;
 const CLI = c => `node "${path.join(HERE, "grill.mjs")}" ${c}${NAME ? " --name " + NAME : ""}`;
 const START = CLI("start");
 const ORDER = ["gap", "weak", "verify", "open", "ok"];
@@ -115,6 +121,12 @@ ${S.arch}
 ## Agent notes
 ${S.notes || "—"}
 `);
+  // Files no chat references (reset chats, deleted branches, interrupted writes) are removed; a frozen spec context still counts.
+  const pruneImages = () => {
+    const used = new Set([...S.nodes, ...(S.specJob?.gradingNodes || [])].flatMap(n => (n.chat || []).flatMap(m => m.images || [])));
+    let files; try { files = fs.readdirSync(IMAGES); } catch { return; }
+    for (const f of files) if (IMG_RE.test(f) && !used.has(f) || /\.(png|jpg|gif|webp)\.[^.]+\.tmp$/.test(f)) try { fs.unlinkSync(path.join(IMAGES, f)); } catch {}
+  };
   const recoverSpec = () => {
     if (!S.specJob) return;
     S.specJob.stage = "queued"; S.specJob.token = null;
@@ -123,6 +135,7 @@ ${S.notes || "—"}
   recoverSpec();
   save();
   writeSession();
+  pruneImages();
   const get = id => S.nodes.find(n => n.id === id);
   const kids = id => S.nodes.filter(n => n.parentId === id);
   const desc = id => kids(id).flatMap(k => [k.id, ...desc(k.id)]);
@@ -219,8 +232,9 @@ ${S.notes || "—"}
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : "question", question: n.kind === "root" ? S.title : n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
         status: n.status, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
         branch: anc(n).map(a => ({ q: a.q, answer: a.answer || null, status: a.status })),
-        message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).join("\n\n"),
-        history: chat.slice(0, i).map(m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote, about: m.about || "option" } : {}) })) };
+        message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
+        images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
+        history: chat.slice(0, i).map(m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote, about: m.about || "option" } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) })) };
     }
     if (e.type === "question") {
       const job = S.questionRequests.find(j => j.id === e.id), parent = job && get(job.parentId);
@@ -369,7 +383,7 @@ ${S.notes || "—"}
         S.specJob.nodes = nextFrozen.map(specNode);
         S.specJob.waiting = S.specJob.waiting.filter(id => id !== n.id && !drop.has(id));
       }
-      save(); return { ok: true, added: additions.length };
+      save(); pruneImages(); return { ok: true, added: additions.length };
     }
     if (b.type === "discuss") {
       const n = get(b.id); if (!n) throw [404, "Нет вопроса с id " + b.id];
@@ -411,8 +425,10 @@ ${S.notes || "—"}
     res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
     res.end(typeof body === "string" ? body : JSON.stringify(body));
   }
-  const readBody = req => new Promise((ok, fail) => {
-    let s = ""; req.on("data", d => { s += d; if (s.length > 1e6) { fail([413, "Слишком большой запрос"]); req.destroy(); } });
+  const readBody = (req, max = 1e6) => new Promise((ok, fail) => {
+    // Bodies with images span many chunks: decode as a stream so a split multibyte character survives.
+    req.setEncoding("utf8");
+    let s = ""; req.on("data", d => { s += d; if (s.length > max) { fail([413, "Слишком большой запрос"]); req.destroy(); } });
     req.on("end", () => { try { ok(s ? JSON.parse(s) : {}); } catch { fail([400, "Некорректный JSON"]); } });
   });
 
@@ -434,6 +450,13 @@ ${S.notes || "—"}
         return send(res, 200, { ...rest, name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length } : null, queueLength: queue.length, listening: waiters.some(w => !w.res.destroyed) || Date.now() - lastActivity < 180000 });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
+      if (req.method === "GET" && p === "/api/image") {
+        const file = url.searchParams.get("file") || "";
+        let data; try { if (IMG_RE.test(file)) data = fs.readFileSync(path.join(IMAGES, file)); } catch {}
+        if (!data) return send(res, 404, { error: "Картинка не найдена" });
+        res.writeHead(200, { "content-type": IMG_TYPE[file.split(".").pop()], "cache-control": "no-store", "x-content-type-options": "nosniff" });
+        return res.end(data);
+      }
       if (req.method === "GET" && p === "/api/wait") {
         lastActivity = Date.now();
         for (const job of S.questionRequests.filter(j => j.stage === "thinking")) {
@@ -458,7 +481,8 @@ ${S.notes || "—"}
         waiters.push(w); return;
       }
       if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
-      const b = await readBody(req);
+      // Only a discussion message carries images: base64 of the allowed files plus its text.
+      const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
       if (p === "/api/locale") {
         let next; try { next = locale(b); } catch (e) { return send(res, 400, { error: e.message }); }
         S.locale = next; save(); writeSession(); return send(res, 200, { ok: true, language: next.language });
@@ -479,10 +503,17 @@ ${S.notes || "—"}
       if (p === "/api/discuss") {
         const n = get(b.id); const text = clean(b.message, 2000), quote = clean(b.quote, 400), about = b.about === "verdict" ? "verdict" : "option";
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
-        if (!text && !quote) return send(res, 400, { error: "Пустое сообщение" });
+        const sources = b.images ?? [];
+        if (!Array.isArray(sources)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
+        if (!text && !quote && !sources.length) return send(res, 400, { error: "Пустое сообщение" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент уже отвечает в обсуждении этого вопроса" });
         if ((n.chat || []).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
-        n.chat = [...(n.chat || []), { from: "user", text, ...(quote ? { quote, about } : {}), at: Date.now() }];
+        if (sources.length > IMG_COUNT) return send(res, 400, { error: "Можно вставить не больше 4 картинок" });
+        const decoded = sources.map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
+        if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
+        if (decoded.some(x => x.data.length > IMG_MAX)) return send(res, 400, { error: "Картинка больше 8 МБ" });
+        const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
+        n.chat = [...(n.chat || []), { from: "user", text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
         if (n.discuss) { save(); return send(res, 200, { ok: true }); }
         n.discuss = "queued"; enqueue({ type: "discuss", id: n.id }); return send(res, 200, { ok: true });
       }
@@ -490,7 +521,7 @@ ${S.notes || "—"}
         const n = get(b.id);
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент сейчас отвечает в обсуждении — сбросить можно после ответа" });
-        delete n.chat; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save();
+        delete n.chat; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
         return send(res, 200, { ok: true });
       }
       if (p === "/api/cancel") {
@@ -532,7 +563,7 @@ ${S.notes || "—"}
         S = { ...freshState(), locale: S.locale, version: v, specOwner: S.specOwner, specFile: S.specFile, specUpdatedAt: S.specUpdatedAt,
           title: clean(b.title, 80) || t("Проект"), brief: clean(b.brief, 6000), arch: clean(b.arch, 6000) };
         S.nodes.push(...questions);
-        lastActivity = Date.now(); save(); writeSession(); return send(res, 200, { ok: true, questions: S.nodes.length - 1 });
+        lastActivity = Date.now(); save(); writeSession(); pruneImages(); return send(res, 200, { ok: true, questions: S.nodes.length - 1 });
       }
       if (p === "/api/apply") return send(res, 200, apply(b));
       if (p === "/api/stop") { send(res, 200, { ok: true }); setTimeout(() => { try { fs.unlinkSync(INFO); } catch {} process.exit(0); }, 100); return; }

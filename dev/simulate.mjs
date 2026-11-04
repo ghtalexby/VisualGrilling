@@ -65,7 +65,7 @@ let moreRound = 0;
 const handlers = {
   spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer).map(n => "- [" + n.status + "] " + n.q + ": " + n.answer).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
   answer: e => grade(e),
-  discuss: e => ({ type: "discuss", id: e.id, token: e.token, reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${e.history.length}. Сам ответ отправьте во вкладке «Ответить».` }),
+  discuss: e => ({ type: "discuss", id: e.id, token: e.token, reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${e.history.length}. Картинок: ${e.images.length}. Сам ответ отправьте во вкладке «Ответить».` }),
   question: e => ({ type: "question", id: e.id, token: e.token, question: { why: "[sim] User question", area: "Project", options: ["Есть данные", "Нужно проверить", "Не знаю"], recommendation: { option: "Нужно проверить", reason: "[sim] Сначала проверить допущение." } } }),
   more: e => ({ type: "more", questions: [1, 2, 3].map(i => ({
     area: ["Рост", "Команда", "Юридическое"][i - 1],

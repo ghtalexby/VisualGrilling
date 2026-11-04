@@ -35,6 +35,43 @@ async function stop() {
 }
 const options = ["A", "B"], recommendation = { option: "B", reason: "Project evidence" };
 try {
+  const ui = fs.readFileSync(new URL("../skills/grill/ui.html", import.meta.url), "utf8");
+  // A continued map retains finished:true; its connected header must allow another finish.
+  const controls = {}, headerState = { finished: true, nodes: [{ kind: "q" }] };
+  const headerContext = vm.createContext({
+    S: headerState, loaded: true, listening: true, offline: false, panel: null,
+    qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
+    $: selector => controls[selector] ||= {}
+  });
+  const headerCode = ui.match(/function renderHeader\(\)\{[\s\S]*?\n\}/)[0] + "\nrenderHeader();";
+  vm.runInContext(headerCode, headerContext);
+  assert.equal(controls["#bStop"].disabled, false); assert.equal(controls["#bStop"].hidden, false);
+  const stopLabel = controls["#bStop"].textContent;
+  headerState.finishPending = true; vm.runInContext(headerCode, headerContext);
+  assert.equal(controls["#bStop"].disabled, true); assert.notEqual(controls["#bStop"].textContent, stopLabel);
+
+  // Removed attachments release completed blob URLs; late fetches cannot recreate them.
+  const imgUrls = {}, imageState = { nodes: [{ chat: [{ images: ["kept.png", "removed.png", "late.png"] }] }] };
+  let resolveImage, urlCount = 0;
+  const revoked = [];
+  const imageContext = vm.createContext({
+    imgUrls, S: imageState,
+    fetch: async route => ({ ok: true, blob: () => route.endsWith("late.png") ? new Promise(resolve => { resolveImage = resolve; }) : {} }),
+    URL: { createObjectURL: () => "blob:" + ++urlCount, revokeObjectURL: u => revoked.push(u) }
+  });
+  vm.runInContext(ui.slice(ui.indexOf("function imgUrl("), ui.indexOf("/* grow the input")), imageContext);
+  const keptUrl = await vm.runInContext('imgUrl("kept.png")', imageContext);
+  const removedUrl = await vm.runInContext('imgUrl("removed.png")', imageContext);
+  const late = vm.runInContext('imgUrl("late.png")', imageContext);
+  await Promise.resolve();
+  imageState.nodes[0].chat[0].images = ["kept.png"];
+  vm.runInContext("pruneImgUrls();", imageContext); await Promise.resolve();
+  assert.deepEqual(revoked, [removedUrl]); assert.deepEqual(Object.keys(imgUrls), ["kept.png"]);
+  resolveImage({}); assert.equal(await late, null); assert.equal(urlCount, 2);
+  assert.equal(await vm.runInContext('imgUrl("kept.png")', imageContext), keptUrl); assert.equal(urlCount, 2);
+  imageState.nodes = []; vm.runInContext("pruneImgUrls();", imageContext); await Promise.resolve();
+  assert.deepEqual(revoked, [removedUrl, keptUrl]); assert.deepEqual(Object.keys(imgUrls), []);
+
   // Exercise desktop selection without changing the machine's mouse preferences.
   const timingCode = fs.readFileSync(cli, "utf8").match(/async function doubleClickTime\(\) \{[\s\S]*?\n\}/)[0];
   for (const [desktop, expected, calls] of [["KDE", 5000, 0], ["XFCE", 5000, 0], ["ubuntu:GNOME", 400, 1]]) {
@@ -62,6 +99,42 @@ try {
   await request("discuss", { id: "root", message: "Explain the project" });
   let e = await wait(); assert.equal(e.scope, "project"); assert.equal(e.priority, null);
   await discuss(e); assert.equal((await state()).nodes.find(n => n.id === "root").status, undefined);
+  await request("chatreset", { id: "root" });
+
+  // Pasted images: validated by signature, stored in the map, delivered as paths, removed with their chat.
+  const png = "data:image/png;base64," + Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(16)]).toString("base64");
+  const stored = () => { try { return fs.readdirSync(path.join(map, "images")); } catch { return []; } };
+  await request("discuss", { id: "root", images: ["data:image/svg+xml;base64," + Buffer.from("<svg onload=alert(1)>").toString("base64")] }, 400);
+  await request("discuss", { id: "root", images: "x" }, 400);
+  await request("discuss", { id: "root", images: [png, png, png, png, png] }, 400);
+  await request("discuss", { id: "root", images: ["data:image/png;base64," + Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(8 * 1024 * 1024)]).toString("base64")] }, 400);
+  assert.deepEqual(stored(), []);
+  await request("discuss", { id: "root", images: [png] });
+  let [picture] = (await state()).nodes.find(n => n.id === "root").chat[0].images;
+  assert.match(picture, /^[0-9a-f-]{36}\.png$/);
+  assert.equal((await fetch(url + "api/image?file=" + picture)).status, 403);
+  const served = await fetch(url + "api/image?file=" + picture, { headers: { "x-grill": "1" } });
+  assert.equal(served.headers.get("content-type"), "image/png"); assert.equal(served.headers.get("x-content-type-options"), "nosniff");
+  assert.equal((await served.arrayBuffer()).byteLength, 24);
+  for (const bad of ["..%2Fstate.json", "..%5Cstate.json", "state.json", "00000000-0000-0000-0000-000000000000.png"])
+    assert.equal((await fetch(url + "api/image?file=" + bad, { headers: { "x-grill": "1" } })).status, 404);
+  e = await wait();
+  assert.equal(e.message, ""); assert.deepEqual(e.images, [path.join(map, "images", picture)]); assert.ok(fs.existsSync(e.images[0]));
+  await discuss(e);
+  await request("discuss", { id: "root", message: "Follow-up" });
+  e = await wait();
+  assert.deepEqual(e.images, []); assert.deepEqual(e.history[0].images, [path.join(map, "images", picture)]);
+  await discuss(e);
+  await stop(); await start();
+  assert.deepEqual(stored(), [picture]);
+  fs.writeFileSync(path.join(map, "images", "11111111-1111-1111-1111-111111111111.png"), "orphan");
+  fs.writeFileSync(path.join(map, "images", "11111111-1111-1111-1111-111111111111.png.interrupted.tmp"), "partial");
+  await request("chatreset", { id: "root" });
+  assert.deepEqual(stored(), []);
+  // A long Cyrillic message must survive being split across network chunks.
+  const long = "щ".repeat(2000);
+  await request("discuss", { id: "root", message: long, images: ["data:image/png;base64," + Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(1024 * 1024)]).toString("base64")] });
+  e = await wait(); assert.equal(e.message, long); await discuss(e);
   await request("chatreset", { id: "root" });
 
   const custom = { id: "custom-main", parentId: "root", q: "User main?" };

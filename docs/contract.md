@@ -55,7 +55,8 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`.
 | `GET /api/wait?timeout=N` | CLI wait | Event or timeout |
 | `POST /api/locale` | CLI start | `{language,messages?}`; returns `{ok:true,language}`; 400 on invalid locale |
 | `POST /api/answer` | UI | `{id,answer}`; 404 missing question, 400 empty, 409 thinking or spec-locked |
-| `POST /api/discuss` | UI | `{id,message,quote?,about?}`; `about` is option (default) or verdict; 404 missing node (root is allowed), 400 no text/quote or 100 messages reached, 409 thinking |
+| `GET /api/image?file=<name>` | UI | A stored chat image with its type and `nosniff`; 404 for an unknown or malformed name. The UI fetches it with `x-grill` and shows a blob URL |
+| `POST /api/discuss` | UI | `{id,message,quote?,about?,images?}`; `about` is option (default) or verdict; `images` is an array of base64 data URLs; 404 missing node (root is allowed), 400 no text/quote/image, 100 messages reached or invalid image, 409 thinking |
 | `POST /api/chatreset` | UI | `{id}`; deletes chat and queued event, including root; 404 missing node, 409 thinking |
 | `POST /api/cancel` | UI | `{id}`; withdraws a queued answer; 409 if spec-locked |
 | `POST /api/question` | UI | `{id,parentId,q}`; persisted custom question preparation, see below |
@@ -66,7 +67,9 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`.
 | `POST /api/apply` | CLI | Applies an agent result |
 | `POST /api/stop` | CLI | Exits after 100 ms |
 
-Queued discussion messages append without a second event. A quote from the context menu can replace an empty `message`; it is stored separately with `about`.
+Queued discussion messages append without a second event. A quote from the context menu or an image can replace an empty `message`; a quote is stored separately with `about`.
+
+Images are identified by file signature (PNG, JPEG, GIF, WebP; the client's declared type is ignored, SVG is rejected) and written to `<map directory>/images/<uuid>.<ext>`. Chat messages keep only these file names in `images`. The server deletes files no chat references on startup, chat reset, explicit branch removal and `init`; files referenced by a frozen specification context stay until a later cleanup.
 
 ## `init`
 
@@ -99,10 +102,11 @@ Every work event below also includes `language`.
  "status":"weak","answer":"Current answer or null","verdict":"... or null","pendingAnswer":"Queued answer or null",
  "branch":[{"q":"...","answer":"...","status":"weak"}],
  "message":"New user messages joined with a blank line",
- "history":[{"from":"user|claude","text":"...","quote":"Only when present","about":"option|verdict"}]}
+ "images":["Absolute paths of images attached to the new messages"],
+ "history":[{"from":"user|claude","text":"...","quote":"Only when present","about":"option|verdict","images":["Absolute paths, only when present"]}]}
 ```
 
-`history` precedes the new messages. Quoted messages retain the exact protocol prefix `[Про вариант ответа «…»]` (about an answer option) or `[Про вердикт «…»]` (about a verdict), independent of page language. Discussion changes neither status nor tree.
+`history` precedes the new messages. `message` is empty when the new messages contain only images. Chat entries inside `branchSnapshot`, `parent` and `branch` of other events hold file names relative to `<map directory>/images/`. Quoted messages retain the exact protocol prefix `[Про вариант ответа «…»]` (about an answer option) or `[Про вердикт «…»]` (about a verdict), independent of page language. Discussion changes neither status nor tree.
 
 **more**
 
@@ -164,10 +168,11 @@ The server truncates through `clean(s,max)`; the skill uses stricter limits.
 | User answer | 3000 | — |
 | Discussion message / reply | 2000; up to 100 per thread | Reply up to 1200 |
 | Discussion quote | 400 | — |
+| Discussion images | 4 per message, 8 MB each | — |
 | `children` | 4 | ok 0–1, weak/verify 1–3, gap 1–2 newly needed questions; 0 if retained questions suffice; level ≥ 4 at most 1 |
 | `more.questions` | 5 | 3 |
 | `init.questions` | 8 | 5 |
-| Request body | 1 MB | — |
+| Request body | 1 MB; `/api/discuss` about 44 MB for its images | — |
 | Locale value | 2000, validated plain text | Complete translation dictionary for other languages |
 
 Agent replies retain `from:"claude"` in persisted chat for compatibility, including Codex replies. The UI uses a localized provider-neutral Agent label.
