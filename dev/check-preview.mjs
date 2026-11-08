@@ -58,7 +58,9 @@ try {
   await api("preview/build", { id, request: "A pending revision" }); e = await wait();
   await api("preview/restore", { id, commit: n.commit, epoch: n.epoch, target: first.commit });
   await api("apply", { ...e, files: circlePreview }, 409);
-  await api("preview/save", { id, commit: second.commit, epoch: n.epoch, state: {} }, 409);
+  await api("preview/save", { id, commit: second.commit, epoch: n.epoch, state: { diameter: 260 } });
+  assert.equal((await api("preview?id=" + id)).savedState.diameter, 200);
+  await api("preview/save", { id, commit: "0".repeat(40), epoch: n.epoch, state: {} }, 404);
   assert.match(await api("report"), /Circle/);
   await api("preview/delete", { id, confirm: true });
   assert.equal((await api("preview/snapshot?key=" + snapshot.snapshot)).savedState.diameter, 180);
@@ -95,7 +97,12 @@ try {
   await api("answer", { id: b.id, answer: "Split here" }); e = await wait();
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "C", options: ["A", "B"] }, { q: "D", options: ["A", "B"] }] });
   assert.equal((await api("state")).nodes.filter(n => n.forkOf === ancestorNode.projectId).length, 2);
+  const deletedCopy = (await api("state")).nodes.find(n => n.forkOf === ancestorNode.projectId);
+  await api("preview/delete", { id: deletedCopy.id, confirm: true });
   e = await wait(); assert.equal(e.type, "reread"); await api("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Preserve current decisions" })) });
+  await api("answer", { id: deletedCopy.sourceId, answer: "A later answer" }); e = await wait();
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted" });
+  assert.equal((await api("state")).nodes.filter(n => n.forkOf === ancestorNode.projectId && n.sourceId === deletedCopy.sourceId).length, 0);
   // Both phases share the same bounded queue, including already-prepared projects.
   const prepared = [];
   for (let i = 0; i < 21; i++) {

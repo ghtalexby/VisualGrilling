@@ -177,12 +177,19 @@ export function previews(directory, state, save, enqueue) {
       n.request = request; queue(n, "build"); return { ok: true };
     }
     if (endpoint === "/api/preview/policy") { if (!["keep", "delete"].includes(b.policy)) fail("Выберите судьбу превью"); n.deletionPolicy = b.policy; save(); return { ok: true }; }
-    if (endpoint === "/api/preview/delete") { if (b.confirm !== true) fail("Подтвердите удаление превью"); const dir = repo(n); state().nodes = state().nodes.filter(x => x.id !== n.id); state().queue = state().queue.filter(e => e.id !== n.id); save(); fs.rmSync(dir, { recursive: true, force: true }); return { ok: true }; }
-    if (b.epoch !== (n.epoch || 0) || b.commit !== n.commit) fail("Версия превью изменилась", 409);
+    if (endpoint === "/api/preview/delete") {
+      if (b.confirm !== true) fail("Подтвердите удаление превью");
+      const dir = repo(n), parent = all().find(p => p.projectId === n.forkOf);
+      if (parent) parent.forkedBranches = [...new Set([...(parent.forkedBranches || []), n.forkBranchId])];
+      state().nodes = state().nodes.filter(x => x.id !== n.id); state().queue = state().queue.filter(e => e.id !== n.id); save(); fs.rmSync(dir, { recursive: true, force: true }); return { ok: true };
+    }
     if (endpoint === "/api/preview/save") {
       if (!b.state || typeof b.state !== "object" || Array.isArray(b.state) || JSON.stringify(b.state).length > 60000 || Buffer.byteLength(JSON.stringify(b.state)) > 65536 || Object.values(b.state).some(v => v !== null && !["string", "number", "boolean"].includes(typeof v) || typeof v === "number" && !Number.isFinite(v))) fail("Некорректное состояние превью");
-      const v = version(n); v.savedState = b.state; v.stateRevision++; save(); return { ok: true, stateRevision: v.stateRevision };
+      // A still-open previous version remains saveable after publication. Never write
+      // its values into the currently selected version's state slot.
+      const v = version(n, b.commit || ""); v.savedState = b.state; v.stateRevision++; save(); return { ok: true, stateRevision: v.stateRevision };
     }
+    if (b.epoch !== (n.epoch || 0) || b.commit !== n.commit) fail("Версия превью изменилась", 409);
     if (endpoint === "/api/preview/restore") { const target = version(n, b.target); n.commit = b.target; n.q = target.purpose; n.epoch = (n.epoch || 0) + 1; delete n.job; state().queue = state().queue.filter(e => e.id !== n.id); save(); return { ok: true }; }
     fail("Операция превью не найдена", 404);
   };
@@ -194,16 +201,21 @@ export function previews(directory, state, save, enqueue) {
   recover();
   const branchCopies = nodes => {
     const copies = [];
-    const projects = nodes.filter(n => n.kind === "preview");
+    const next = nodes.map(n => n.kind === "preview" ? { ...n, forkedBranches: [...(n.forkedBranches || [])] } : n);
+    const projects = next.filter(n => n.kind === "preview");
     for (const split of nodes.filter(n => n.kind === "q")) {
       const children = nodes.filter(q => q.kind === "q" && q.parentId === split.id);
       if (children.length < 2) continue;
       const chain = []; for (let at = split; at; at = nodes.find(n => n.id === at.parentId)) chain.push(at.id);
       const nearest = new Map();
       for (const n of projects.filter(n => n.commit && !n.orphaned && n.sourceId !== "root" && chain.includes(n.sourceId)).sort((a, b) => chain.indexOf(a.sourceId) - chain.indexOf(b.sourceId))) if (!nearest.has(n.originProjectId || n.projectId)) nearest.set(n.originProjectId || n.projectId, n);
-      for (const n of nearest.values()) for (const child of children) if (!projects.concat(copies).some(p => p.forkOf === n.projectId && p.forkBranchId === child.id)) copies.push(fork(n, child.id));
+      for (const n of nearest.values()) for (const child of children) {
+        if (n.forkedBranches.includes(child.id)) continue;
+        if (!projects.concat(copies).some(p => p.forkOf === n.projectId && p.forkBranchId === child.id)) copies.push(fork(n, child.id));
+        n.forkedBranches.push(child.id);
+      }
     }
-    return [...nodes, ...copies];
+    return [...next, ...copies];
   };
   const cleanup = () => {
     if (!fs.existsSync(safe())) return;

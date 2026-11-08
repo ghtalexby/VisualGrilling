@@ -32,7 +32,7 @@ All routes are protected by Host validation and `x-grill: 1`, with the unchanged
 | `GET /api/preview?id=…` | Public card, committed files and that commit's saved state |
 | `GET /api/preview/document?id=…&instance=…` | Prepared srcdoc, commit, epoch; `key` instead of `id` loads an immutable snapshot |
 | `GET /api/preview/snapshot?key=…` | Immutable snapshot manifest/state |
-| `POST /api/preview/save` | `{id,commit,epoch,state}`; bounded 65536-byte JSON, increments state revision, no event |
+| `POST /api/preview/save` | `{id,commit,epoch,state}`; bounded 65536-byte JSON, increments that commit’s state revision even if a newer version was published, no event |
 | `POST /api/preview/restore` | `{id,commit,epoch,target}`; target must belong to this project's history |
 | `POST /api/preview/policy` | `{id,policy:"keep"|"delete"}`; records the user's source-deletion decision |
 | `POST /api/preview/delete` | `{id,confirm:true}`; deletes the selected project, retaining snapshots |

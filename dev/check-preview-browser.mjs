@@ -75,6 +75,14 @@ try {
   await click('[data-choice="cancel"]');assert.equal(await js("previewView.frame===originalFrame"),true);
   await click('[data-view="close"]'); await click('[data-choice="save"]'); await until(()=>js("!previewView"));
   assert.equal((await api("preview?id="+id)).savedState.diameter,200);
+  await js(`openPreview("${id}")`);await until(()=>js("previewView?.ready"));
+  frame=(await cdp("Page.getFrameTree")).frameTree.childFrames[0].frame.id;
+  world=(await cdp("Page.createIsolatedWorld",{frameId:frame,worldName:"publication"})).executionContextId;
+  await api("preview/build",{id,request:"Publish while previous version is open"});e=await api("wait?timeout=5");
+  await inside('(()=>{const e=document.querySelector("input");e.value="220";e.dispatchEvent(new Event("input",{bubbles:true}));})()');await until(()=>js("previewView.dirty"));await sleep(100);
+  await result({files:circlePreview,purpose:"Next version"});await js("poll(true);savePreview()");
+  assert.equal(await js("previewView.dirty"),false);assert.equal((await api("preview?id="+id)).savedState,null);
+  await js("closePreviewNow()");
   // Project script cannot navigate or fetch, and active markup never enters the document.
   await api("preview/build",{id,request:"Isolation probe"}); e=await api("wait?timeout=5");
   await result({purpose:"Isolation",files:{...circlePreview,"index.html":circlePreview["index.html"]+'<script>parent.injected=true</script><iframe src="https://example.com"></iframe><a href="https://example.com">navigate</a>',"script.js":'const initialState={network:"pending",dom:typeof document,nav:typeof location.assign}; function update(s,e){return s} fetch("https://example.com").then(()=>{},()=>{});'}});
