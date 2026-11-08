@@ -169,6 +169,25 @@ try {
   assert.match(await js('originalApi("/api/spec",{}).catch(e=>e.message)'), /could not find this command/);
   await js('fetch=async()=>new Response(JSON.stringify({error:"Question missing"}),{status:404})');
   assert.equal(await js('originalApi("/api/question",{}).catch(e=>e.message)'), "Question missing");
+  await js('fetch=async()=>{throw new TypeError("Failed to fetch")}');
+  assert.match(await js('originalApi("/api/answer",{}).catch(e=>e.message)'), /Could not reach the map server/);
+  for(const [status,body,expected] of [
+    [403,JSON.stringify({error:"missing x-grill header"}),/Reload the map/],
+    [500,JSON.stringify({error:"ENOENT: open private-path"}),/check the file, access permissions/],
+    [500,JSON.stringify({error:"TypeError: internal failure"}),/check the server log/],
+    [413,"<html>too large</html>",/request is too large/],
+    [400,JSON.stringify({error:"Unexpected token in JSON"}),/server rejected the request/],
+    [200,"<html>unexpected</html>",/unexpected response/],
+    [200,"null",/unexpected response/]
+  ]){
+    await js(`fetch=async()=>new Response(${JSON.stringify(body)},{status:${status}})`);
+    assert.match(await js('originalApi("/api/answer",{}).catch(e=>e.message)'),expected);
+  }
+  await js('showError("The discussion is too long")');
+  assert.match(await js('document.querySelector("#errorToastText").textContent'), /100 messages.*reset the discussion/);
+  assert.match(await js('friendlyError("Превью не ответило")'), /5 seconds.*refresh the viewer/);
+  assert.equal(await js('friendlyError("Неподдерживаемый формат картинки")'), "Choose a PNG, JPEG, GIF or WebP image.");
+  assert.match(await js('friendlyError(S.locale.messages["Git недоступен или операция превью не выполнена"])'), /Ask the agent to check Git/);
   await js('fetch=originalFetch;showError("First timer")');
   assert.equal(await js('errorCountdown.effect.getTiming().duration'), 10000);
   await sleep(5500);
