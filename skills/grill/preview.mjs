@@ -66,15 +66,19 @@ export function previews(directory, state, save, enqueue) {
     return nodes.filter(n => selected.has(n.id) && n.kind !== "preview" && !n.obsolete).map(n => ({ id: n.id, parentId: n.parentId, kind: n.kind, q: n.q, text: n.text, answer: n.pending?.answer || n.answer || null, chat: n.chat || [] }));
   };
   const revisions = nodes => Object.fromEntries(nodes.map(n => [n.id, hash(n)]));
+  const lineEnd = id => {
+    if (id === "root") return id;
+    for (;;) { const children = state().nodes.filter(n => n.kind === "q" && !n.obsolete && n.parentId === id); if (children.length !== 1) return id; id = children[0].id; }
+  };
   const stale = n => {
     if (!n.commit) return 0;
-    const now = revisions(sources(n.sourceId, n.branches)), old = version(n).sources;
-    return new Set([...Object.keys(old), ...Object.keys(now)].filter(id => old[id] !== now[id])).size;
+    const context = sources(lineEnd(n.sourceId), n.branches), now = revisions(context), old = version(n).sources;
+    return new Set([...Object.keys(old), ...Object.keys(now)].filter(id => old[id] !== now[id] && (old[id] || context.find(n => n.id === id)?.answer || context.find(n => n.id === id)?.chat.length))).size;
   };
   const recover = () => { for (const n of all()) if (n.job) { n.job.stage = "queued"; delete n.job.token; if (!state().queue.some(e => e.type === "preview" && e.id === n.id)) state().queue.push({ type: "preview", id: n.id }); } };
   const queue = (n, phase) => {
-    const context = sources(n.sourceId, n.branches);
-    n.job = { phase, stage: "queued", base: n.commit || null, epoch: n.epoch || 0, context, sources: revisions(context) };
+    const sourceId = lineEnd(n.sourceId), context = sources(sourceId, n.branches);
+    n.job = { phase, stage: "queued", base: n.commit || null, epoch: n.epoch || 0, sourceId, context, sources: revisions(context) };
     n.error = null; enqueue({ type: "preview", id: n.id });
   };
   const payload = id => {
@@ -106,7 +110,7 @@ export function previews(directory, state, save, enqueue) {
     git(dir, ["commit", "--allow-empty", "-m", text(b.purpose || n.request, 300) || "Preview"]);
     const commit = git(dir, ["rev-parse", "HEAD"]);
     const v = { commit, purpose: text(b.purpose || n.request, 500), at: Date.now(), sources: j.sources, stateRevision: 0 };
-    n.versions ||= []; n.versions.push(v); n.commit = commit; n.q = v.purpose; n.parentId = n.sourceId;
+    n.versions ||= []; n.versions.push(v); n.commit = commit; n.q = v.purpose; n.sourceId = j.sourceId; n.parentId = n.sourceId;
     delete n.job; n.epoch = (n.epoch || 0) + 1; save(); return { ok: true, commit };
   };
   const snapshot = n => {
@@ -120,7 +124,7 @@ export function previews(directory, state, save, enqueue) {
   const reconcile = (before, next) => {
     const present = new Set(next.map(n => n.id));
     for (const n of before.filter(n => n.kind === "preview")) {
-      if (present.has(n.sourceId) && present.has(n.id) && !(n.branches || []).some(id => !present.has(id))) continue;
+      if (present.has(n.sourceId) && present.has(n.job?.sourceId || n.sourceId) && present.has(n.id) && !(n.branches || []).some(id => !present.has(id))) continue;
       const policy = all().find(x => x.id === n.id)?.deletionPolicy || n.deletionPolicy;
       if (!policy) fail("Выберите судьбу превью перед удалением источника", 409);
       const i = next.findIndex(x => x.id === n.id); if (i >= 0) next.splice(i, 1);
@@ -168,6 +172,7 @@ export function previews(directory, state, save, enqueue) {
     const n = get(b.id);
     if (endpoint === "/api/preview/build") {
       if (n.job || !n.question) fail("Дождитесь вариантов превью", 409);
+      if (all().filter(n => n.job).length >= 20) fail("Слишком много заданий превью", 409);
       const request = text(b.request, 3000); if (!request) fail("Опишите превью");
       n.request = request; queue(n, "build"); return { ok: true };
     }
@@ -184,7 +189,7 @@ export function previews(directory, state, save, enqueue) {
   const publicNode = n => ({ ...n, stale: stale(n), versions: commits(n).map(({ savedState, sources, ...v }) => v), job: n.job ? { phase: n.job.phase, stage: n.job.stage } : null });
   const savedContext = (id, nodes = state().nodes) => {
     const line = new Set(sources(id, [], nodes).map(n => n.id));
-    return nodes.filter(n => n.kind === "preview" && n.commit && line.has(n.sourceId || n.parentId)).map(n => ({ id: n.id, commit: n.commit, state: n.snapshot ? json(safe("snapshots", n.snapshot + ".json")).savedState : version(n).savedState ?? null }));
+    return nodes.filter(n => n.kind === "preview" && n.commit && line.has(n.sourceId || n.parentId) && (n.sourceId !== "root" || n.branches?.some(id => line.has(id)))).map(n => ({ id: n.id, commit: n.commit, state: n.snapshot ? json(safe("snapshots", n.snapshot + ".json")).savedState : version(n).savedState ?? null }));
   };
   recover();
   const branchCopies = nodes => {

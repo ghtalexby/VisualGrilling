@@ -77,9 +77,16 @@ function runtime(encoded) {
     if (m.type === "save") send("saved", { requestId: m.requestId, state: current });
     else {
       const clone = camera.cloneNode(true);
+      const originals = [camera, ...camera.querySelectorAll("*")], copies = [clone, ...clone.querySelectorAll("*")];
+      // Freeze computed values instead of replaying animations or depending on hover/focus.
+      originals.forEach((original, i) => {
+        const computed = getComputedStyle(original);
+        for (const property of computed) if (!property.startsWith("animation") && !property.startsWith("transition")) copies[i].style.setProperty(property, computed.getPropertyValue(property));
+        copies[i].style.animation = "none"; copies[i].style.transition = "none";
+      });
       for (const el of clone.querySelectorAll("input,select,button")) { const span = document.createElement("span"); span.textContent = el.type === "checkbox" ? (el.checked ? "☑" : "☐") : el.value || el.textContent; el.replaceWith(span); }
       const wrap = document.createElement("div"); wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-      const style = document.createElement("style"); style.textContent = css.textContent; wrap.append(style, clone);
+      wrap.append(clone);
       const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + innerWidth + '" height="' + innerHeight + '"><foreignObject width="100%" height="100%">' + new XMLSerializer().serializeToString(wrap) + '</foreignObject></svg>';
       send("exported", { requestId: m.requestId, svg });
     }

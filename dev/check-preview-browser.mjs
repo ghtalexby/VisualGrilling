@@ -66,8 +66,13 @@ try {
   await click('[data-view="save"]'); await until(()=>js("!previewView.dirty"));
   assert.equal((await api("preview?id="+id)).savedState.diameter,180);
   const picture=await js('frameRequest("export")'); assert.ok(picture.svg.includes("180")); assert.ok(!picture.svg.includes("<script"));
+  // A refresh response arriving after a new edit must prompt again and preserve Cancel.
+  await js('window.realApi=api;window.releaseRefresh=null;api=async(...args)=>{const value=await realApi(...args);if(args[0].startsWith("/api/preview/document"))await new Promise(r=>releaseRefresh=r);return value};document.querySelector("[data-view=refresh]").click()');
+  await until(()=>js("!!releaseRefresh"));
   await inside('(()=>{const e=document.querySelector("input");e.value="200";e.dispatchEvent(new Event("input",{bubbles:true}));})()');
   await until(()=>js("previewView.dirty")); await sleep(100);
+  await js("releaseRefresh();api=realApi");await until(()=>js('!!document.querySelector("dialog[open]")'));
+  await click('[data-choice="cancel"]');assert.equal(await js("previewView.frame===originalFrame"),true);
   await click('[data-view="close"]'); await click('[data-choice="save"]'); await until(()=>js("!previewView"));
   assert.equal((await api("preview?id="+id)).savedState.diameter,200);
   // Project script cannot navigate or fetch, and active markup never enters the document.

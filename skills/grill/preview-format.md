@@ -19,7 +19,7 @@ State is a flat JSON object with string, finite numeric, boolean or null values 
 
 Only trusted code executes in the iframe window. Project JavaScript executes in a Blob worker inside a sandbox iframe (`allow-scripts`, no `allow-same-origin`). It has no document or navigation API. The iframe's nonce CSP allows its trusted script, inline CSS, embedded raster images and Blob workers; network, frames, objects, forms and base URLs are forbidden. Fetch/imports are unsupported. The worker has a three-second response deadline. Parent/iframe messages validate source window, random viewer instance, request ID and payload size. No message can invoke an arbitrary map API or submit an answer. Save has a five-second timeout; failure retains dirty state.
 
-Export SVG downloads a static picture of the current view, with CSS, raster data and control values embedded and no project JavaScript. Open it in a browser supporting SVG foreignObject. It is not an interactive project export. The viewer's zoom/camera is included; export is viewport-sized.
+Export SVG downloads a static picture of the current view, with computed styles, raster data and control values embedded and no project JavaScript. Open it in a browser supporting SVG foreignObject. It is not an interactive project export. The viewer's zoom/camera is included; export is viewport-sized.
 
 ## Protocol
 

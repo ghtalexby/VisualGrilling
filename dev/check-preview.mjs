@@ -79,18 +79,30 @@ try {
   const a = (await api("state")).nodes.find(n => n.kind === "q");
   const original = await api("preview/prepare", { sourceId: a.id }); e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: original.id, request: "A wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "A" });
-  await api("answer", { id: a.id, answer: "First answer" }); e = await wait();
-  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "B", options: ["A", "B"] }] });
-  const b = (await api("state")).nodes.find(n => n.kind === "q" && n.parentId === a.id);
-  const moved = await api("preview/prepare", { id: original.id, sourceId: b.id }); assert.equal(moved.id, original.id);
-  e = await wait(); await apply(e, { question: "Refine?", options: ["UI", "Diagram"] });
-  await api("preview/build", { id: original.id, request: "B wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "B" });
   // Create a separate ancestor project to cover a split below a one-child chain.
   const ancestor = await api("preview/prepare", { sourceId: a.id }); e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: ancestor.id, request: "Ancestor wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "Ancestor" });
   const ancestorNode = await api("preview?id=" + ancestor.id);
+  await api("answer", { id: a.id, answer: "First answer" }); e = await wait();
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "B", options: ["A", "B"] }] });
+  const b = (await api("state")).nodes.find(n => n.kind === "q" && n.parentId === a.id);
+  await api("answer", { id: b.id, answer: "A newly submitted continuation" });
+  assert.ok((await api("preview?id=" + original.id)).stale > 0);
+  e = await wait(); await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted" });
+  const moved = await api("preview/prepare", { id: original.id, sourceId: b.id }); assert.equal(moved.id, original.id);
+  e = await wait(); await apply(e, { question: "Refine?", options: ["UI", "Diagram"] });
+  await api("preview/build", { id: original.id, request: "B wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "B" });
   await api("answer", { id: b.id, answer: "Split here" }); e = await wait();
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "C", options: ["A", "B"] }, { q: "D", options: ["A", "B"] }] });
   assert.equal((await api("state")).nodes.filter(n => n.forkOf === ancestorNode.projectId).length, 2);
+  e = await wait(); assert.equal(e.type, "reread"); await api("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Preserve current decisions" })) });
+  // Both phases share the same bounded queue, including already-prepared projects.
+  const prepared = [];
+  for (let i = 0; i < 21; i++) {
+    const p = await api("preview/prepare", { sourceId: "root", branches: [a.id] }); prepared.push(p.id);
+    e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
+  }
+  for (const id of prepared.slice(0, 20)) await api("preview/build", { id, request: "Build" });
+  await api("preview/build", { id: prepared[20], request: "Over limit" }, 409);
   console.log("Preview API checks passed: recovery, publication, save, fork, stale, restore, snapshots, rejection");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

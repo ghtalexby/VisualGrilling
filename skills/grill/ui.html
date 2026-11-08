@@ -278,7 +278,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#mapList").hidd
 
 /* ---------- map ---------- */
 /* Preview iframe lives outside the polling drawer and is replaced only after a guarded action. */
-let previewView=null;
+let previewView=null,previewOpenSequence=0;
 const previewRequests=new Map();
 function previewPanel(n){
   if(panel.mode==="previewSetup"){
@@ -308,7 +308,7 @@ async function previewAction(action){
 $("#panel").addEventListener("input",e=>{if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
 $("#panel").addEventListener("change",e=>{if(e.target.id==="previewTarget")panel.previewTarget=e.target.value;if(e.target.matches("[data-preview-branch]"))panel.branches=[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
 $("#panel").addEventListener("click",e=>{const option=e.target.closest("[data-preview-option]");if(option){$("#fPreview").value=option.dataset.previewOption;drafts["p:"+panel.id]=option.dataset.previewOption}const b=e.target.closest("[data-preview]");if(b)previewAction(b.dataset.preview)});
-function closePreviewNow(){for(const request of previewRequests.values())request.reject(new Error("Превью закрыто"));previewRequests.clear();previewView?.el.remove();previewView=null}
+function closePreviewNow(){previewOpenSequence++;for(const request of previewRequests.values())request.reject(new Error("Превью закрыто"));previewRequests.clear();previewView?.el.remove();previewView=null}
 function frameRequest(type){
   const v=previewView;if(!v?.ready)return Promise.reject(new Error("Превью ещё не готово"));
   return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID(),timer=setTimeout(()=>{previewRequests.delete(requestId);reject(new Error("Превью не ответило"))},5000);
@@ -334,9 +334,14 @@ async function guardPreview(){
   });
 }
 async function openPreview(id,snapshot){
+  const sequence=++previewOpenSequence,previous=previewView;
   if(!await guardPreview())return;
+  const revision=previous?.dirtyRevision;
   const instance=crypto.randomUUID(),params=new URLSearchParams(snapshot?{key:snapshot,instance}:{id,instance});
   const data=await api("/api/preview/document?"+params);
+  if(sequence!==previewOpenSequence||previewView!==previous)return;
+  if(previous?.dirty&&previous.dirtyRevision!==revision&&!await guardPreview())return;
+  if(sequence!==previewOpenSequence||previewView!==previous)return;
   closePreviewNow();
   const el=document.createElement("section");el.id="previewViewer";el.style.cssText="position:fixed;inset:0;z-index:200;background:var(--bg,#fff);display:flex;flex-direction:column;padding:12px";
   el.innerHTML=`<div class="row"><strong>Превью</strong><button class="btn" data-view="save" ${snapshot?"disabled":""}>Снять значения</button><select aria-label="История" id="previewHistory">${(get(id)?.versions||[]).map(v=>`<option value="${esc(v.commit)}" ${v.commit===data.commit?"selected":""}>${esc(v.purpose)} · ${esc(v.commit.slice(0,8))}</option>`).join("")}</select><button class="btn" data-view="restore" ${snapshot?"disabled":""}>Восстановить</button><button class="btn" data-view="refresh">Обновить просмотр</button><button class="btn" data-view="export">Экспорт SVG</button><button class="btn" data-view="close">Закрыть</button></div><p role="status"></p>`;
