@@ -53,6 +53,26 @@ try {
   assert.equal(await js('document.querySelectorAll("button button").length'), 0);
   assert.equal(await js('document.querySelector("#zReset")'), null);
   assert.equal(await js('document.querySelector("[data-act=more]")'), null);
+  // Header activity stays visible with the answer drawer open and ignores idle connectivity.
+  await js('window.activityState=S;S={...S,queueLength:0};listening=true;renderHeader()');
+  assert.equal(await js('document.querySelector("#brandActivity").classList.contains("active")'), false);
+  for(const update of ['S.rereadPending={stage:"thinking",locked:true}', 'S.specPending={stage:"thinking"}', 'S.morePending=true', 'S.finishPending=true', 'S.queueLength=1', 'S.reevaluation={stage:"thinking"}', 'S.questionRequests=[{stage:"queued"}]', ...['pending','analysis','job'].map(key=>`S.nodes=[...S.nodes,{id:"work",${key}:{stage:"thinking"}}]`), 'S.nodes=[...S.nodes,{id:"work",discuss:"thinking"}]']){
+    await js(`S={...activityState,queueLength:0};${update};renderHeader()`);
+    assert.equal(await js('document.querySelector("#brandActivity").classList.contains("active")'), true, update);
+    assert.equal(await js('document.querySelector("#panel").hidden'), false);
+  }
+  await js('S={...activityState,rereadPending:{stage:"thinking",locked:true}};listening=false;renderHeader()');
+  assert.equal(await js('document.querySelector("#brandActivity").classList.contains("active")'), true);
+  await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  assert.equal(await js('getComputedStyle(document.querySelector("#brandActivity"),"::before").animationName'), "none");
+  await cdp("Emulation.setEmulatedMedia", { features: [] });
+  assert.equal(await js('getComputedStyle(document.querySelector("#brandActivity"),"::before").animationName'), "reread-spin");
+  await js('S.rereadPending={stage:"queued"};renderHeader()');
+  assert.equal(await js('document.querySelector("#brandActivity").classList.contains("active")'), false);
+  assert.match(await js('document.querySelector("#brandActivity").getAttribute("aria-label")'), /Waiting for the agent/);
+  await js('listening=true;offline=true;renderHeader()');
+  assert.equal(await js('document.querySelector("#brandActivity").classList.contains("active")'), false);
+  await js('S=activityState;offline=false;listening=false;renderHeader()');
   // Reread failures must not replace the current drawer or interpret error HTML.
   await js('window.savedApi=api;api=async()=>{throw new Error("Request failed <unsafe>")};panel=null;renderPanel()');
   await click('#bReread'); await until(()=>js('!rereadSending'));

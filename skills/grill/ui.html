@@ -42,6 +42,11 @@ button{font:inherit;color:inherit}
 header{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-direction:column;gap:8px;z-index:5}
 .hrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .brand{font-family:var(--f-display);font-weight:700;font-size:15px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.brand-activity{position:relative;display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex:none}
+.brand-activity.pending{color:var(--accent)}
+.brand-activity.pending::before{content:"";position:absolute;inset:-2px;border:2px solid var(--accent);border-right-color:transparent;border-bottom-color:transparent;border-radius:50%}
+.brand-activity.active::before{animation:reread-spin 1.4s linear infinite}
+@media(prefers-reduced-motion:reduce){.brand-activity.active::before{animation:none}}
 .ptitle{color:var(--muted);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 12px;font-size:14px;font-weight:500;cursor:pointer}
@@ -203,7 +208,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg><span>Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span>Грилинг-карта</span></div>
     <div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bStop" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту">Остановить</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
@@ -525,6 +530,14 @@ function render(){
 }
 function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};S.nodes.filter(n=>["q","idea"].includes(n.kind)&&!n.obsolete).forEach(n=>c[n.status]++);return c}
 function renderHeader(){
+  const jobs=[S.rereadPending,S.specPending,S.reevaluation,...(S.questionRequests||[]),...S.nodes.flatMap(n=>[n.pending,n.analysis,n.job,{stage:n.discuss}])];
+  const pending=loaded&&!!(rereadSending||S.queueLength||S.morePending||S.finishPending||jobs.some(j=>j?.stage)||(!S.title&&!S.finished));
+  const active=pending&&!offline&&(listening||jobs.some(j=>j?.stage==="thinking"));
+  const activity=$("#brandActivity"),activityLabel=offline?"Сервер карты остановлен. Попросите агента продолжить грилинг":active?"Разбор":pending?"Запрос сохранён. Ожидаем агента…":"Грилинг-карта";
+  activity.classList.toggle("pending",pending);
+  activity.classList.toggle("active",active);
+  activity.title=activityLabel;
+  activity.setAttribute("aria-label",activityLabel);
   $("#bMaps").textContent=loaded?(S.name??"Без имени"):"Карты";
   $("#finishedNotice").hidden=!S.finished||listening||offline;
   $("#finishedNotice").textContent=`Карта завершена, агент больше не слушает. Попросите продолжить карту: ${S.name??"Без имени"}`;
