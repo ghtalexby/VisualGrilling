@@ -63,6 +63,16 @@ try {
   await until(()=>js("previewView.dirty")); await sleep(100);
   assert.equal(await inside('document.querySelector("[data-text=diameter]").textContent'),"180");
   await click('[data-view="close"]'); await until(()=>js('!!document.querySelector("dialog[open]")'));
+  await js('window.beforeSaveApi=api;api=async(path,...args)=>{if(path==="/api/preview/save")throw new Error("Save failed <unsafe>");return beforeSaveApi(path,...args)}');
+  await click('[data-choice="save"]');
+  await until(()=>js('!document.querySelector("#errorToast").hidden'));
+  assert.equal(await js('!!document.querySelector("dialog[open] #errorToast")'),true);
+  assert.equal(await js('document.querySelector("#errorToastText").textContent'),"Save failed <unsafe>");
+  assert.equal(await js('previewView.dirty'),true);
+  assert.equal(await js('document.querySelector("#errorToast unsafe")'),null);
+  await click('#closeErrorToast');
+  assert.equal(await js('document.querySelector("#errorToast").hidden'),true);
+  await js('api=beforeSaveApi');
   await click('[data-choice="cancel"]'); assert.equal(await js("!!previewView"),true);
   await click('[data-view="save"]'); await until(()=>js("!previewView.dirty"));
   assert.equal((await api("preview?id="+id)).savedState.diameter,180);

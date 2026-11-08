@@ -227,7 +227,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, seenFinished=null;
 let rereadSending=false;
-let panel=null, errMsg=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
+let panel=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
 const QLABEL={question:"Вопрос",option:"Вариант ответа",verdict:"Вердикт"};
 const KEYS=`<span class="keys">Enter — отправить · Ctrl+Enter — перенос</span>`;
 let fresh=new Set(); const selections={},drafts={},draftQuotes={},draftImages={},imgUrls={}; let zoom=1,px=0,py=0;
@@ -243,6 +243,24 @@ function rootPrio(n){let p=n;while(p.parentId&&p.parentId!=="root")p=get(p.paren
 function descendants(id){const out=[];kids(id).forEach(k=>{out.push(k.id,...descendants(k.id))});return out}
 const qs=()=>S.nodes.filter(n=>n.kind==="q");
 const vis=n=>n.pending||n.analysis?"think":n.status;
+
+function clearError(){
+  const toast=$("#errorToast");toast.hidden=true;document.body.append(toast);
+}
+function showError(message){
+  const toast=$("#errorToast");
+  // Keep the alert interactive above a modal preview confirmation.
+  (document.querySelector("dialog[open]")||document.body).append(toast);
+  $("#errorToastText").textContent=message;toast.hidden=false;
+}
+function stateErrors(state){
+  return new Map([
+    ["spec",state.specError],
+    ["reread",state.rereadResult?.error],
+    ["reevaluation",state.reevaluationError?.error],
+    ...state.nodes.filter(n=>n.kind==="preview").map(n=>["preview:"+n.id,n.error])
+  ].filter(([,error])=>error));
+}
 
 async function api(p,body){
   const r=await fetch(p,{method:body?"POST":"GET",headers:{"content-type":"application/json","x-grill":"1"},body:body?JSON.stringify(body):undefined});
@@ -268,6 +286,7 @@ function closeMaps(){ $("#mapList").hidden=true;$("#bMaps").setAttribute("aria-e
 $("#bMaps").onclick=async()=>{
   const list=$("#mapList");
   if(!list.hidden){closeMaps();return}
+  clearError();
   list.hidden=false;$("#bMaps").setAttribute("aria-expanded","true");list.textContent="Загрузка карт…";
   try{
     const {maps}=await api("/api/maps");
@@ -281,7 +300,7 @@ $("#bMaps").onclick=async()=>{
       const title=`<b>${esc(name)}</b> · ${esc(m.title)}`;
       return `<div class="map-row"${m.current?' aria-current="page"':""}>${url?`<a href="${esc(url)}">${title}</a>`:`<span aria-disabled="true">${title}</span>`}<small>${esc(badge)} · ${detail}</small>${!url?`<small>Попросите агента продолжить карту: ${esc(name)}</small>`:""}</div>`;
     }).join("");
-  }catch(e){list.textContent="Не удалось загрузить карты"}
+  }catch(e){closeMaps();showError("Не удалось загрузить карты")}
 };
 document.addEventListener("click",e=>{if(!e.target.closest("#mapPicker"))closeMaps()});
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#mapList").hidden){closeMaps();$("#bMaps").focus()}});
@@ -294,12 +313,12 @@ function previewPanel(n){
   if(panel.mode==="previewSetup"){
     const line=new Set([n.id,...ancestors(n).map(a=>a.id)]);
     const available=S.nodes.filter(p=>p.kind==="preview"&&line.has(p.sourceId)&&!p.orphaned);
-    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p>${esc(n.q||S.title)}</p><label>Экземпляр<select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></label>${n.id==="root"?`<h3>Выберите ветки</h3>${kids("root").filter(n=>n.kind!=="preview").map(n=>`<label><input type="checkbox" data-preview-branch="${esc(n.id)}" ${(panel.branches||[]).includes(n.id)?"checked":""}>${esc(n.q||n.text)}</label>`).join("")}`:""}<button class="btn primary" data-preview="prepare">Предложить варианты</button>${errMsg?`<p class="err">${esc(errMsg)}</p>`:""}`};
+    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p>${esc(n.q||S.title)}</p><label>Экземпляр<select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></label>${n.id==="root"?`<h3>Выберите ветки</h3>${kids("root").filter(n=>n.kind!=="preview").map(n=>`<label><input type="checkbox" data-preview-branch="${esc(n.id)}" ${(panel.branches||[]).includes(n.id)?"checked":""}>${esc(n.q||n.text)}</label>`).join("")}`:""}<button class="btn primary" data-preview="prepare">Предложить варианты</button>`};
   }
-  return {head:"Превью",body:`<h2>${esc(n.q)}</h2>${n.orphaned?"<p>Источник удалён. Проект сохранён отдельно.</p>":""}<p>${n.job?"Агент готовит превью…":n.stale?`Устарело: ${n.stale}`:""}</p>${n.error?`<p class="err">${esc(n.error)}</p>`:""}${n.commit?`<button class="btn primary" data-preview="open">Открыть превью</button>`:""}<h3>${esc(n.question||"Подготовка вариантов")}</h3>${(n.options||[]).map(o=>`<button class="btn" data-preview-option="${esc(o)}">${esc(o)}</button>`).join("")}<label>Запрос<textarea id="fPreview" rows="4">${esc(drafts["p:"+n.id]??n.request??"")}</textarea></label><button class="btn primary" data-preview="build" ${n.job||!n.question?"disabled":""}>Создать новую версию</button><h3>При удалении источника</h3><p>Выберите судьбу проекта до удаления ветки агентом.</p><button class="btn" data-preview="keep" ${n.deletionPolicy==="keep"?"disabled":""}>Сохранить отдельно</button><button class="btn" data-preview="deletePolicy" ${n.deletionPolicy==="delete"?"disabled":""}>Удалить вместе</button><button class="btn" data-preview="delete">Удалить превью</button>${errMsg?`<p class="err">${esc(errMsg)}</p>`:""}`};
+  return {head:"Превью",body:`<h2>${esc(n.q)}</h2>${n.orphaned?"<p>Источник удалён. Проект сохранён отдельно.</p>":""}<p>${n.job?"Агент готовит превью…":n.stale?`Устарело: ${n.stale}`:""}</p>${n.error?`<p class="err">${esc(n.error)}</p>`:""}${n.commit?`<button class="btn primary" data-preview="open">Открыть превью</button>`:""}<h3>${esc(n.question||"Подготовка вариантов")}</h3>${(n.options||[]).map(o=>`<button class="btn" data-preview-option="${esc(o)}">${esc(o)}</button>`).join("")}<label>Запрос<textarea id="fPreview" rows="4">${esc(drafts["p:"+n.id]??n.request??"")}</textarea></label><button class="btn primary" data-preview="build" ${n.job||!n.question?"disabled":""}>Создать новую версию</button><h3>При удалении источника</h3><p>Выберите судьбу проекта до удаления ветки агентом.</p><button class="btn" data-preview="keep" ${n.deletionPolicy==="keep"?"disabled":""}>Сохранить отдельно</button><button class="btn" data-preview="deletePolicy" ${n.deletionPolicy==="delete"?"disabled":""}>Удалить вместе</button><button class="btn" data-preview="delete">Удалить превью</button>`};
 }
 async function previewAction(action){
-  errMsg=null;
+  clearError();
   try{
     if(action==="prepare"){
       const result=await api("/api/preview/prepare",{sourceId:panel.id,id:$("#previewTarget").value||undefined,branches:[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
@@ -313,7 +332,7 @@ async function previewAction(action){
       if(previewView?.id===panel.id){if(!await guardPreview())return;closePreviewNow()}
       await api("/api/preview/delete",{id:panel.id,confirm:true});await poll(true);
     }else{await api("/api/preview/policy",{id:panel.id,policy:action==="keep"?"keep":"delete"});await poll(true)}
-  }catch(e){errMsg=e.message;renderPanel()}
+  }catch(e){showError(e.message);renderPanel()}
 }
 $("#panel").addEventListener("input",e=>{if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
 $("#panel").addEventListener("change",e=>{if(e.target.id==="previewTarget")panel.previewTarget=e.target.value;if(e.target.matches("[data-preview-branch]"))panel.branches=[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
@@ -327,6 +346,7 @@ function frameRequest(type){
   });
 }
 async function savePreview(){
+  clearError();
   const v=previewView;if(v.snapshot)throw new Error("Снимок доступен только для просмотра");
   const generation=v.dirtyRevision,data=await frameRequest("save");
   if(v!==previewView)throw new Error("Превью закрыто");
@@ -338,9 +358,9 @@ async function guardPreview(){
   if(!previewView?.dirty)return true;
   const v=previewView;
   return new Promise(resolve=>{
-    const d=document.createElement("dialog");d.innerHTML=`<p>Есть несохранённые изменения</p><button data-choice="save">Сохранить</button><button data-choice="discard">Продолжить без сохранения</button><button data-choice="cancel">Отменить</button><p class="err"></p>`;v.el.append(d);d.showModal();
-    const done=value=>{d.close();d.remove();resolve(value)};d.oncancel=e=>{e.preventDefault();done(false)};
-    d.onclick=async e=>{const choice=e.target.dataset.choice;if(!choice)return;if(choice==="save"){e.target.disabled=true;try{await savePreview();done(!v.dirty)}catch(error){d.querySelector(".err").textContent=error.message;e.target.disabled=false}}else done(choice==="discard")};
+    const d=document.createElement("dialog");d.innerHTML=`<p>Есть несохранённые изменения</p><button data-choice="save">Сохранить</button><button data-choice="discard">Продолжить без сохранения</button><button data-choice="cancel">Отменить</button>`;v.el.append(d);d.showModal();
+    const done=value=>{clearError();d.close();d.remove();resolve(value)};d.oncancel=e=>{e.preventDefault();done(false)};
+    d.onclick=async e=>{const choice=e.target.dataset.choice;if(!choice)return;if(choice==="save"){e.target.disabled=true;try{await savePreview();done(!v.dirty)}catch(error){showError(error.message);e.target.disabled=false}}else done(choice==="discard")};
   });
 }
 async function openPreview(id,snapshot){
@@ -365,13 +385,13 @@ async function openPreview(id,snapshot){
       if(action==="refresh")await openPreview(id,snapshot);
       if(action==="restore"&&await guardPreview()){await api("/api/preview/restore",{id,commit:v.commit,epoch:v.epoch,target:$("#previewHistory").value});v.dirty=false;await poll(true);await openPreview(id)}
       if(action==="export"){const result=await frameRequest("export"),url=URL.createObjectURL(new Blob([result.svg],{type:"image/svg+xml"})),a=document.createElement("a");a.href=url;a.download="preview.svg";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-    }catch(error){v.message.textContent=error.message}
+    }catch(error){showError(error.message)}
   });
 }
 addEventListener("message",e=>{
   const v=previewView,m=e.data;if(!v||e.source!==v.frame.contentWindow||m?.instance!==v.instance)return;
   if(m.type==="ready"){v.ready=true;return}if(m.type==="dirty"){v.dirty=true;v.dirtyRevision++;v.message.textContent="Есть несохранённые изменения";return}
-  if(m.type==="error"){v.message.textContent="Ошибка превью";if(m.requestId)previewRequests.get(m.requestId)?.reject(new Error("Ошибка превью"));return}
+  if(m.type==="error"){showError("Ошибка превью");if(m.requestId)previewRequests.get(m.requestId)?.reject(new Error("Ошибка превью"));return}
   const request=previewRequests.get(m.requestId);if(!request)return;
   if(request.type==="save"&&m.type==="saved"&&m.state&&JSON.stringify(m.state).length<=65536||request.type==="export"&&m.type==="exported"&&typeof m.svg==="string"&&m.svg.length<=1000000){previewRequests.delete(m.requestId);request.resolve(m)}
 });
@@ -509,7 +529,7 @@ function nodePanel(n){
     b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending||S.rereadPending?.locked?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
   }
   if(n.verdictHistory?.length>1)b+=`<details><summary>История вердиктов</summary>${n.verdictHistory.map(v=>`<div class="note"><span class="pill s-${v.status}">${STATUS[v.status]}</span><p>${esc(v.verdict)}</p>${copyButton(v.verdict)}</div>`).join("")}</details>`;
-  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+
   return{head,body:b};
 }
 function discussTab(n){
@@ -530,7 +550,7 @@ function discussTab(n){
   return b;
 }
 function ideaDraftPanel(){
-  return {head:`<span class="eyebrow">Идея</span>`,body:`<h2>Прикрепить идею</h2><label class="fl">Текст идеи<textarea id="fIdea" rows="5" maxlength="3000">${esc(drafts.idea||"")}</textarea></label><div class="row"><button class="btn primary" data-act="attachidea" ${sending||S.rereadPending?.locked?"disabled":""}>Прикрепить</button></div>${errMsg?`<div class="err">${esc(errMsg)}</div>`:""}`};
+  return {head:`<span class="eyebrow">Идея</span>`,body:`<h2>Прикрепить идею</h2><label class="fl">Текст идеи<textarea id="fIdea" rows="5" maxlength="3000">${esc(drafts.idea||"")}</textarea></label><div class="row"><button class="btn primary" data-act="attachidea" ${sending||S.rereadPending?.locked?"disabled":""}>Прикрепить</button></div>`};
 }
 function ideaPanel(n){
   let b=`<h2>${esc(n.text)}</h2>`;
@@ -539,29 +559,29 @@ function ideaPanel(n){
   if(n.verdict)b+=`<div class="verdict s-${n.status}" data-verdict tabindex="0"><span class="pill">${ideaStatus(n)}</span><p>${esc(n.verdict)}</p>${copyButton(n.verdict)}${n.analysis?`<small>Предыдущий итог, ожидается переоценка</small>`:""}</div>`;
   if(panel.deleteIdea)b+=`<div class="warn"><p>Удалить идею, все её вопросы, ответы и чаты?</p>${n.deleteBlocked?`<p>Дождитесь завершения работы с веткой идеи</p>`:""}<div class="row"><button class="btn" data-act="deleteidea" ${sending||n.deleteBlocked?"disabled":""}>Удалить всю ветку</button><button class="btn" data-act="cancelideadelete">Отмена</button></div></div>`;
   b+=discussTab(n);
-  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+
   return {head:`<span class="eyebrow">Идея · ${ideaStatus(n)}</span>`,body:b};
 }
 async function saveIdea(){
   if(sending)return;
   const target=panel,n=get(target.id),raw=$("#fIdeaEdit")?.value||"",text=raw.trim();if(!text)return;
-  sending=true;errMsg=null;renderPanel();
+  sending=true;clearError();renderPanel();
   try{await api("/api/idea/edit",{id:n.id,text,revision:target.ideaRevision});if(drafts["i:"+n.id]===undefined||drafts["i:"+n.id]===raw){delete drafts["i:"+n.id];if(panel===target)panel.edit=false}else if(panel===target)panel.ideaRevision=n.revision+1;await poll(true)}
-  catch(e){errMsg=e.message}finally{sending=false;renderPanel()}
+  catch(e){showError(e.message)}finally{sending=false;renderPanel()}
 }
 async function deleteIdea(){
-  if(sending)return;const target=panel;sending=true;errMsg=null;renderPanel();
+  if(sending)return;const target=panel;sending=true;clearError();renderPanel();
   try{await api("/api/idea/delete",{id:target.id,confirm:true});if(panel===target)panel=null;await poll(true)}
-  catch(e){errMsg=e.message}finally{sending=false;renderPanel()}
+  catch(e){showError(e.message)}finally{sending=false;renderPanel()}
 }
 let ideaRequestId=null;
 async function attachIdea(){
   if(sending)return;
   const raw=$("#fIdea")?.value||"",text=raw.trim();if(!text)return;
   ideaRequestId ||= crypto.randomUUID();
-  const target=panel,requestId=ideaRequestId;sending=true;errMsg=null;renderPanel();
+  const target=panel,requestId=ideaRequestId;sending=true;clearError();renderPanel();
   try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged)openPanel({mode:"node",id:result.id})}
-  catch(e){errMsg=e.message}
+  catch(e){showError(e.message)}
   finally{sending=false;renderPanel()}
 }
 function questionPanel(){
@@ -570,7 +590,7 @@ function questionPanel(){
   if(job)b+=working("Агент готовит варианты ответа…")+`<p>${esc(job.q)}</p>`+waitNote();
   else if(created)b+=`<button class="btn" data-open="${created.id}">Открыть вопрос</button>`;
   else b+=`<label class="fl">Текст вопроса<textarea id="fQuestion" rows="4" maxlength="220">${esc(drafts["q:"+panel.id]||"")}</textarea></label><div class="row"><button class="btn primary" data-act="question" ${sending?"disabled":""}>Подготовить варианты</button></div>`+waitNote();
-  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+
   return{head:`<span class="eyebrow">Свой вопрос</span>`,body:b};
 }
 function openQuestion(id){openPanel({mode:"question",id,requestId:crypto.randomUUID()})}
@@ -619,7 +639,7 @@ function summaryPanel(){
   b+=`<div class="row"><button class="btn" data-act="addquestion">${S.questionRequests?.some(j=>j.parentId==="root")?"Агент готовит варианты ответа…":"Добавить свой вопрос"}</button></div>`;
   b+=S.finishPending?working("Агент готовит итог…"):`<div class="row"><button class="btn primary" data-act="finish">${S.finished?"Обновить итог":"Завершить и получить итог"}</button></div>`;
   b+=`<h3>Экспорт в Markdown</h3><p class="why" style="font-size:13px">Для Xmind, MindMeister, Markmap, Notion. Полный отчёт Агент сохраняет в папку карты: <code class="mono">.grill/&lt;имя&gt;/report.md</code> (у карты без имени — <code class="mono">.grill/report.md</code>).</p><textarea id="md" rows="8" readonly>${esc(toMarkdown())}</textarea><div class="row"><button class="btn" data-act="copy">Скопировать</button><span id="copied" class="mono" style="color:var(--ok)"></span></div>`;
-  if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
+
   return{head,body:b};
 }
 function panelSig(){
@@ -635,7 +655,7 @@ function renderPanel(){
   if(!panel){p.hidden=true;p.dataset.key="";return}
   let r;
   if(panel.mode==="summary")r=summaryPanel();
-  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)+(errMsg?`<div class="err">${esc(errMsg)}</div>`:"")}:nodePanel(n)}
+  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)}:nodePanel(n)}
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
   const key=[panel.mode,panel.id,panel.tab].join("|"),same=p.dataset.key===key;
   if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
@@ -675,27 +695,27 @@ async function ackVisibleMessages(){
 addEventListener("focus",()=>requestAnimationFrame(ackVisibleMessages));
 document.addEventListener("visibilitychange",()=>requestAnimationFrame(ackVisibleMessages));
 $("#panel").addEventListener("scroll",()=>requestAnimationFrame(ackVisibleMessages),true);
-function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id])panel.quote=draftQuotes[o.id];errMsg=null;confirmReset=false;render();renderPanel()}
+function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id])panel.quote=draftQuotes[o.id];confirmReset=false;render();renderPanel()}
 
 /* ---------- actions ---------- */
 async function submitAnswer(){
   if(sending)return;
   const id=panel.id,t=$("#fAns"),raw=t?t.value:"",choices=[...(selections[id]||[])],answer=[...choices,raw.trim()].filter(Boolean).join("\n");
-  if(answer.length>3000){errMsg="Общий ответ длиннее 3000 символов.";renderPanel();return}
-  if(!answer){errMsg="Напишите ответ или выберите вариант.";renderPanel();return}
-  sending=id;errMsg=null;
+  if(answer.length>3000){showError("Общий ответ длиннее 3000 символов.");renderPanel();return}
+  if(!answer){showError("Напишите ответ или выберите вариант.");renderPanel();return}
+  sending=id;clearError();
   try{await api("/api/answer",{id,answer});if(drafts[id]===undefined||drafts[id]===raw)delete drafts[id];if(JSON.stringify(selections[id]||[])===JSON.stringify(choices))delete selections[id];if(panel&&panel.id===id)panel.edit=false;await poll(true)}
-  catch(e){errMsg=e.message}
+  catch(e){showError(e.message)}
   sending=null;render();renderPanel();
 }
 async function submitDiscuss(request){
   const id=panel.id,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined,images=request?[]:[...(draftImages[id]||[])];
   if(sending||(get(id)||{}).discuss==="thinking"){
-    if(request){errMsg="Дождитесь ответа агента и повторите запрос объяснения.";renderPanel()}
+    if(request){showError("Дождитесь ответа агента и повторите запрос объяснения.");renderPanel()}
     return;
   }
-  if(!message&&!quote&&!images.length){errMsg="Напишите сообщение.";renderPanel();return}
-  sending=id;errMsg=null;
+  if(!message&&!quote&&!images.length){showError("Напишите сообщение.");renderPanel();return}
+  sending=id;clearError();
   try{
     await api("/api/discuss",{id,message,quote,about,images});
     if(images.length)draftImages[id]=(draftImages[id]||[]).filter(x=>!images.includes(x));
@@ -703,29 +723,28 @@ async function submitDiscuss(request){
     if(!request&&draftQuotes[id]===q)delete draftQuotes[id];
     if(!request&&panel?.id===id&&panel.quote===q)panel.quote=null;
     await poll(true);
-  }catch(e){errMsg=e.message}
+  }catch(e){showError(e.message)}
   sending=null;render();renderPanel();
 }
-async function act(path,body){errMsg=null;try{await api(path,body||{});await poll(true)}catch(e){errMsg=e.message;renderPanel()}}
+async function act(path,body){clearError();try{await api(path,body||{});await poll(true);return true}catch(e){showError(e.message);renderPanel();return false}}
 async function requestReread(){
   if(rereadSending||S.rereadPending||!qs().length)return;
-  $("#errorToast").hidden=true;
-  rereadSending=true;errMsg=null;renderHeader();renderPanel();
+  rereadSending=true;clearError();renderHeader();renderPanel();
   try{
     await api("/api/reread",{});
     // Keep the accepted request visible even if the immediate state poll fails.
     S.rereadPending||={stage:"queued",locked:false};
     await poll(true);
-  }catch(e){$("#errorToastText").textContent=e.message;$("#errorToast").hidden=false}
+  }catch(e){showError(e.message)}
   finally{rereadSending=false;renderHeader();renderPanel()}
 }
 async function submitQuestion(){
   if(sending)return;
   const target=panel,id=target.id,q=$("#fQuestion").value.trim();
-  if(!q){errMsg="Напишите вопрос.";renderPanel();return}
-  sending=id;errMsg=null;renderPanel();
+  if(!q){showError("Напишите вопрос.");renderPanel();return}
+  sending=id;clearError();renderPanel();
   try{await api("/api/question",{id:target.requestId,parentId:id,q});delete drafts["q:"+id];await poll(true)}
-  catch(e){errMsg=e.message}
+  catch(e){showError(e.message)}
   sending=null;renderPanel();
 }
 
@@ -736,11 +755,13 @@ async function poll(force){
     const wasOffline=offline;offline=false;
     if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
       const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
-      const first=!loaded;S=d;listening=d.listening;loaded=true;pruneImgUrls();
+      const first=!loaded,previousErrors=stateErrors(S);S=d;listening=d.listening;loaded=true;pruneImgUrls();
+      const newErrors=[...stateErrors(S)].filter(([key,error])=>previousErrors.get(key)!==error).map(([,error])=>error);
+      if(!first&&newErrors.length)showError(newErrors.join("\n\n"));
       if(!first)S.nodes.forEach(n=>{if(!oldIds.has(n.id))fresh.add(n.id)});
       render();
       if(previewView&&!previewView.snapshot){const n=get(previewView.id);if(!n||n.commit!==previewView.commit||n.epoch!==previewView.epoch)previewView.message.textContent="Доступна другая версия. Обновите просмотр."}
-      if(first&&/^#preview=[a-f0-9]{64}$/.test(location.hash))openPreview(null,location.hash.slice(9)).catch(()=>{});
+      if(first&&/^#preview=[a-f0-9]{64}$/.test(location.hash))openPreview(null,location.hash.slice(9)).catch(e=>showError(e.message));
       if(seenFinished===null)seenFinished=!!S.finished;
       else if(S.finished&&!seenFinished){seenFinished=true;openPanel({mode:"summary"});return}
       if(panelSig()!==before)renderPanel();
@@ -759,16 +780,16 @@ $("#stage").addEventListener("click",e=>{if(e.target.closest("[data-root-chat]")
 });
 $("#stage").addEventListener("dblclick",e=>{if(e.target.closest("[data-root-chat]")){e.preventDefault();return}const b=e.target.closest(".node");if(!b)return;
   e.preventDefault();clearTimeout(clickTimer);const id=b.dataset.id;
-  if(get(id)?.kind==="preview"){openPreview(id).catch(error=>{errMsg=error.message;openPanel({mode:"node",id})});return}
+  if(get(id)?.kind==="preview"){openPreview(id).catch(error=>{showError(error.message)});return}
   isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);
 });
 $("#bIsolation").onclick=()=>{if(!isolated)return;flt=isolated.filter;isolated=null;render();focusFilter()};
 $("#ledger").addEventListener("click",e=>{const b=e.target.closest("[data-flt]");if(!b)return;clearTimeout(clickTimer);isolated=null;flt=flt===b.dataset.flt?null:b.dataset.flt;render();focusFilter()});
 $("#bSummary").onclick=()=>openPanel({mode:"summary"});
-$("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
-$("#bStop").onclick=()=>{openPanel({mode:"summary"});act("/api/finish")};
+$("#bSpec").onclick=async()=>{if(await act("/api/spec"))openPanel({mode:"summary"})};
+$("#bStop").onclick=async()=>{if(await act("/api/finish"))openPanel({mode:"summary"})};
 $("#bReread").onclick=requestReread;
-$("#closeErrorToast").onclick=()=>{$("#errorToast").hidden=true};
+$("#closeErrorToast").onclick=clearError;
 $("#bChat").onclick=()=>openPanel({mode:"project",id:"root",tab:"discuss"});
 $("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fIdeaEdit")drafts["i:"+panel.id]=e.target.value;if(e.target.id==="fIdea"){drafts.idea=e.target.value;ideaRequestId=null}if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion","fIdea","fIdeaEdit"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
 addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit));
@@ -777,16 +798,16 @@ $("#panel").addEventListener("paste",async e=>{
   if(e.target.id!=="fMsg"||!panel)return;
   const files=[...e.clipboardData.files].filter(f=>f.type.startsWith("image/"));
   if(!files.length||e.clipboardData.getData("text/plain").trim())return;
-  e.preventDefault();errMsg=null;
+  e.preventDefault();clearError();
   const id=panel.id;
   for(const f of files){
-    if(!IMG_TYPES.includes(f.type)){errMsg="Неподдерживаемый формат картинки";continue}
-    if(f.size>IMG_MAX){errMsg="Картинка больше 8 МБ";continue}
+    if(!IMG_TYPES.includes(f.type)){showError("Неподдерживаемый формат картинки");continue}
+    if(f.size>IMG_MAX){showError("Картинка больше 8 МБ");continue}
     try{
       const data=await readImage(f),list=draftImages[id]||=[];
-      if(list.length>=IMG_COUNT){errMsg="Можно вставить не больше 4 картинок";break}
+      if(list.length>=IMG_COUNT){showError("Можно вставить не больше 4 картинок");break}
       list.push(data);
-    }catch{errMsg="Не удалось прочитать картинку"}
+    }catch{showError("Не удалось прочитать картинку")}
   }
   renderPanel();
   /* the new thumbnail row pushes the input down: keep the send button visible */
@@ -806,8 +827,8 @@ $("#panel").addEventListener("click",e=>{
   clearTimeout(clickTimer);
   const im=e.target.closest("img[data-img]");if(im){if(im.src)window.open(im.src);return}
   const o=e.target.closest("[data-open]");if(o){openPanel({mode:"node",id:o.dataset.open});return}
-  const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;errMsg=null;confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
-  const cb=e.target.closest("[data-copy]");if(cb){Promise.resolve().then(()=>navigator.clipboard.writeText(cb.dataset.copy)).then(()=>{if(cb.isConnected)cb.textContent="Скопировано"},()=>{errMsg="Не удалось скопировать. Выделите текст и скопируйте вручную.";renderPanel()});return}
+  const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;clearError();confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
+  const cb=e.target.closest("[data-copy]");if(cb){clearError();Promise.resolve().then(()=>navigator.clipboard.writeText(cb.dataset.copy)).then(()=>{if(cb.isConnected)cb.textContent="Скопировано"},()=>{showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");renderPanel()});return}
   const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
   const a=e.target.closest("[data-act]");if(!a)return;
   switch(a.dataset.act){
@@ -825,8 +846,8 @@ $("#panel").addEventListener("click",e=>{
     case "unimage":draftImages[panel.id]?.splice(+a.dataset.i,1);renderPanel();break;
     case "askchatreset":panel.confirmChat=true;renderPanel();break;
     case "nochatreset":panel.confirmChat=false;renderPanel();break;
-    case "chatreset":{const id=panel.id;panel.confirmChat=false;errMsg=null;
-      api("/api/chatreset",{id}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{errMsg=err.message;renderPanel()});break}
+    case "chatreset":{const id=panel.id;panel.confirmChat=false;clearError();
+      api("/api/chatreset",{id}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{showError(err.message);renderPanel()});break}
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":act("/api/cancel",{id:panel.id});break;
     case "reread":requestReread();break;
@@ -836,8 +857,8 @@ $("#panel").addEventListener("click",e=>{
     case "noreset":confirmReset=false;renderPanel();break;
     case "edit":panel.edit=true;confirmReset=false;renderPanel();break;
     case "canceledit":panel.edit=false;delete drafts[panel.id];renderPanel();break;
-    case "copy":{const t=$("#md"),ok=()=>{$("#copied").textContent="Скопировано"};
-      try{navigator.clipboard.writeText(t.value).then(ok,()=>{t.focus();t.select()})}catch(err){t.focus();t.select()}break}
+    case "copy":{clearError();const t=$("#md"),ok=()=>{$("#copied").textContent="Скопировано"},fail=()=>{showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");t.focus();t.select()};
+      try{navigator.clipboard.writeText(t.value).then(ok,fail)}catch(err){fail()}break}
   }
 });
 /* right click on an answer option or on the verdict: context menu to discuss it */
@@ -879,7 +900,7 @@ document.addEventListener("click",e=>{
   if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="reread")requestReread();else if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
   if(!b||!panel||panel.id!==c.id)return;
   if(b.dataset.ctx==="discuss"||b.dataset.ctx==="explain"){
-    panel.tab="discuss";errMsg=null;confirmReset=false;
+    panel.tab="discuss";clearError();confirmReset=false;
     if(b.dataset.ctx==="explain"){
       const message="Объясни, что означает этот вариант ответа и как он относится к проекту.";
       const n=get(c.id),last=(n.chat||[]).at(-1);

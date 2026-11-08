@@ -44,7 +44,7 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
   // Freeze polling and record API writes so each UI scenario has deterministic state.
-  await js(`poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
+  await js(`window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
     S.coverage={shown:5,reserve:5,percent:50};
     window.qid=S.nodes.find(n=>n.kind==="q").id;
     S.nodes.push({id:"idea",parentId:"root",kind:"idea",text:"Idea",status:"weak",chat:[]});
@@ -68,6 +68,13 @@ try {
   await click('#bReread'); await until(()=>js('!rereadSending'));
   assert.equal(await js('panel.id'), await js('qid'));
   assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
+  for(const selector of ['#bSpec','#bStop','[data-act="answer"]']){
+    await click(selector);
+    await until(()=>js('!sending&&!document.querySelector("#errorToast").hidden'));
+    assert.equal(await js('panel.id'), await js('qid'));
+    assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
+    assert.equal(await js('document.querySelector("#panel .err")'), null);
+  }
   await js('api=savedApi');
   await click('#bReread'); await until(()=>js('!rereadSending'));
   assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
@@ -84,7 +91,7 @@ try {
   await click('[data-chip="No"]'); assert.deepEqual(await js('selections[qid]'), ["No"]);
   assert.equal(await js('document.querySelector("#fAns").value'), "Keep comment");
   await input("#fAns", "x".repeat(3000)); await click('[data-act="answer"]');
-  assert.match(await js('document.querySelector(".err").textContent'), /3000/);
+  assert.match(await js('document.querySelector("#errorToastText").textContent'), /3000/);
   await input("#fAns", "Draft persists");
   await click('#ledger [data-flt="verify"]');
   assert.equal(await js('document.querySelectorAll("#stage .node").length'), 1);
@@ -106,7 +113,7 @@ try {
   assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
   await js('get(qid).discuss=null;window.goodApi=api;api=async()=>{throw new Error("HTTP 409")};');
   await click('[data-act="explainquestion"]'); await until(()=>js('!sending'));
-  assert.match(await js('document.querySelector(".err").textContent'), /409/);
+  assert.match(await js('document.querySelector("#errorToastText").textContent'), /409/);
   assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
   await js('api=goodApi');
   // Block-level copy retains Unicode/newlines, and rejection gets visible feedback.
@@ -114,7 +121,7 @@ try {
   await click('[data-copy="Existing question"]'); await until(()=>js('copied.length'));
   assert.equal(await js('copied[0]'), 'Existing question');
   await js('navigator.clipboard.writeText=async()=>{throw new Error("denied")}');
-  await click('[data-copy="Existing question"]'); await until(()=>js('document.querySelector(".err")?.textContent.includes("Copy failed")'));
+  await click('[data-copy="Existing question"]'); await until(()=>js('document.querySelector("#errorToastText")?.textContent.includes("Copy failed")'));
   // Active/visible checks guard exact message acknowledgements, including root chat.
   await js(`Object.defineProperty(document,"hasFocus",{configurable:true,value:()=>false});
     get("root").chat=[{id:"reply-a",from:"claude",text:"Reply A",at:1},{id:"reply-b",from:"user",text:"Question",at:2}];
@@ -145,6 +152,18 @@ try {
   assert.equal(await js('document.querySelector("unsafe")'), null);
   assert.ok(await js(`!!document.querySelector('[data-copy="Historical <unsafe>"]')`));
   assert.match(await js('toMarkdown()'), /Historical <unsafe>/);
+  await js('openPanel({mode:"summary"})');
+  await click('[data-act="copy"]');
+  await until(()=>js('!document.querySelector("#errorToast").hidden'));
+  assert.match(await js('document.querySelector("#errorToastText").textContent'), /Copy failed/);
+  assert.equal(await js('document.querySelector("#md").selectionEnd'), await js('document.querySelector("#md").value.length'));
+  // Persisted errors notify once when observed, not on each state refresh.
+  await js('window.mockState=structuredClone(S);mockState.specError="Background failure";api=async()=>mockState;originalPoll(true)');
+  assert.equal(await js('document.querySelector("#errorToastText").textContent'), "Background failure");
+  assert.equal(await js('document.querySelector("#errorToast").hidden'), false);
+  await click('#closeErrorToast');
+  await js('originalPoll(true)');
+  assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
   console.log("Completeness browser checks passed");
 } finally {
   ws?.close(); await end(browser); await end(server);
