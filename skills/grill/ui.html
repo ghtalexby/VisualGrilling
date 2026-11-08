@@ -118,7 +118,7 @@ main{flex:1;position:relative;min-height:0}
 #panelGrip::before{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:var(--accent);opacity:0;transition:opacity .12s}
 #panelGrip:hover::before,#panelGrip.drag::before,#panelGrip:focus-visible::before{opacity:1}
 #panelGrip:focus-visible{outline-offset:-2px}
-#panel[hidden]+#panelGrip{display:none}
+#panel[hidden]~#panelGrip{display:none}
 .ph{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--line)}
 .ph .close{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px;margin-right:-6px}
 .ph .close:hover{color:var(--ink)}

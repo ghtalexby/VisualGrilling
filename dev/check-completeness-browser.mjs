@@ -43,6 +43,20 @@ try {
   ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
+  // The resize grip must follow drawer visibility even with the error toast between them.
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  assert.equal(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
+  await js('openPanel({mode:"summary"})');
+  assert.notEqual(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
+  await click('#panel [data-act="close"]');
+  await js('showError("Grip visibility check")');
+  assert.equal(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
+  await js('openPanel({mode:"summary"})');
+  await js('document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape",bubbles:true}))');
+  assert.equal(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
+  await js('clearError()');
+  await cdp("Emulation.clearDeviceMetricsOverride");
+
   // Freeze polling and record API writes so each UI scenario has deterministic state.
   await js(`window.originalApi=api;window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
     S.coverage={shown:5,reserve:5,percent:50};
