@@ -57,9 +57,9 @@ Files live in `.grill/` or `.grill/<name>/`:
 
 ```js
 S = {
-  version, title, brief, arch, notes, locale,
+  version, title, brief, arch, notes, locale, reserve, reserveRevision, autoRereadRevision, reevaluation,
   nodes: [{ id: "root", parentId: null, kind: "root" }, /* questions */],
-  queue: [/* answer, discuss, question, more, reread, finish, spec events */],
+  queue: [/* answer, discuss, question, idea, more, reread, finish, spec events; reevaluation is separate state */],
   questionRequests: [/* persisted custom question preparation */],
   summary, finished, morePending, finishPending,
   specOwner, specFile, specUpdatedAt, specError, specJob,
@@ -76,7 +76,7 @@ A question (`kind: "q"`):
   prio,      // main questions only, 1..N
   addedFrom, // source question text for a main question added through newRoot
   pending: { answer, stage: "queued|thinking", at } /* or null */,
-  answer, verdict,
+  answer, verdict, verdictHistory,
   chat: [{ from: "user|claude", text, quote, about, images, at }],
   discuss: "queued|thinking" /* or null */,
   conflictOf: [/* optional: cards whose answers disagree */],
@@ -134,9 +134,9 @@ The server validates the candidate on a clone, independently confirms that every
 `ui.html` contains CSS tokens, light/dark themes through `prefers-color-scheme`, markup, and JavaScript. Google Fonts is its only external resource.
 
 - `poll()` requests `/api/state` every 1.2 seconds. It redraws after version/listening changes or reconnection, and displays server-offline state when disconnected.
-- `render()` lays out the tree left to right: 252-pixel nodes, `HG=64`, `VG=14`. SVG Bézier edges use status colors; open edges are dashed. Zoom ranges from 0.3 to 2.
-- Header status counters filter by status while retaining ancestor chains (`ctx`) and the open panel's question. A second click resets the filter. `focusFilter()` chooses the matching question with minimum X, then Y; `centerNode()` centers it without opening a panel or changing zoom. `centerMap()` animates centering in the visible canvas left of the drawer; wide maps align their root left. Manual movement interrupts animation. Filter state `flt` lives only in the browser.
-- `nodePanel()` shows ancestors, Answer/Discuss tabs (`panel.tab`, `discussTab()`), verdict, children, and answer input. Editing warns that the agent will review the branch, may remove obsolete decisions, and will then reread the whole map. `summaryPanel()` shows counts, problem groups, reread/more/finish/spec controls, and Markdown export.
+- `render()` lays out the tree left to right: 252-pixel nodes, `HG=64`, `VG=14`. SVG Bézier edges use status colors; open edges are dashed. Manual zoom ranges from 0.1 to 2; automatic map/branch fitting can go below 0.1.
+- Header status counters filter by status for questions and ideas while retaining ancestor chains (`ctx`). A hidden panel closes and saves its draft; panel selection never overrides filters. A second click resets the filter. `focusFilter()` chooses the matching question or idea with minimum X, then Y; `centerNode()` centers it without opening a panel or changing zoom. `centerMap()` animates centering in the visible canvas left of the drawer; wide maps align their root left. Manual movement interrupts animation. Filter state `flt` lives only in the browser.
+- `nodePanel()` shows ancestors, Answer/Discuss tabs (`panel.tab`, `discussTab()`), verdict, children, and answer input. Editing warns that the agent will review the branch, may remove obsolete decisions, and will then reread the whole map. `summaryPanel()` shows counts, problem groups, reread/finish/spec controls, and Markdown export.
 - `panelSig()` prevents unnecessary redraws and input loss. `drafts` stores answers and `"d:"+id` discussion drafts. `renderPanel()` preserves focus, cursor, and scroll, scrolling chat down when messages arrive.
 - `#panelGrip` resizes the drawer by dragging or with Left/Right arrow keys, from 320 px up to the window width minus 120 px. It is a sibling of `#panel`, so re-renders do not drop its pointer capture. The width is kept per browser in `localStorage` (`grill.panelWidth`), which is per origin, so maps served on different ports remember separate widths. CSS caps a saved width to the current window; at 560 px and below the drawer is full-width and the grip is hidden.
 - A newly finished map opens the summary automatically.
@@ -169,7 +169,7 @@ On restart, saved custom-language dictionaries retain their existing translation
 
 ## Custom questions and isolation
 
-`POST /api/question {id,parentId,q}` persists a preparation request and deduplicates retries by client request ID, including completed requests stored on cards. Only one request per parent and 20 total can wait. A tokenized `question` event supplies parent context; apply validates it and the current branch revision, keeps the exact user text, and requires at least two prepared options. Main cards get the next priority, children inherit area, and both carry `createdBy:user,requestId`. Restart/redelivery requeues unfinished requests; deletion cannot remove their parents. Summary opens custom main-question creation and shows its waiting state; opening it while pending displays the existing request in the custom-question panel. Summary also provides the add-three control, which calls `/api/more`.
+`POST /api/question {id,parentId,q}` persists a preparation request and deduplicates retries by client request ID, including completed requests stored on cards. Only one request per parent and 20 total can wait. A tokenized `question` event supplies parent context; apply validates it and the current branch revision, keeps the exact user text, and requires at least two prepared options. Main cards get the next priority, children inherit area, and both carry `createdBy:user,requestId`. Restart/redelivery requeues unfinished requests; deletion cannot remove their parents. Summary opens custom main-question creation and shows its waiting state; opening it while pending displays the existing request in the custom-question panel. Summary uses the same Reread action as the header; `/api/more` remains a compatibility API.
 
 Double click delays single-click opening by the local desktop interval plus a short guard, centers the target, and displays only it and its ancestor chain. `isolated` holds the target and previous filter. An eye button restores the previous filter; choosing a new filter exits isolation and uses that filter. Polling never restores the open drawer’s unrelated node during isolation. If the target disappears, restore the filter safely. Root right-click opens general project discussion; ordinary card right-click opens child creation. Option explanations submit a separate quoted discussion without submitting an unfinished user draft. They retain unsent message/quote on errors or while busy; completion of an earlier request cannot erase later drafts or explanations.
 
@@ -187,14 +187,27 @@ An obsolete card with user history stays in the tree with `obsolete:{reason,sour
 
 ## Attached idea lifecycle
 
-Ideas are root children in the existing flat tree; their questions keep ordinary `kind:q`. The idea's full `text`, numeric content `revision`, five-valued `status`, explanation and chat persist. Separate `analysis` holds queue progress. Creation is idempotent and does not queue analysis; Analyze idea, text edits, descendant grades and changing rereads of previously analyzed ideas use the tokenized idea event. Editing requests a per-question premise audit, preserving history. Context revisions cover the whole map because other branches may supply decisive evidence.
+Ideas are root children in the existing flat tree; their questions keep ordinary `kind:q`. The idea's full `text`, numeric content `revision`, five-valued `status`, explanation and chat persist. Separate `analysis` holds queue progress. Creation is idempotent and atomically queues analysis; Analyze idea, text edits, descendant grades and changing rereads of previously analyzed ideas use the tokenized idea event. Editing requests a per-question premise audit, preserving history. Context revisions cover the whole map because other branches may supply decisive evidence.
 
 Specification processing adds frozen idea evaluations after captured answer grades. These update only `specJob.gradingNodes` and its projection; live idea work remains separate to avoid overwriting later activity. Only ok idea subtrees are delivered to the document worker. Text edits are an explicit invalidation boundary: the old spec token is canceled, a persisted refresh stage waits for live reassessment, and a new snapshot/request is captured. Ordinary late answers do not recapture a snapshot. Recovery restores both live and frozen work.
 
-Deletion checks pending branch work, rereads and spec references before deleting the entire subtree and its unused images. Editing instead remains available during work and invalidates outdated deliveries. UI filters keep all ideas but count/filter only their question descendants. Exports preserve all ideas regardless of spec inclusion. See the attached-ideas section in contract.md for exact routes, limits and audit shapes.
+Deletion checks pending branch work, rereads and spec references before deleting the entire subtree and its unused images. Editing instead remains available during work and invalidates outdated deliveries. UI filters count and match ideas and questions by status, retaining only matching cards and their context ancestors. Previews appear only as required context under a filter. Exports preserve all ideas regardless of spec inclusion. See the attached-ideas section in contract.md for exact routes, limits and audit shapes.
 
 Answer/discussion ancestor context includes `kind:"idea",text` for idea ancestors, preserving the complete premise beyond the 220-character `q` prefix. Workers must read full `text` when present.
 
 ## Preview projects
 
 `preview.mjs` separates project identity, card placement, captured source revisions, Git publication and per-commit saved settings. `preview-view.mjs` renders sanitized HTML/CSS and executes project reducers in a network-isolated worker inside a sandbox iframe. Polling retains the viewer. Immutable spec snapshots have separate retention. See [preview.md](preview.md) for lifecycle and trust boundaries.
+
+## Completeness and parent evidence
+
+The persisted reserve distinguishes `null` (unassessed legacy map) from an empty assessed array. Reread receives the full current map and candidate list; one validated transaction updates the reserve, performs restructuring and issues at most three questions. Computed coverage counts current question cards independently of filters and grades. `reserveRevision` records the evidence used for the last assessment; new map evidence makes the percentage unknown until reassessed, while read receipts do not. `autoRereadRevision` prevents an unchanged settled map from repeatedly requesting empty work. Automatic issuance waits for all map-changing work and no active open question; finished maps and unchanged empty reserves do not loop.
+
+Descendant grades schedule tokenized `reevaluate` work for answered question ancestors. These evaluations preserve user answers and append previous verdicts to `verdictHistory`; idea ancestors use their existing evaluation path. The worker judges evidence rather than completion counts. Frozen specification evaluations use their own captured context and cannot import later live data. Read receipts identify an exact agent chat message, so an acknowledgement cannot mark a concurrently newer reply read.
+
+Camera actions run after layout and account for the drawer. Show all clears filter/isolation and fits every card. Zoom selected is disabled without a selected node, clears filter/isolation and fits its entire branch while leaving others visible. Manual zoom clamps at 10% even after an automatic fit below that threshold. Under an empty status filter only root remains; previews never create independent matches.
+
+
+Parent reassessments deliver complete affected ancestor branches in separate batches when necessary, bounded to 500 nodes per affected subtree and 600000 serialized characters including its ancestor context; unrelated map branches are not included. Context-only ancestor nodes preserve premises (including attached idea text) and are not assessment IDs. All pending batches survive restart, and frozen batches remain isolated from live state. `queueLength`, CLI `status.queue` and map-list `queue` include pending internal ancestor reassessments (including frozen ones); only drain when this authoritative count is zero. A whole-map reread exceeding these limits returns HTTP 400, records `rereadResult.error`, releases its job and answer lock, and suppresses automatic retries for the unchanged revision. Other queued events remain deliverable; a manual reread can retry after addressing the size. Context is never silently truncated. Merged-source answers, current verdicts and verdict histories remain visible in the drawer and both Markdown exports.
+
+If a complete affected branch itself exceeds the limit, live reassessment returns HTTP 400, records `reevaluationError:{ids,error,at}` visible in the summary, and releases only that failed batch; independent batches and queued work remain deliverable. The grades stay unchanged. A new descendant answer retries those ancestors after the branch/context size is addressed. Frozen oversized reassessment cancels the specification with `specError` and releases snapshot locks; it never generates a specification from incomplete evidence. These are explicit failed operations, not successful assessments.

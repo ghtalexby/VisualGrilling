@@ -20,7 +20,16 @@ async function api(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   assert.equal(r.status, expected, await r.clone().text()); return route === "report" ? r.text() : r.json();
 }
-const wait = () => api("wait?timeout=5");
+const wait = async () => {
+  for (;;) {
+    const e = await api("wait?timeout=5");
+    if (e.type !== "reevaluate") return e;
+    assert.ok(e.ids.length);
+    assert.ok(e.ids.every(id => e.nodes.some(n => n.id === id && n.answer)));
+    await api("apply", { type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
+      assessments: e.ids.map(id => ({ id, status: "ok", verdict: "Retain accepted decision after checking branch evidence" })) });
+  }
+};
 const apply = (e, extra) => api("apply", { type: "preview", id: e.id, token: e.token, projectId: e.projectId, base: e.base, ...extra });
 async function stop() { if (!server || server.exitCode !== null) return; const done = new Promise(r => server.once("exit", r)); await api("stop", {}); await done; }
 try {
@@ -133,6 +142,8 @@ try {
   for (const p of (await api("state")).nodes.filter(n => n.kind === "preview")) await api("preview/policy", { id: p.id, policy: "delete" });
   await api("init", { title: "Idea preview", questions: [{ q: "Existing", options: ["A", "B"] }] });
   const idea = await api("idea", { id: "preview-idea-check", text: "An idea with an explanatory preview" });
+  e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.id, idea.id);
+  await api("apply", { type: "idea", id: idea.id, token: e.token, status: "open", verdict: "Needs visual exploration" });
   const ideaPreview = await api("preview/prepare", { sourceId: idea.id }); e = await wait(); await apply(e, { question: "Visual?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: ideaPreview.id, request: "Idea wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "Idea wireframe" });
   const ideaProject = await api("preview?id=" + ideaPreview.id);

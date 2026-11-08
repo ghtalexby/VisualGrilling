@@ -26,7 +26,7 @@ When adding an endpoint:
 | Statuses (`LABEL`, `ORDER`, `counts()`) | Their duplicates in `ui.html` (`STATUS`, `ORDER`, `counts()`), `.s-<status>` CSS classes, and color tokens |
 | UI source phrases, locale validation, or language selection | `locales/en.json`, `i18n.mjs`, `SKILL.md`, `docs/contract.md`, simulator options, and locale checks |
 | The `report()` format | The similar UI `toMarkdown()` implementation if matching output is needed |
-| Reread rules, event or transaction | `worker.md`, `SKILL.md`, `docs/contract.md`, `dev/simulate.mjs`, `dev/check-reread.mjs`, UI lock and result states |
+| Reserve, coverage, ancestor reassessment, read receipts, or reread rules/event/transaction | `worker.md`, `SKILL.md`, `docs/contract.md`, `dev/simulate.mjs`, `dev/check-reread.mjs`, UI lock and result states |
 | Worker event rules or delegation | `worker.md`, `SKILL.md`, contract, simulator and `check-workers.mjs` |
 | Config keys or models | `config.default.json`, config validation, `SKILL.md`, contract and worker checks |
 | CLI commands | The header comment in `grill.mjs`, its `commands` object, `SKILL.md`, `docs/contract.md` |
@@ -51,3 +51,5 @@ Inbox and session paths are fixed within the selected map directory and never ta
 ## Preview synchronization
 
 Changes to preview files, reducers, message protocol or versions must synchronize `preview.mjs`, `preview-view.mjs`, `ui.html`, agent instructions, [preview.md](preview.md), simulator fixtures and preview checks. Never run generated project code in the map window or grant iframe same-origin privileges. Preserve per-version state, token/base/epoch checks, immutable snapshots, explicit deletion choices and independent Git copies. Do not count previews as questions.
+
+Completeness changes must keep reserve transactions, automatic issuance and frozen ancestor evaluations synchronized with worker instructions, simulator and completeness checks. Preserve original answers and verdict history; never derive parent closure merely from descendant statuses. UI filter counts include ideas while coverage counts only current questions. Keep both export implementations aligned with verdict history and unread indicators distinct from total chat counts.

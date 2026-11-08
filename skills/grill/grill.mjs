@@ -59,7 +59,7 @@ const atomicWrite = (file, text) => {
   try { fs.writeFileSync(tmp, text, { flag: "wx" }); fs.renameSync(tmp, file); }
   finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
 };
-const freshState = () => ({ version: 0, title: "", brief: "", arch: "", notes: "", nodes: [{ id: "root", parentId: null, kind: "root" }], queue: [], questionRequests: [], summary: null, finished: false, morePending: false, finishPending: false, rereadJob: null, rereadResult: null });
+const freshState = () => ({ version: 0, reserve: null, reserveRevision: null, reevaluation: null, title: "", brief: "", arch: "", notes: "", nodes: [{ id: "root", parentId: null, kind: "root" }], queue: [], questionRequests: [], summary: null, finished: false, morePending: false, finishPending: false, rereadJob: null, rereadResult: null });
 
 async function doubleClickTime() {
   const valid = value => Number.isFinite(value) && value > 0 && value <= 10000;
@@ -93,6 +93,8 @@ async function serve() {
   S.specOwner ||= randomUUID();
   S.specFile ||= `docs/specs/grill-${NAME || "legacy"}.md`;
   S.queue = Array.isArray(S.queue) ? S.queue : [];
+  S.reserve ??= null;
+  if (S.reevaluation) S.reevaluation = { ids: [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])] };
   S.questionRequests ||= [];
   for (const job of S.questionRequests) {
     job.stage = "queued"; delete job.token;
@@ -100,6 +102,7 @@ async function serve() {
   }
   // answers and discussion messages that were being processed when the server stopped go back to the queue
   for (const n of S.nodes) {
+    for (const m of n.chat || []) if (!m.id) { m.id = randomUUID(); if (m.from === "claude") m.readAt = Date.now(); }
     if (n.analysis) {
       n.analysis = { stage: "queued", reason: n.analysis.reason };
       if (!S.queue.some(e => e.type === "idea" && e.id === n.id)) S.queue.push({ type: "idea", id: n.id });
@@ -137,7 +140,7 @@ ${S.notes || "—"}
   const recoverSpec = () => {
     if (!S.specJob) return;
     if (S.specJob.stage !== "refresh") S.specJob.stage = "queued";
-    S.specJob.token = null; delete S.specJob.ideaWork;
+    S.specJob.token = null; delete S.specJob.ideaWork; delete S.specJob.reviewWork;
     S.specJob.ideaWaiting ||= [];
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
@@ -172,6 +175,8 @@ ${S.notes || "—"}
   // Processing stages and delivery credentials do not change a question's meaning.
   const contextNode = n => {
     const { discuss, discussToken, pending, analysis, ...rest } = n;
+    if (rest.job) { const { stage, token, ...job } = rest.job; rest.job = job; }
+    if (rest.chat) rest.chat = rest.chat.map(({ readAt, ...m }) => m);
     return { ...rest, ...(pending ? { pending: { answer: pending.answer, at: pending.at } } : {}) };
   };
   const branchRevision = id => createHash("sha256").update(JSON.stringify([
@@ -179,7 +184,7 @@ ${S.notes || "—"}
     S.questionRequests.filter(j => subtree(S.nodes, id).some(n => n.id === j.parentId)).map(j => [j.id, j.parentId, j.q])
   ])).digest("hex");
   const boundBranch = nodes => {
-    if (nodes.length > 500 || JSON.stringify(nodes).length > 600000) throw [400, "Ветка слишком большая для обработки"];
+    if (nodes.length > 500 || JSON.stringify(nodes).length > 600000) throw [400, "Ветка слишком большая для обработки", "context-limit"];
   };
   function writeSpec(markdown) {
     // Only fixed project-local paths; never follow links into another directory/file.
@@ -211,8 +216,8 @@ ${S.notes || "—"}
   const rereadLocked = () => !!S.rereadJob && (S.rereadJob.stage === "thinking" || !!S.rereadJob.manual && isListening());
   const rereadThinking = () => S.rereadJob?.stage === "thinking";
   // The rebuild reads a settled map: submitted work goes first and a running specification finishes.
-  const rereadReady = () => !S.specJob && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis);
-  const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
+  const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
+  const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.arch, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
   const requestReread = (manual, edit) => {
     if (S.rereadJob) {
       if (manual) S.rereadJob.manual = true;
@@ -244,6 +249,80 @@ ${S.notes || "—"}
       options, recommendation, ...(extra || {}) };
   };
 
+  const reserveList = (value, nodes) => {
+    if (!Array.isArray(value) || value.length > 100) throw [400, "Резерв должен содержать не больше 100 кандидатов"];
+    const ids = new Set(), texts = new Set(nodes.filter(n => n.kind === "q" && !n.obsolete).map(n => n.q.toLocaleLowerCase()));
+    return value.map(o => {
+      const id = clean(o?.id, 81), parentId = clean(o?.parentId || "root", 80), q = mkQ(o, parentId);
+      if (!/^[a-zA-Z0-9-]{1,80}$/.test(id) || ids.has(id) || !q || texts.has(q.q.toLocaleLowerCase()) || !nodes.some(n => n.id === parentId && ["root", "q", "idea"].includes(n.kind) && !n.obsolete)) throw [400, "Некорректный или повторный кандидат резерва"];
+      ids.add(id); texts.add(q.q.toLocaleLowerCase());
+      const { kind, status, ...candidate } = q; return { ...candidate, id };
+    });
+  };
+  const coverage = () => {
+    const shown = qs().filter(n => !n.obsolete).length, reserve = S.reserve === null ? null : S.reserve.length;
+    return { shown, reserve, percent: reserve === null || !shown || S.reserveRevision !== mapRevision() ? null : Math.round(100 * shown / (shown + reserve)), stale: reserve !== null && S.reserveRevision !== mapRevision() };
+  };
+  const recordVerdict = (n, status, verdict) => {
+    const history = n.verdictHistory || (n.verdict ? [{ status: n.status, verdict: n.verdict, at: n.reviewedAt || 0 }] : []);
+    if (history.length >= 1000) throw [400, "История вердиктов достигла предела 1000"];
+    n.verdictHistory = [...history, { status, verdict, at: Date.now() }];
+    n.status = status; n.verdict = verdict;
+  };
+  const ancestorIds = (nodes, id) => {
+    const ids = []; let n = nodes.find(n => n.id === id);
+    while ((n = nodes.find(x => x.id === n?.parentId))) if (n.kind === "q" && n.answer && !n.obsolete) ids.push(n.id);
+    return ids;
+  };
+  const queueReview = (nodes, id, captured = false) => {
+    const ids = ancestorIds(nodes, id); if (!ids.length) return;
+    if (!captured && S.reevaluationError?.ids.every(id => ids.includes(id))) S.reevaluationError = null;
+    if (captured) S.specJob.reviewIds = [...new Set([...(S.specJob.reviewIds || []), ...ids])];
+    else S.reevaluation = { ids: [...new Set([...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || []), ...ids])] };
+  };
+  function reviewPayload(captured = false) {
+    const nodes = captured ? S.specJob.gradingNodes : S.nodes;
+    const ids = (captured ? S.specJob.reviewIds : [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])]).filter(id => nodes.some(n => n.id === id && n.kind === "q" && n.answer && !n.obsolete));
+    ids.sort((a, b) => ancestorIds(nodes, b).length - ancestorIds(nodes, a).length);
+    // Deliver complete affected branches in independent batches; unrelated map size is immaterial.
+    const highest = ids.filter(id => !ancestorIds(nodes, id).some(parent => ids.includes(parent)));
+    const branch = highest.length ? subtree(nodes, highest[0]).map(contextNode) : [];
+    const batch = ids.filter(id => branch.some(n => n.id === id));
+    const context = [...branch];
+    let parent = nodes.find(n => n.id === highest[0]);
+    while ((parent = nodes.find(n => n.id === parent?.parentId))) context.push(contextNode(parent));
+    try {
+      boundBranch(branch);
+      if (JSON.stringify(context).length > 600000) throw [400, "Ветка слишком большая для обработки", "context-limit"];
+    } catch (error) {
+      if (error[2] !== "context-limit") throw error;
+      if (captured) {
+        S.specError = t(error[1]); S.specJob = null; S.queue = S.queue.filter(e => e.type !== "spec");
+      } else {
+        S.reevaluationError = { ids: batch, error: t(error[1]), at: Date.now() };
+        const remaining = ids.filter(id => !batch.includes(id));
+        S.reevaluation = remaining.length ? { ids: remaining } : null;
+      }
+      save(); throw error;
+    }
+    const job = { ids: batch, remaining: ids.filter(id => !batch.includes(id)), token: randomUUID(), revision: mapRevision() };
+    if (captured) S.specJob.reviewWork = job; else S.reevaluation = job;
+    return { type: "reevaluate", token: job.token, capturedForSpec: captured, ids: job.ids, nodes: structuredClone(context), title: captured ? S.specJob.title : S.title, brief: captured ? S.specJob.brief : S.brief, arch: captured ? S.specJob.arch : S.arch };
+  }
+  function applyReview(b) {
+    const captured = b.capturedForSpec === true, job = captured ? S.specJob?.reviewWork : S.reevaluation;
+    if (!job?.token || job.token !== b.token) throw [409, "Результат устарел, получите событие через wait"];
+    if (!captured && job.revision !== mapRevision()) { S.reevaluation = { ids: [...job.ids, ...(job.remaining || [])] }; save(); throw [409, "Карта изменилась, получите событие через wait"]; }
+    if (!Array.isArray(b.assessments) || b.assessments.length !== job.ids.length) throw [400, "Нужна оценка каждого родителя"];
+    const nodes = structuredClone(captured ? S.specJob.gradingNodes : S.nodes), seen = new Set();
+    for (const a of b.assessments) {
+      if (!job.ids.includes(a?.id) || seen.has(a.id) || !["ok", "weak", "gap", "verify"].includes(a.status) || !clean(a.verdict, 400)) throw [400, "Некорректная оценка родителя"];
+      seen.add(a.id); recordVerdict(nodes.find(n => n.id === a.id), a.status, clean(a.verdict, 400));
+    }
+    if (captured) { S.specJob.gradingNodes = nodes; S.specJob.nodes = nodes.map(specNode); S.specJob.reviewIds = job.remaining; delete S.specJob.reviewWork; }
+    else { S.nodes = preview.branchCopies(nodes); S.reevaluation = job.remaining.length ? { ids: job.remaining } : null; }
+    save(); return { ok: true };
+  }
   const ideaOf = (nodes, id) => {
     let n = nodes.find(x => x.id === id);
     while (n && n.kind !== "idea") n = nodes.find(x => x.id === n.parentId);
@@ -260,7 +339,7 @@ ${S.notes || "—"}
     const waiting = qs().filter(n => n.pending).map(n => n.id);
     const ideaWaiting = [...new Set([...S.nodes.filter(n => n.analysis).map(n => n.id), ...waiting.map(id => ideaOf(S.nodes, id)?.id).filter(Boolean)])];
     return { stage: "queued", token: null, requestedAt: Date.now(), title: S.title, brief: S.brief, arch: S.arch,
-      nodes: S.nodes.map(specNode), gradingNodes: structuredClone(S.nodes.map(n => n.kind === "preview" ? specNode(n) : contextNode(n))), waiting, ideaWaiting, ideaReasons: Object.fromEntries(S.nodes.filter(n => n.analysis).map(n => [n.id, n.analysis.reason])) };
+      reviewIds: [...new Set([...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || []), ...waiting.flatMap(id => ancestorIds(S.nodes, id))])], nodes: S.nodes.map(specNode), gradingNodes: structuredClone(S.nodes.map(n => n.kind === "preview" ? specNode(n) : contextNode(n))), waiting, ideaWaiting, ideaReasons: Object.fromEntries(S.nodes.filter(n => n.analysis).map(n => [n.id, n.analysis.reason])) };
   };
   const specNodes = nodes => {
     const excluded = new Set(nodes.filter(n => n.kind === "idea" && n.status !== "ok").flatMap(n => subtree(nodes, n.id).map(x => x.id)));
@@ -268,7 +347,7 @@ ${S.notes || "—"}
   };
   const ideaBusy = id => {
     const branch = subtree(S.nodes, id), ids = new Set(branch.map(n => n.id));
-    return !!S.rereadJob || branch.some(n => n.pending || n.discuss || n.analysis) || S.questionRequests.some(j => ids.has(j.parentId)) || !!S.specJob?.nodes.some(n => ids.has(n.id));
+    return !!S.rereadJob || !!S.reevaluation || branch.some(n => n.pending || n.discuss || n.analysis) || S.questionRequests.some(j => ids.has(j.parentId)) || !!S.specJob?.nodes.some(n => ids.has(n.id));
   };
   // Idea revisions use the entire map: evidence in another branch can invalidate the conclusion.
   function ideaPayload(id, captured = false) {
@@ -315,7 +394,8 @@ ${S.notes || "—"}
     preview.reconcile(source, result);
     if (result.some(x => drop.has(x.parentId))) throw [400, "Родитель не найден или обнаружен цикл"];
     if (b.status === "ok" && subtree(result, idea.id).some(x => x.kind === "q" && !x.obsolete && (x.pending || ["open", "gap"].includes(x.status)))) throw [400, "Сначала разберите открытые вопросы и дыры"];
-    Object.assign(idea, { status: b.status, verdict, analysis: null, reviewedAt: Date.now() });
+    recordVerdict(idea, b.status, verdict);
+    Object.assign(idea, { analysis: null, reviewedAt: Date.now() });
     boundBranch(result);
     if (captured) {
       S.specJob.gradingNodes = result; S.specJob.nodes = result.map(specNode);
@@ -355,7 +435,7 @@ ${S.notes || "—"}
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : n.kind === "idea" ? "idea" : "question", question: n.kind === "root" ? S.title : n.text || n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
         status: n.status, obsolete: n.obsolete || null, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
         branch: anc(n).map(a => ({ q: a.q, ...(a.kind === "idea" ? { kind: "idea", text: a.text } : {}), answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
-        message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
+        message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : m.about === "question" ? "вопрос" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
         images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
         history: chat.slice(0, i).map(m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote, about: m.about || "option" } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) })) };
     }
@@ -368,9 +448,10 @@ ${S.notes || "—"}
     }
     if (e.type === "reread") {
       const j = S.rereadJob; if (!j) return null;
+      boundBranch(S.nodes);
       j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision();
       const talk = m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) });
-      return { type: "reread", token: j.token, title: S.title, brief: S.brief, arch: S.arch,
+      return { type: "reread", token: j.token, reserve: S.reserve, coverage: coverage(), title: S.title, brief: S.brief, arch: S.arch,
         ideas: S.nodes.filter(n => n.kind === "idea").map(contextNode),
         nodes: qs().map(n => ({ id: n.id, parentId: n.parentId, level: depth(n), area: n.area, priority: n.prio ?? null, q: n.q, why: n.why, options: n.options, status: n.status, answer: n.answer || null, verdict: n.verdict || null, createdBy: n.createdBy || null,
           obsolete: n.obsolete || null, conflictOf: n.conflictOf || [], mergedFrom: n.mergedFrom || [], chat: (n.chat || []).map(talk) })),
@@ -385,6 +466,13 @@ ${S.notes || "—"}
   }
   const counts = () => countQ(S.nodes);
   function takeEvent() {
+    if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) { const p = reviewPayload(true); save(); return { ...p, language: S.locale.language }; }
+    if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) { const p = reviewPayload(); save(); return { ...p, language: S.locale.language }; }
+    if (!S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
+      S.autoRereadRevision = mapRevision();
+      S.rereadJob = { stage: "queued", manual: false, edits: [], settled: true, requestedAt: Date.now() };
+      S.queue.push({ type: "reread" }); save();
+    }
     if (S.specJob?.stage === "refresh" && settled() && !S.nodes.some(n => n.analysis) && !rereadThinking()) S.specJob = captureSpec();
     // Captured answers must be graded before the snapshot can be delivered, including after restart.
     if (S.specJob?.waiting.length) {
@@ -398,7 +486,14 @@ ${S.notes || "—"}
       const i = S.queue.findIndex(e => e.type === "reread" ? rereadReady() : e.type === "idea" ? settled() && !rereadThinking() : e.type === "spec" ? S.specJob?.stage !== "refresh" && !S.specJob?.waiting.length && !S.specJob?.ideaWaiting?.length : true);
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
-      try { p = payload(e); } catch (error) { S.queue.splice(i, 0, e); throw error; }
+      try { p = payload(e); } catch (error) {
+        if (e.type === "reread" && error[2] === "context-limit") {
+          // Failed full-map context must not retain an answer lock or retry automatically.
+          S.rereadJob = null; S.rereadResult = { at: Date.now(), error: t(error[1] || String(error)) };
+          S.autoRereadRevision = mapRevision(); save();
+        } else S.queue.splice(i, 0, e);
+        throw error;
+      }
       if (p) { save(); return { ...p, language: S.locale.language }; }
     }
   }
@@ -408,7 +503,7 @@ ${S.notes || "—"}
   }
   function pump() {
     waiters = waiters.filter(w => !w.res.destroyed);
-    while (waiters.length && S.queue.length) {
+    while (waiters.length) {
       // A reread may have to wait, so a waiter keeps its timer until an event really exists.
       const ev = takeEvent(); if (!ev) break;
       const w = waiters.shift(); clearTimeout(w.timer);
@@ -421,6 +516,9 @@ ${S.notes || "—"}
   function report() {
     const LABEL = Object.fromEntries(Object.entries({ open: "Открыт", ok: "Закрыт", weak: "Слабо", gap: "Дыра", verify: "Проверить" }).map(([k, v]) => [k, t(v)]));
     let md = `# ${t("Грилинг:")} ${S.title || t("проект")}\n\n**${t("Бриф:")}** ${S.brief}\n\n**MVP-${t("архитектура:")}** ${S.arch || "—"}\n\n`;
+    const merged = (sources, ind = "") => (sources || []).map(m => `${ind}- ${t("Сведено из:")} ${m.q}: ${m.answer}\n` +
+      (m.verdict ? `${ind}  - ${t("Вердикт:")} ${m.verdict}\n` : "") +
+      (m.verdictHistory || []).map(h => `${ind}  - ${t("История вердиктов")}: [${LABEL[h.status]}] ${h.verdict}\n`).join("") + merged(m.mergedFrom, ind + "  ")).join("");
     const c = counts(); md += `${t("Итого:")} ${ORDER.map(s => `${LABEL[s]} ${c[s]}`).join(" · ")}\n\n`;
     if (S.summary) md += `## ${t("Итог")}\n\n${S.summary}\n\n`;
     md += `## ${t("Карта вопросов")}\n\n`;
@@ -429,13 +527,15 @@ ${S.notes || "—"}
       md += r.kind === "idea" ? `### ${t("Идея")} · [${t(r.status === "open" ? "Открыта" : r.status === "ok" ? "Закрыта" : LABEL[r.status])}]\n${r.text}\n` : `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
       if (r.kind === "idea") for (const m of r.chat || []) md += `- ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
       if (r.answer) md += `- ${t("Ответ:")} ${r.answer}\n`; if (r.verdict) md += `- ${t("Вердикт:")} ${r.verdict}\n`;
+      for (const h of r.verdictHistory || []) md += `- ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
       if (r.obsolete) md += `- ${t("Устарело:")} ${r.obsolete.reason}\n`;
-      (r.mergedFrom || []).forEach(m => { md += `- ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
+      md += merged(r.mergedFrom);
       const walk = (id, ind) => kids(id).forEach(k => {
         md += `${ind}- [${k.kind === "preview" ? t("Превью") : LABEL[k.status]}] ${k.q}${k.commit ? " · " + k.commit : ""}\n`;
         if (k.answer) md += `${ind}  - ${t("Ответ:")} ${k.answer}\n`; if (k.verdict) md += `${ind}  - ${t("Вердикт:")} ${k.verdict}\n`;
+        for (const h of k.verdictHistory || []) md += `${ind}  - ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
         if (k.obsolete) md += `${ind}  - ${t("Устарело:")} ${k.obsolete.reason}\n`;
-        (k.mergedFrom || []).forEach(m => { md += `${ind}  - ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
+        md += merged(k.mergedFrom, ind + "  ");
         if (r.kind === "idea") for (const m of k.chat || []) md += `${ind}  - ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
         walk(k.id, ind + "  ");
       });
@@ -448,6 +548,7 @@ ${S.notes || "—"}
     lastActivity = Date.now();
     if (b.type === "preview") return preview.apply(b);
     if (b.type === "idea") return applyIdea(b);
+    if (b.type === "reevaluate") return applyReview(b);
     if (b.type === "notes") {
       S.notes = clean(b.text, 3000); save(); writeSession(); return { ok: true };
     }
@@ -508,7 +609,8 @@ ${S.notes || "—"}
         const next = nodes.filter(x => !drop.has(x.id)).map(x => ({ ...x }));
         next.push(...additions.map(x => ({ ...x })));
         for (const m of moves) { const q = next.find(x => x.id === m.id); if (q) q.parentId = parentId(m.parentId); }
-        Object.assign(next.find(x => x.id === n.id), { answer, pending: null, status, verdict: clean(b.verdict, 400) });
+        recordVerdict(next.find(x => x.id === n.id), status, clean(b.verdict, 400));
+        Object.assign(next.find(x => x.id === n.id), { answer, pending: null });
         delete next.find(x => x.id === n.id).awaiting;
         const byId = new Map(next.map(x => [x.id, x]));
         if (byId.size !== next.length) throw [400, "Повторный идентификатор вопроса"];
@@ -527,9 +629,11 @@ ${S.notes || "—"}
       const next = preview.reconcile(S.nodes, rebuild(S.nodes)), nextFrozen = frozen && preview.reconcile(frozen, rebuild(frozen));
       if (S.rereadJob?.edits.includes(n.id)) { S.rereadJob.edits = S.rereadJob.edits.filter(id => id !== n.id); S.rereadJob.settled = true; }
       S.nodes = preview.branchCopies(next);
+      queueReview(S.nodes, n.id);
       queueIdea(ideaOf(S.nodes, n.id));
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || !drop.has(e.id));
       if (nextFrozen) {
+        queueReview(nextFrozen, n.id, true);
         S.specJob.gradingNodes = nextFrozen;
         S.specJob.nodes = nextFrozen.map(specNode);
         S.specJob.waiting = S.specJob.waiting.filter(id => id !== n.id && !drop.has(id));
@@ -543,7 +647,7 @@ ${S.notes || "—"}
       const reply = clean(b.reply, 2000); if (!reply) throw [400, "Пустой reply"];
       // a reply taken before a server restart is stale: the thread was re-queued and may hold newer messages
       if (n.discuss !== "thinking" || b.token !== n.discussToken) throw [409, "Обсуждение не ждёт этого ответа: его сбросили или сообщения снова в очереди, возьмите их через wait"];
-      n.chat = [...(n.chat || []), { from: "claude", text: reply, at: Date.now() }]; n.discuss = null;
+      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, at: Date.now() }]; n.discuss = null;
       save(); return { ok: true };
     }
     if (b.type === "question") {
@@ -579,12 +683,12 @@ ${S.notes || "—"}
     const j = S.rereadJob;
     if (!j || j.stage !== "thinking" || b.token !== j.token) throw [409, "Результат устарел, получите событие через wait"];
     if (j.revision !== mapRevision()) { recoverReread(); save(); throw [409, "Карта изменилась, получите событие через wait"]; }
-    const finish = result => { S.rereadJob = null; S.rereadResult = { at: Date.now(), ...result }; };
+    const finish = result => { S.autoRereadRevision = mapRevision(); S.rereadJob = null; S.rereadResult = { at: Date.now(), ...result }; };
     const error = clean(b.error, 1000);
     if (error) { finish({ changed: false, error: t(error) }); save(); return { ok: false, error: t(error) }; }
     const bad = message => [400, message];
     const list = (v, max) => { if (v !== undefined && (!Array.isArray(v) || v.length > max)) throw bad("Некорректный результат перечитывания"); return v || []; };
-    const close = list(b.close, 500), merge = list(b.merge, 100), add = list(b.add, 20), move = list(b.move, 500), remove = list(b.remove, 500), order = b.order === undefined ? null : list(b.order, 500);
+    const close = list(b.close, 500), merge = list(b.merge, 100), add = list(b.add, 3), move = list(b.move, 500), remove = list(b.remove, 500), order = b.order === undefined ? null : list(b.order, 500);
     const next = structuredClone(S.nodes), byId = new Map(next.map(n => [n.id, n]));
     // Coverage is mandatory even for a no-op: structural validation cannot judge the model's semantic review.
     if (!Array.isArray(b.audit) || b.audit.length !== qs().length) throw bad("Нужна проверка каждой карточки");
@@ -611,7 +715,7 @@ ${S.notes || "—"}
       if (n.obsolete || byId.get(source.id).obsolete) throw bad("Устаревшую карточку нельзя закрыть или использовать как актуальный ответ");
       if (n.conflictOf?.length) throw bad("Расхождение решает только ответ пользователя");
       if (n.answer || source.id === n.id || !source.answer || !verdict) throw bad("Закрыть можно вопрос без ответа, указав другой вопрос с ответом и вердикт со ссылкой на него");
-      Object.assign(n, { status: "ok", answer: source.answer, verdict });
+      recordVerdict(n, "ok", verdict); n.answer = source.answer;
     }
     const merged = new Map(), combined = new Map();
     for (const o of merge) {
@@ -623,7 +727,7 @@ ${S.notes || "—"}
       const keep = byId.get(keepId);
       // A merged conflict card must keep its disagreement on record, or it could be raised again.
       const conflicts = [...new Set(cards.flatMap(n => n.conflictOf || []))];
-      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
+      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", verdictHistory: structuredClone(n.verdictHistory || []), ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
       // keep.conflictOf is only a union for display; each exact disagreement stays in mergedFrom.
       if (conflicts.length) keep.conflictOf = conflicts;
       delete keep.conflictAnswers;
@@ -634,7 +738,7 @@ ${S.notes || "—"}
       if (chat.length > 100) throw bad("Обсуждение слишком длинное");
       if (chat.length) keep.chat = chat;
       combined.set(keepId, answer);
-      Object.assign(keep, { answer, verdict, status: o.status });
+      recordVerdict(keep, o.status, verdict); keep.answer = answer;
       for (const n of cards) if (n !== keep) { merged.set(n.id, keep.id); byId.delete(n.id); }
       for (const n of byId.values()) if (merged.has(n.parentId)) n.parentId = merged.get(n.parentId);
     }
@@ -710,6 +814,12 @@ ${S.notes || "—"}
     for (const n of qs()) if (n.answer && !kept.has(n.answer)) throw bad("Ответ пользователя потерян");
     const nodes = preview.reconcile(S.nodes, [...byId.values()]);
     for (const main of mains) boundBranch(subtree(nodes, main.id));
+    let reserve = b.reserve === undefined ? S.reserve : b.reserve;
+    if (reserve !== null && (!Array.isArray(reserve) || reserve.length > 100)) throw bad("Некорректный резерв");
+    const consumed = add.filter(o => o.reserveId !== undefined).map(o => o.reserveId);
+    if (new Set(consumed).size !== consumed.length || consumed.some(id => !S.reserve?.some(c => c.id === id))) throw bad("Кандидат резерва не найден");
+    if (reserve) reserve = reserve.filter(c => !consumed.includes(c.id));
+    if (reserve) reserve = reserveList(reserve, nodes);
     const brief = clean(b.brief, 6000) || S.brief;
     const changed = brief !== S.brief || JSON.stringify(nodes) !== JSON.stringify(S.nodes);
     const summary = clean(b.summary, 1000);
@@ -720,6 +830,7 @@ ${S.notes || "—"}
       for (const idea of S.nodes.filter(n => n.kind === "idea" && (n.analysisStarted || n.reviewedAt))) queueIdea(idea, "reread");
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || byId.has(e.id));
     }
+    S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
     finish({ changed, summary, audit: [...audit.values()] });
     save();
     if (changed) { writeSession(); pruneImages(); }
@@ -764,7 +875,7 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
         const { queue, specJob, specOwner, rereadJob, ...rest } = S;
-        return send(res, 200, { ...rest, nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length, listening: isListening() });
+        return send(res, 200, { ...rest, coverage: coverage(), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening() });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/image") {
@@ -782,7 +893,7 @@ ${S.notes || "—"}
           if (!S.queue.some(e => e.type === "question" && e.id === job.id)) S.queue.unshift({ type: "question", id: job.id });
           save();
         }
-        if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork) { recoverSpec(); save(); }
+        if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork || S.specJob?.reviewWork) { recoverSpec(); save(); }
         for (const n of S.nodes.filter(n => n.analysis?.stage === "thinking")) { queueIdea(n, n.analysis.reason); save(); }
         if (rereadThinking()) { recoverReread(); save(); }
         // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
@@ -840,7 +951,7 @@ ${S.notes || "—"}
             if (!S.queue.some(e => e.type === "discuss" && e.id === q.id)) S.queue.unshift({ type: "discuss", id: q.id });
           }
           if (S.specJob?.nodes.some(x => x.id === n.id)) {
-            S.specJob.stage = "refresh"; S.specJob.token = null; S.specJob.waiting = []; S.specJob.ideaWaiting = []; delete S.specJob.ideaWork;
+            S.specJob.stage = "refresh"; S.specJob.token = null; S.specJob.waiting = []; S.specJob.ideaWaiting = []; S.specJob.reviewIds = []; delete S.specJob.ideaWork; delete S.specJob.reviewWork;
             if (!S.queue.some(e => e.type === "spec")) S.queue.push({ type: "spec" });
           }
         } else {
@@ -859,7 +970,7 @@ ${S.notes || "—"}
         }
         if (rereadLocked()) return send(res, 409, { error: "Карта перестраивается. Прикрепить идею можно будет после перечитывания" });
         const idea = { id: uid(), parentId: "root", kind: "idea", text, q: clean(text, 220), area: t("Идея"), revision: 1, status: "open", verdict: null, chat: [], requestId };
-        S.nodes.push(idea); save(); return send(res, 200, { ok: true, id: idea.id });
+        S.nodes.push(idea); queueIdea(idea, "created"); save(); pump(); return send(res, 200, { ok: true, id: idea.id });
       }
       if (p === "/api/answer") {
         const n = get(b.id); const answer = clean(b.answer, 3000);
@@ -882,8 +993,14 @@ ${S.notes || "—"}
         if (edited) requestReread(false, n.id);
         return send(res, 200, { ok: true });
       }
+      if (p === "/api/discuss/read") {
+        const n = get(clean(b.id, 80)), m = n?.chat?.find(m => m.id === clean(b.messageId, 80) && m.from === "claude");
+        if (!m) return send(res, 404, { error: "Сообщение не найдено" });
+        if (!m.readAt) { m.readAt = Date.now(); save(); }
+        return send(res, 200, { ok: true });
+      }
       if (p === "/api/discuss") {
-        const n = get(b.id); const text = clean(b.message, 2000), quote = clean(b.quote, 400), about = b.about === "verdict" ? "verdict" : "option";
+        const n = get(b.id); const text = clean(b.message, 2000), quote = clean(b.quote, 400), about = ["verdict", "question"].includes(b.about) ? b.about : "option";
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
         const sources = b.images ?? [];
         if (!Array.isArray(sources)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
@@ -896,7 +1013,7 @@ ${S.notes || "—"}
         if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (decoded.some(x => x.data.length > IMG_MAX)) return send(res, 400, { error: "Картинка больше 8 МБ" });
         const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
-        n.chat = [...(n.chat || []), { from: "user", text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
+        n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
         if (n.discuss) { save(); return send(res, 200, { ok: true }); }
         n.discuss = "queued"; enqueue({ type: "discuss", id: n.id }); return send(res, 200, { ok: true });
       }
@@ -953,15 +1070,16 @@ ${S.notes || "—"}
         const roots = (Array.isArray(b.questions) ? b.questions : []).slice(0, 8);
         if (!roots.length) return send(res, 400, { error: "Нужен хотя бы один вопрос в questions" });
         const questions = roots.map((o, i) => mkQ(o, "root", { prio: i + 1 })).filter(Boolean);
+        const reserve = b.reserve === undefined ? null : reserveList(b.reserve, [{ id: "root", kind: "root" }, ...questions]);
         const v = S.version;
         const retainedPreviews = preview.reconcile(S.nodes, [{ id: "root", parentId: null, kind: "root" }]).filter(n => n.kind === "preview");
         S = { ...freshState(), locale: S.locale, version: v, specOwner: S.specOwner, specFile: S.specFile, specUpdatedAt: S.specUpdatedAt,
           title: clean(b.title, 80) || t("Проект"), brief: clean(b.brief, 6000), arch: clean(b.arch, 6000) };
-        S.nodes.push(...questions);
+        S.nodes.push(...questions); S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
         S.nodes.push(...retainedPreviews);
         lastActivity = Date.now(); save(); writeSession(); pruneImages(); return send(res, 200, { ok: true, questions: S.nodes.length - 1 });
       }
-      if (p === "/api/apply") return send(res, 200, apply(b));
+      if (p === "/api/apply") { const result = apply(b); pump(); return send(res, 200, result); }
       if (p === "/api/stop") { send(res, 200, { ok: true }); setTimeout(() => { try { fs.unlinkSync(INFO); } catch {} process.exit(0); }, 100); return; }
       return send(res, 404, { error: "not found" });
     } catch (e) {
@@ -1019,7 +1137,7 @@ async function listMaps() {
     const f = path.join(d, "state.json"), s = readJSON(f); if (!s || !Array.isArray(s.nodes)) continue;
     const info = await alive(d); let listening = false;
     if (info) try { listening = !!(await (await fetch(`http://127.0.0.1:${info.port}/api/state`, { headers: { "x-grill": "1" }, signal: AbortSignal.timeout(1500) })).json()).listening; } catch {}
-    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.queue || []).length, finished: !!s.finished,
+    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.queue || []).length + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
       updated: fs.statSync(f).mtime.toISOString(), url: info ? info.url : null, listening });
   }
   return out.sort((a, b) => b.updated.localeCompare(a.updated));

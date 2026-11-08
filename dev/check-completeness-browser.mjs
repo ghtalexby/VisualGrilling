@@ -1,0 +1,133 @@
+// Optional real-browser checks using built-in CDP/WebSocket, without installed packages.
+// Node 22+; set GRILL_BROWSER to a Chromium executable on other platforms.
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const executable = [process.env.GRILL_BROWSER, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"].find(p => p && fs.existsSync(p));
+if (!executable || typeof WebSocket === "undefined") { console.log("Browser checks skipped: Chromium and Node 22+ required"); process.exit(0); }
+const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
+const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-completeness-browser-")), dir = path.join(cwd, "maps"), profile = path.join(cwd, "browser");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let server, browser, ws, url, sequence = 0;
+const pending = new Map();
+async function until(fn) { for (let i = 0; i < 150; i++) { const value = await fn(); if (value) return value; await sleep(100); } throw new Error("Timed out"); }
+function cdp(method, params = {}) {
+  return new Promise((resolve, reject) => { const id = ++sequence; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); });
+}
+async function js(expression) {
+  const r = await cdp("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+  if (r.exceptionDetails) throw new Error(JSON.stringify(r.exceptionDetails));
+  return r.result.value;
+}
+async function api(route, body) {
+  const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  assert.equal(r.status, 200, await r.clone().text()); return r.json();
+}
+const click = selector => js(`document.querySelector(${JSON.stringify(selector)}).click()`);
+const input = (selector, text) => js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});e.value=${JSON.stringify(text)};e.dispatchEvent(new Event("input",{bubbles:true}));})()`);
+const menu = id => js(`document.querySelector('[data-id="${id}"]').dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,cancelable:true,clientX:100,clientY:100}))`);
+async function end(child) { if (!child || child.exitCode !== null) return; const ended = new Promise(r => child.once("exit", r)); child.kill(); await ended; }
+try {
+  server = spawn(process.execPath, [cli, "serve", "--dir", dir, "--name", "check", "--port", "0", "--lang", "en"], { cwd, stdio: "ignore", windowsHide: true });
+  await until(() => { try { const info = JSON.parse(fs.readFileSync(path.join(dir, "check", "server.json"))); url = info.url; return true; } catch { return false; } });
+  await api("init", { title: "Browser check", questions: [{ q: "Existing question", options: ["Yes", "No"] }] });
+  browser = spawn(executable, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--remote-debugging-port=0", "--user-data-dir=" + profile, "about:blank"], { stdio: "ignore", windowsHide: true });
+  const port = await until(() => { try { return Number(fs.readFileSync(path.join(profile, "DevToolsActivePort"), "utf8").split("\n")[0]); } catch { return false; } });
+  const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  ws = new WebSocket(pages.find(p => p.type === "page").webSocketDebuggerUrl);
+  await new Promise(r => ws.addEventListener("open", r, { once: true }));
+  ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
+  await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
+
+  // Freeze polling and record API writes so each UI scenario has deterministic state.
+  await js(`poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
+    S.coverage={shown:5,reserve:5,percent:50};
+    window.qid=S.nodes.find(n=>n.kind==="q").id;
+    S.nodes.push({id:"idea",parentId:"root",kind:"idea",text:"Idea",status:"weak",chat:[]});
+    render();openPanel({mode:"node",id:qid});`);
+  assert.match(await js('document.querySelector("#bReread").textContent'), /50%/);
+  assert.equal(await js('document.querySelectorAll("button button").length'), 0);
+  assert.equal(await js('document.querySelector("#zReset")'), null);
+  assert.equal(await js('document.querySelector("[data-act=more]")'), null);
+  await input("#fAns", "Unicode comment: ё猫\nsecond line");
+  await click('[data-chip="Yes"]'); await click('[data-chip="No"]');
+  assert.equal(await js('document.querySelectorAll(".chip[aria-pressed=true]").length'), 2);
+  assert.equal(await js('document.querySelector("#fAns").value'), "Unicode comment: ё猫\nsecond line");
+  await click('[data-act="answer"]'); await until(()=>js('!sending'));
+  assert.equal(await js('writes.at(-1).body.answer'), "Yes\nNo\nUnicode comment: ё猫\nsecond line");
+  await input("#fAns", "Keep comment");
+  await click('[data-chip="Yes"]'); await click('.chip.idk');
+  assert.deepEqual(await js('selections[qid]'), ["I don't know"]);
+  await click('[data-chip="No"]'); assert.deepEqual(await js('selections[qid]'), ["No"]);
+  assert.equal(await js('document.querySelector("#fAns").value'), "Keep comment");
+  await input("#fAns", "x".repeat(3000)); await click('[data-act="answer"]');
+  assert.match(await js('document.querySelector(".err").textContent'), /3000/);
+  await input("#fAns", "Draft persists");
+  await click('#ledger [data-flt="verify"]');
+  assert.equal(await js('document.querySelectorAll("#stage .node").length'), 1);
+  assert.equal(await js('document.querySelector("#panel").hidden'), true);
+  await click('#ledger [data-flt="weak"]');
+  assert.equal(await js('counts().weak'), 1);
+  assert.deepEqual(await js('[...document.querySelectorAll("#stage .node")].map(n=>n.dataset.id).sort()'), ["idea", "root"]);
+  await click('#zAll'); await js('openPanel({mode:"node",id:qid})');
+  assert.equal(await js('document.querySelector("#fAns").value'), "Draft persists");
+  await click('[data-tab="discuss"]'); await input('#fMsg', '  Original draft\nwith whitespace  ');
+  await js('draftQuotes[qid]={about:"option",text:"No"};panel.quote=draftQuotes[qid]');
+  await click('[data-act="explainquestion"]'); await until(()=>js('!sending'));
+  assert.equal(await js('writes.at(-1).path'), '/api/discuss');
+  assert.equal(await js('writes.at(-1).body.about'), 'question');
+  assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
+  assert.equal(await js('panel.quote.text'), 'No');
+  // Busy and HTTP rejection preserve the exact draft and quote; retry stays explicit.
+  await js('get(qid).discuss="thinking"'); await click('[data-act="explainquestion"]');
+  assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
+  await js('get(qid).discuss=null;window.goodApi=api;api=async()=>{throw new Error("HTTP 409")};');
+  await click('[data-act="explainquestion"]'); await until(()=>js('!sending'));
+  assert.match(await js('document.querySelector(".err").textContent'), /409/);
+  assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
+  await js('api=goodApi');
+  // Block-level copy retains Unicode/newlines, and rejection gets visible feedback.
+  await js('window.copied=[];Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async t=>copied.push(t)}})');
+  await click('[data-copy="Existing question"]'); await until(()=>js('copied.length'));
+  assert.equal(await js('copied[0]'), 'Existing question');
+  await js('navigator.clipboard.writeText=async()=>{throw new Error("denied")}');
+  await click('[data-copy="Existing question"]'); await until(()=>js('document.querySelector(".err")?.textContent.includes("Copy failed")'));
+  // Active/visible checks guard exact message acknowledgements, including root chat.
+  await js(`Object.defineProperty(document,"hasFocus",{configurable:true,value:()=>false});
+    get("root").chat=[{id:"reply-a",from:"claude",text:"Reply A",at:1},{id:"reply-b",from:"user",text:"Question",at:2}];
+    render();openPanel({mode:"project",id:"root",tab:"discuss"});`);
+  await js('ackVisibleMessages()');
+  assert.equal(await js('writes.filter(w=>w.path==="/api/discuss/read").length'), 0);
+  assert.equal(await js('document.querySelector("[data-id=root]").classList.contains("unread")'), true);
+  await js('Object.defineProperty(document,"hasFocus",{configurable:true,value:()=>true});Object.defineProperty(document,"visibilityState",{configurable:true,value:"hidden"});ackVisibleMessages()');
+  assert.equal(await js('writes.filter(w=>w.path==="/api/discuss/read").length'), 0);
+  await js('Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"});ackVisibleMessages()');
+  assert.deepEqual(await js('writes.filter(w=>w.path==="/api/discuss/read").at(-1).body'), {id:"root",messageId:"reply-a"});
+  // Fit uses every card even below the manual zoom minimum; branch fit retains other branches.
+  await js(`for(let i=0;i<200;i++)S.nodes.push({id:"big"+i,parentId:qid,kind:"q",q:"Large tree "+i,status:"open",options:[],chat:[]});render();`);
+  await click('#zAll'); assert.ok(await js('zoom<.1'));
+  assert.ok(await js('(()=>{const r=document.querySelector("#stage").getBoundingClientRect(),v=vp.getBoundingClientRect();return r.left>=v.left-1&&r.right<=v.left+viewWidth()+1&&r.top>=v.top-1&&r.bottom<=v.bottom+1})()'));
+  await click('#zOut'); assert.equal(await js('zoom'), .1);
+  await js('openPanel({mode:"node",id:qid});flt="weak";isolated={id:qid,filter:null}');
+  await click('#zBranch'); assert.equal(await js('flt===null&&isolated===null'), true);
+  assert.equal(await js('document.querySelectorAll("#stage .node").length'), 203);
+  await click('[data-act="close"]');
+  await click('[data-root-chat]'); assert.equal(await js('panel.mode'), 'project');
+  await js('document.querySelector("[data-root-chat]").dispatchEvent(new MouseEvent("dblclick",{bubbles:true,cancelable:true}))');
+  assert.equal(await js('isolated'), null);
+  await click('[data-act="close"]'); assert.equal(await js('document.querySelector("#zBranch").disabled'), true);
+  // A removed merged source keeps its escaped, individually copyable verdict history.
+  await js(`get(qid).mergedFrom=[{q:"Removed source",answer:"Source answer",verdict:"Regraded source",verdictHistory:[{status:"weak",verdict:"Historical <unsafe>"},{status:"ok",verdict:"Regraded source"}]}];openPanel({mode:"node",id:qid});`);
+  assert.ok(await js('document.querySelector("#panel").textContent.includes("Historical <unsafe>")'));
+  assert.equal(await js('document.querySelector("unsafe")'), null);
+  assert.ok(await js(`!!document.querySelector('[data-copy="Historical <unsafe>"]')`));
+  assert.match(await js('toMarkdown()'), /Historical <unsafe>/);
+  console.log("Completeness browser checks passed");
+} finally {
+  ws?.close(); await end(browser); await end(server);
+  fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+}

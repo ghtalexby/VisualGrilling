@@ -89,6 +89,9 @@ try {
   assert.equal(line.inbox, path.join(dir, "arch", "inbox.json"));
   assert.equal(JSON.parse(fs.readFileSync(line.inbox)).answer, "Architecture answer");
   await request(a, "apply", { type: "answer", id, token: line.token, status: "ok", verdict: "Good", children: [] });
+  const automatic = await request(a, "wait?timeout=5");
+  assert.equal(automatic.type, "reread");
+  await request(a, "apply", { type: "reread", token: automatic.token, reserve: [], audit: automatic.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture" })) });
   const expired = await result(run("arch", ["watch", "--inbox", "--max-wait", "5"]));
   assert.equal(expired.name, "arch");
   assert.equal(expired.expired, true);

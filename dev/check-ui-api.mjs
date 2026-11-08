@@ -25,7 +25,15 @@ async function request(route, body, expected = 200) {
   assert.equal(r.status, expected, await r.clone().text());
   return r.json();
 }
-const state = () => request("state"), wait = () => request("wait?timeout=5");
+const state = () => request("state");
+async function wait() {
+  for (;;) {
+    const e = await request("wait?timeout=5");
+    if (e.type !== "reevaluate") return e;
+    await request("apply", { type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
+      assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status, verdict: n.verdict }; }) });
+  }
+}
 const grade = (e, extra = {}, expected = 200) => request("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked", ...extra }, expected);
 const discuss = (e, expected = 200) => request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Explanation" }, expected);
 async function stop() {
@@ -40,7 +48,7 @@ try {
   const controls = {}, headerState = { finished: true, nodes: [{ kind: "q" }] };
   const headerContext = vm.createContext({
     S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false,
-    qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
+    coverageText: () => "", qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
     $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute() {} }
   });
   const headerCode = ui.match(/function renderHeader\(\)\{[\s\S]*?\n\}/)[0] + "\nrenderHeader();";
@@ -55,7 +63,7 @@ try {
   const newCard = { id: "new", parentId: "old", kind: "q", area: "Lifecycle", q: "Current detail?", status: "open" };
   const historicalState = { title: "History", nodes: [oldCard, newCard] };
   const historicalContext = vm.createContext({
-    S: historicalState, panel: { tab: "answer" }, errMsg: null,
+    copyButton: () => "", S: historicalState, panel: { tab: "answer" }, errMsg: null,
     qs: () => historicalState.nodes, kids: id => historicalState.nodes.filter(n => n.parentId === id),
     get: id => historicalState.nodes.find(n => n.id === id), ancestors: () => [], rootPrio: () => 1, depth: () => 1,
     esc: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
@@ -241,8 +249,8 @@ try {
   await request("question", { id: child.id, parentId: "root", q: "Unrelated custom request" });
   e = await wait(); assert.equal(e.type, "answer");
   await grade(e, { branchChanges: { remove: [child.id] } });
-  // The custom question, plus the reread queued by the earlier answer edits.
-  assert.equal((await state()).queueLength, 2);
+  // The custom question, queued reread and internal parent reassessment.
+  assert.equal((await state()).queueLength, 3);
   e = await wait(); assert.equal(e.type, "question"); assert.equal(e.id, child.id);
   await request("apply", { type: "question", id: e.id, token: e.token, question: { options } });
   e = await wait(); assert.equal(e.type, "reread");

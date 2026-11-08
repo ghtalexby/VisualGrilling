@@ -23,7 +23,15 @@ async function request(route, body, expected = 200) {
   assert.equal(r.status, expected, await r.clone().text());
   return r.json();
 }
-const state = () => request("state"), wait = () => request("wait?timeout=5");
+const state = () => request("state");
+async function wait() {
+  for (;;) {
+    const e = await request("wait?timeout=5");
+    if (e.type !== "reevaluate") return e;
+    await request("apply", { type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
+      assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status, verdict: n.verdict }; }) });
+  }
+}
 const auditFor = (e, body = {}) => e.nodes.map(n => ({ id: n.id, action: body.close?.some(o => o.id === n.id) ? "close" : body.merge?.some(o => o.ids.includes(n.id)) ? "merge" : body.remove?.includes(n.id) ? "remove" : "keep", reason: "Transport fixture review" }));
 const reread = (e, body = {}, expected = 200) => request("apply", { type: "reread", token: e.token, summary: "Checked", audit: auditFor(e, body), ...body }, expected);
 const by = (s, q) => s.nodes.find(n => n.q === q);

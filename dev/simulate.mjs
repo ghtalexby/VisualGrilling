@@ -68,6 +68,8 @@ const handlers = {
     ...(e.phase === "prepare" ? { question: "[sim] Which visual explanation?", options: ["Circle size wireframe", "Relationship diagram"] } : { purpose: "[sim] Interactive circle size", files: circlePreview }) }),
   spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer || n.kind === "idea" || n.kind === "preview").map(n => n.kind === "preview" ? n.link ? "- [" + n.q + "](" + n.link + ") · " + n.commit : "- " + n.q + ": [sim] Not published at capture." : "- [" + n.status + "] " + (n.text || n.q) + ": " + (n.answer || n.verdict)).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
   answer: e => grade(e),
+  reevaluate: e => ({ type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
+    assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status === "open" ? "weak" : n.status, verdict: "[sim] Preserve grade: transport fixture does not establish new evidence." }; }) }),
   idea: e => {
     const ids = new Set([e.id]);
     for (let size = -1; size !== ids.size;) { size = ids.size; for (const n of e.nodes) if (ids.has(n.parentId)) ids.add(n.id); }
@@ -91,8 +93,11 @@ const handlers = {
     const rootOf = n => { let p = n; while (p.parentId !== "root") p = [...e.nodes, ...(e.ideas || [])].find(x => x.id === p.parentId); return p.id; };
     const source = e.nodes.find(n => n.answer && !n.obsolete), target = source && e.nodes.find(n => !n.obsolete && !n.answer && n.status === "open" && !n.conflictOf.length && rootOf(n) !== rootOf(source));
     const audit = e.nodes.map(n => ({ id: n.id, action: n === target ? "close" : "keep", reason: "[sim] Проверка транспорта, не семантическая оценка." }));
-    if (!target) return { type: "reread", token: e.token, audit, summary: "[sim] Схема в балансе, изменений нет." };
-    return { type: "reread", token: e.token, audit, summary: `[sim] Закрыт вопрос «${target.q.slice(0, 60)}».`, close: [{ id: target.id, source: source.id, verdict: `[sim] Закрыто ответом на вопрос «${source.q.slice(0, 80)}».` }] };
+    const candidates = (e.reserve || []).slice(0, 3);
+    const reserve = (e.reserve || []).slice(candidates.length);
+    const add = candidates.map((n, i) => ({ ...n, key: "$reserve" + i, reserveId: n.id }));
+    if (!target) return { type: "reread", token: e.token, audit, reserve, add, summary: "[sim] Схема в балансе, изменений нет." };
+    return { type: "reread", token: e.token, audit, reserve, add, summary: `[sim] Закрыт вопрос «${target.q.slice(0, 60)}».`, close: [{ id: target.id, source: source.id, verdict: `[sim] Закрыто ответом на вопрос «${source.q.slice(0, 80)}».` }] };
   },
   finish: e => ({ type: "finish", summary: `Вердикт: Жив при условии… (симуляция)\n\nСчётчики: ${JSON.stringify(e.counts)}\n\nРиски:\n${e.problems.slice(0, 3).map((p, i) => `${i + 1}. ${p.q}`).join("\n") || "—"}\n\nПроверки на неделю:\n1. Проверка из симулятора. Успех — карта отрисовала итог.` }),
 };

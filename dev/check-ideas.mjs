@@ -45,12 +45,17 @@ try {
   await api("idea", { id: "empty", text: " " }, 400);
   await api("idea", { id: "large", text: "a".repeat(3001) }, 400);
   const id = await attach("<script>idea</script> " + "Long idea ".repeat(35));
-  assert.equal((await state()).queueLength, 0);
+  assert.equal((await state()).queueLength, 1);
+  assert.equal((await node(id)).analysis.stage, "queued");
   assert.equal((await api("idea", { id: "idea-1", text: (await node(id)).text })).id, id);
   await api("idea", { id: "idea-1", text: "Different" }, 409);
+  const initial = await wait(); assert.equal(initial.type, "idea"); assert.equal(initial.id, id);
+  await result(initial, { status: "open" });
   await api("reread", {}); const reread = await wait();
   await api("apply", { type: "reread", token: reread.token, brief: "Unrelated brief correction", audit: reread.nodes.map(n => ({ id: n.id, action: "keep", reason: "Still valid" })) });
-  assert.ok(!(await node(id)).analysis, "A reread must not start an untouched attachment");
+  assert.equal((await node(id)).analysis.stage, "queued", "A changed reread reassesses the automatically analyzed attachment");
+  const afterReread = await wait(); assert.equal(afterReread.type, "idea");
+  await result(afterReread, { status: "open" });
   assert.equal((await state()).queueLength, 0);
   await api("answer", { id, answer: "Cannot grade an idea as a question" }, 404);
   await api("discuss", { id, message: "Keep this chat" });
@@ -93,6 +98,7 @@ try {
   // A map-context change invalidates a live conclusion.
   e = await analyze(id); await attach("Unrelated new context"); await result(e, {}, 409);
   e = await wait(); await result(e);
+  e = await wait(); assert.equal(e.type, "idea"); await result(e);
   // Edits cancel delivered work, retain history, and require an individual branch audit.
   const old = await analyze(id); await edit(id, "Revised idea"); await result(old, {}, 409);
   e = await wait(); assert.equal(e.reason, "edit"); await result(e, {}, 400);

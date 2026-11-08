@@ -186,6 +186,12 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 .map-row a{color:inherit}
 #finishedNotice{font-size:12px;color:var(--muted)}
 .node.idea{border-style:double;border-width:3px}.node.idea .qtext{white-space:pre-wrap;max-height:160px;overflow:hidden}
+.root-main{display:block;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer}
+.root-chat{margin-top:12px}
+.node.unread{box-shadow:0 0 0 3px var(--accent)}
+.chip[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
+.zoom button{width:auto;min-width:32px;padding:0 9px}
+.msg [data-copy]{display:block;margin-top:8px}
 </style>
 </head>
 <body>
@@ -194,7 +200,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
     <div class="brand"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg><span>Грилинг-карта</span></div>
     <div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
-    <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bStop" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту">Остановить</button><button class="btn" id="bSummary">Сводка и итог</button></div>
+    <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bStop" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту">Остановить</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
   <div class="lrow"><div class="ledger" id="ledger"></div><div class="conn" id="conn"></div></div>
   <div id="finishedNotice" hidden></div>
@@ -203,7 +209,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
   <div id="viewport"><div id="stage"><svg id="edges"></svg></div></div>
   <button class="btn isolation" id="bIsolation" hidden aria-label="Отменить изоляцию карточки" title="Отменить изоляцию карточки"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10 5a12 12 0 0 1 11 7 16 16 0 0 1-4 5M6 6a16 16 0 0 0-3 6s3 7 9 7a12 12 0 0 0 4-1M10 10a3 3 0 0 0 4 4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
   <div class="hint" id="hint" hidden></div>
-  <div class="zoom"><button id="zOut" aria-label="Уменьшить">−</button><button id="zReset" aria-label="Масштаб 100%">1:1</button><button id="zIn" aria-label="Увеличить">+</button></div>
+  <div class="zoom"><button id="zOut" aria-label="Уменьшить">−</button><button id="zAll">Показать всё</button><button id="zBranch" disabled>Приблизить выбранное</button><button id="zIn" aria-label="Увеличить">+</button></div>
 </main>
 <aside id="panel" hidden aria-live="polite"></aside>
 <div id="panelGrip" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Ширина панели"></div>
@@ -218,9 +224,9 @@ let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, seenFinished=null;
 let rereadSending=false;
 let panel=null, errMsg=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
-const QLABEL={option:"Вариант ответа",verdict:"Вердикт"};
+const QLABEL={question:"Вопрос",option:"Вариант ответа",verdict:"Вердикт"};
 const KEYS=`<span class="keys">Enter — отправить · Ctrl+Enter — перенос</span>`;
-let fresh=new Set(); const drafts={},draftQuotes={},draftImages={},imgUrls={}; let zoom=1,px=0,py=0;
+let fresh=new Set(); const selections={},drafts={},draftQuotes={},draftImages={},imgUrls={}; let zoom=1,px=0,py=0;
 const IMG_TYPES=["image/png","image/jpeg","image/gif","image/webp"],IMG_MAX=8*1024*1024,IMG_COUNT=4;
 let flt=null; /* status picked in the ledger: map keeps only such questions and their ancestor chains */
 let isolated=null, clickTimer=0;
@@ -369,17 +375,26 @@ addEventListener("beforeunload",e=>{if(previewView?.dirty){e.preventDefault();e.
 addEventListener("keydown",async e=>{if(e.key==="Escape"&&previewView&&!previewView.el.querySelector("dialog")){e.preventDefault();if(await guardPreview())closePreviewNow()}},true);
 
 const ideaStatus=n=>n.status==="open"?"Открыта":n.status==="ok"?"Закрыта":STATUS[n.status];
+const coverageText=()=>S.coverage?.stale?"Охват требует обновления":S.coverage?.percent==null?"Охват не оценён":`Охват ${S.coverage.percent}%`;
+const hasUnread=n=>(n.chat||[]).some(m=>m.from==="claude"&&!m.readAt);
+const chatBadge=n=>`<span class="rmeta">Обсуждение: ${(n.chat||[]).length}${hasUnread(n)?" · Новый ответ":""}</span>`;
+const copyButton=text=>`<button class="btn small" data-copy="${esc(text||"")}">Скопировать</button>`;
+function toggleChoice(value){
+  const id=panel.id,selected=selections[id]||=[];
+  selections[id]=selected.includes(value)?selected.filter(x=>x!==value):value==="Не знаю"?[value]:[...selected.filter(x=>x!=="Не знаю"),value];
+  renderPanel();
+}
 function nodeHTML(n){
   if(n.kind==="preview")return `<span class="nhead"><span class="area">▧ Превью</span><span class="pill">${n.job?"В очереди":n.stale?`Устарело: ${n.stale}`:""}</span></span><span class="qtext">${esc(n.q)}</span>${n.error?`<span class="ans">${esc(n.error)}</span>`:""}`;
   if(n.kind==="root"){
     const q=qs().filter(n=>!n.obsolete),open=q.filter(x=>x.status==="open"&&!x.pending).length;
-    return `<span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто</span>`;
+    return `<button class="root-main"><span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто · ${coverageText()}</span>${chatBadge(n)}</button><button class="btn small root-chat" data-root-chat>Открыть чат с агентом</button>`;
   }
-  if(n.kind==="idea")return `<span class="nhead"><span class="area">◇ Идея</span><span class="pill">${n.analysis?(n.analysis.stage==="thinking"?"Разбор":"В очереди"):ideaStatus(n)}</span></span><span class="qtext">${esc(n.text)}</span>`;
+  if(n.kind==="idea")return `<span class="nhead"><span class="area">◇ Идея</span><span class="pill">${n.analysis?(n.analysis.stage==="thinking"?"Разбор":"В очереди"):ideaStatus(n)}</span></span><span class="qtext">${esc(n.text)}</span>${chatBadge(n)}`;
   const p=n.parentId==="root"?`<b>P${n.prio}</b> · `:"";
   const pill=n.obsolete?`<span class="pill">Устарело</span>`:n.pending?`<span class="pill s-think">${n.pending.stage==="thinking"?"Разбор":"В очереди"}</span>`:`<span class="pill">${STATUS[n.status]}</span>`;
-  const a=n.pending?n.pending.answer:n.answer,c=(n.chat||[]).length;
-  return `<span class="nhead"><span class="area">${p}${esc(n.area||"")}${c?` · обсужд. ${c}`:""}</span>${pill}</span><span class="qtext">${esc(n.q)}</span>${a?`<span class="ans">${esc(a)}</span>`:""}`;
+  const a=n.pending?n.pending.answer:n.answer;
+  return `<span class="nhead"><span class="area">${p}${esc(n.area||"")}</span>${pill}</span><span class="qtext">${esc(n.q)}</span>${a?`<span class="ans">${esc(a)}</span>`:""}${chatBadge(n)}`;
 }
 function render(){
   const stage=$("#stage"),svg=$("#edges");
@@ -389,17 +404,21 @@ function render(){
   if(isolated&&!get(isolated.id)){flt=isolated.filter;isolated=null;requestAnimationFrame(focusFilter)}
   if(isolated)chain(get(isolated.id));
   else{
-    S.nodes.forEach(n=>{if(n.kind==="idea"||n.kind==="preview"){chain(n);return}if(n.kind!=="q"||flt&&(n.obsolete||n.status!==flt))return;hit.add(n.id);chain(n)});
-    if(panel&&panel.mode==="node")chain(get(panel.id));
+    S.nodes.forEach(n=>{if(!flt){chain(n);return}if(!["q","idea"].includes(n.kind)||n.obsolete||n.status!==flt)return;hit.add(n.id);chain(n)});
   }
+  if(panel?.id&&!shown.has(panel.id)){panel=null;renderPanel()}
   $("#bIsolation").hidden=!isolated;
+  $("#zBranch").disabled=!panel?.id;
   existing.forEach((e,id)=>{if(!shown.has(id))e.remove()});
   const vk=id=>kids(id).filter(k=>shown.has(k.id));
   S.nodes.forEach(n=>{if(!shown.has(n.id))return;
-    const b=existing.get(n.id)||document.createElement("button");
-    b.className="node "+(n.kind==="root"?"root":(n.kind==="idea"?"idea q s-":"q s-")+vis(n))+(panel&&panel.id===n.id?" sel":"")+(fresh.has(n.id)?" fresh":"")+(flt&&n.kind==="q"&&!hit.has(n.id)?" ctx":"");
+    const b=existing.get(n.id)||document.createElement(n.kind==="root"?"div":"button");
+    b.className="node "+(n.kind==="root"?"root":(n.kind==="idea"?"idea q s-":"q s-")+vis(n))+(panel&&panel.id===n.id?" sel":"")+(hasUnread(n)?" unread":"")+(fresh.has(n.id)?" fresh":"")+(flt&&n.kind!=="root"&&!hit.has(n.id)?" ctx":"");
     // Keep gesture targets and focus stable when polling redraws unchanged cards.
-    const html=nodeHTML(n);if(b.contentHTML!==html){b.innerHTML=html;b.contentHTML=html}
+    const html=nodeHTML(n);if(b.contentHTML!==html){
+      const rootFocus=n.kind==="root"&&b.contains(document.activeElement)?(document.activeElement.matches("[data-root-chat]")?"[data-root-chat]":".root-main"):null;
+      b.innerHTML=html;b.contentHTML=html;if(rootFocus)b.querySelector(rootFocus)?.focus({preventScroll:true});
+    }
     b.dataset.id=n.id;if(!b.isConnected)stage.appendChild(b);els[n.id]=b;
   });
   const NW=252,HG=64,VG=14,PAD=28,h={},sub={},pos={};
@@ -419,7 +438,7 @@ function render(){
   stage.style.width=W+"px";stage.style.height=H+"px";applyView();
   renderHeader();
 }
-function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};qs().filter(n=>!n.obsolete).forEach(n=>c[n.status]++);return c}
+function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};S.nodes.filter(n=>["q","idea"].includes(n.kind)&&!n.obsolete).forEach(n=>c[n.status]++);return c}
 function renderHeader(){
   $("#bMaps").textContent=loaded?(S.name??"Без имени"):"Карты";
   $("#finishedNotice").hidden=!S.finished||listening||offline;
@@ -427,7 +446,7 @@ function renderHeader(){
   $("#bSpec").textContent=S.specPending?"Спека в работе…":S.specUpdatedAt?"Обновить спеку":"Создать спеку";
   $("#bSpec").disabled=!!S.specPending;
   const rereadBusy=rereadSending||!!S.rereadPending, rereadButton=$("#bReread");
-  rereadButton.textContent=rereadBusy?"Перечитываю…":"Перечитать";
+  rereadButton.textContent=rereadBusy?"Перечитываю…":`Перечитать · ${coverageText()}`;
   rereadButton.disabled=rereadBusy||!qs().length;
   rereadButton.classList.toggle("reread-busy",rereadBusy);
   rereadButton.setAttribute("aria-busy",String(rereadBusy));
@@ -437,7 +456,7 @@ function renderHeader(){
   $("#ptitle").textContent=S.title||"";document.title=S.title?`Грилинг: ${S.title}`:"Грилинг-карта";
   const c=counts();
   const refocus=document.activeElement&&document.activeElement.closest("#ledger")?document.activeElement.dataset.flt:null;
-  $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}"${!c[s]&&flt!==s?" disabled":""} title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");
+  $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}" title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");
   if(refocus){const b=$(`#ledger [data-flt="${refocus}"]:not(:disabled)`)||$("#ledger button:not(:disabled)");if(b)b.focus()}
   const conn=$("#conn");
   if(offline){conn.className="conn dead";conn.innerHTML="<i></i>Сервер карты остановлен. Попросите агента продолжить грилинг"}
@@ -457,20 +476,21 @@ function nodePanel(n){
   let b="";const anc=ancestors(n);
   if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
   if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
-  b+=`<h2>${esc(n.q)}</h2>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
+  b+=`<h2>${esc(n.q)}</h2><div class="row">${copyButton(n.q)}<button class="btn small" data-act="explainquestion">Не понял</button></div>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
   if(n.obsolete)b+=`<div class="note"><b>Устарело</b>: ${esc(n.obsolete.reason)}<br>История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.</div>`;
   const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
-  if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${n.mergedFrom.map(m=>`<div class="note"><b>${esc(m.q)}</b><br>Ваш ответ: ${esc(m.answer)}</div>`).join("")}`;
+  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note"><b>${esc(m.q)}</b>${copyButton(m.q)}<p>Ваш ответ: ${esc(m.answer)}</p>${m.answer?copyButton(m.answer):""}${m.verdict?`<p>Вердикт: ${esc(m.verdict)}</p>${copyButton(m.verdict)}`:""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>${copyButton(v.verdict)}`).join("")}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
+  if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${mergedHistory(n.mergedFrom)}`;
   const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
-  else if(n.obsolete){if(n.answer)b+=`<div class="note">Ваш ответ: ${esc(n.answer)}${n.verdict?`<p>${esc(n.verdict)}</p>`:""}</div>`}
+  else if(n.obsolete){if(n.answer)b+=`<div class="note">Ваш ответ: ${esc(n.answer)}${copyButton(n.answer)}${n.verdict?`<p>${esc(n.verdict)}</p>${copyButton(n.verdict)}`:""}</div>`}
   else if(n.pending){
-    b+=`<div class="verdict s-think"><span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p></div>`;
+    b+=`<div class="verdict s-think"><span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p>${copyButton(n.pending.answer)}</div>`;
     b+=n.pending.stage==="thinking"?working("Агент оценивает ответ и ищет слабые места…"):waitNote()+`<div class="row"><button class="btn small" data-act="cancel">Отозвать ответ</button></div>`;
   }else if(n.answer&&!panel.edit){
-    b+=`<div class="verdict s-${n.status}"${n.verdict?` data-verdict tabindex="0" title="Правый клик — обсудить вердикт"`:""}><span class="pill">${STATUS[n.status]}</span><p class="atext">Ваш ответ: ${esc(n.answer)}</p>${n.verdict?`<p>${esc(n.verdict)}</p>`:""}</div>`;
+    b+=`<div class="verdict s-${n.status}"${n.verdict?` data-verdict tabindex="0" title="Правый клик — обсудить вердикт"`:""}><span class="pill">${STATUS[n.status]}</span><p class="atext">Ваш ответ: ${esc(n.answer)}</p>${copyButton(n.answer)}${n.verdict?`<p>${esc(n.verdict)}</p>${copyButton(n.verdict)}`:""}</div>`;
     const ch=kids(n.id);
     if(ch.length)b+=`<h3>Подвопросы</h3><div class="sublist">${ch.map(c=>`<button class="subq s-${vis(c)}" data-open="${c.id}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
     else if(n.status==="ok")b+=`<p class="why">Ветка закрыта, копать глубже не нужно.</p>`;
@@ -479,18 +499,19 @@ function nodePanel(n){
     const nx=nextOpen();if(nx&&nx.id!==n.id)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Следующий открытый вопрос →</button></div>`;
   }else{
     b+=S.rereadPending?.locked?`<div class="note">Карта перестраивается. Ответить можно будет после перечитывания, черновик сохранится.</div>`:waitNote();
-    b+=`<div class="chips">${(n.options||[]).map(o=>`<button class="chip${n.recommendation?.option===o?" recommended":""}" data-chip="${esc(o)}"${n.recommendation?.option===o?' aria-describedby="recommendation"':""}>${n.recommendation?.option===o?"★ ":""}${esc(o)}</button>`).join("")}<button class="chip idk" data-chip="Не знаю">Не знаю</button></div>`;
+    b+=`<div class="chips">${(n.options||[]).map(o=>`<button class="chip${n.recommendation?.option===o?" recommended":""}" aria-pressed="${(selections[n.id]||[]).includes(o)}" data-chip="${esc(o)}"${n.recommendation?.option===o?' aria-describedby="recommendation"':""}>${n.recommendation?.option===o?"★ ":""}${esc(o)}</button>`).join("")}<button class="chip idk" aria-pressed="${(selections[n.id]||[]).includes("Не знаю")}" data-chip="Не знаю">Не знаю</button></div>`;
     if(n.recommendation&&(n.options||[]).includes(n.recommendation.option))b+=`<div class="note" id="recommendation"><b>Рекомендация агента:</b> ${esc(n.recommendation.reason)}</div>`;
-    b+=`<label class="fl">Ваш ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?n.answer:""))}</textarea></label>`;
+    b+=`<label class="fl">Комментарий к выбранным вариантам или свой ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?n.answer:""))}</textarea></label>`;
     b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending||S.rereadPending?.locked?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
   }
+  if(n.verdictHistory?.length>1)b+=`<details><summary>История вердиктов</summary>${n.verdictHistory.map(v=>`<div class="note"><span class="pill s-${v.status}">${STATUS[v.status]}</span><p>${esc(v.verdict)}</p>${copyButton(v.verdict)}</div>`).join("")}</details>`;
   if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
   return{head,body:b};
 }
 function discussTab(n){
   const chat=n.chat||[];
-  let b=chat.length?`<div class="chat">${chat.map(m=>`<div class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
-    :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается отдельно через меню идеи.</p>`:n.kind==="root"?`<p class="why">Задайте общий вопрос агенту о проекте. Сама переписка не меняет ответы и карту, но агент учитывает её при перечитывании.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».</p>`;
+  let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
+    :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте общий вопрос агенту о проекте. Сама переписка не меняет ответы и карту, но агент учитывает её при перечитывании.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».</p>`;
   const busy=n.discuss==="thinking";
   if(busy)b+=working("Агент пишет ответ…");
   else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
@@ -510,8 +531,8 @@ function ideaDraftPanel(){
 function ideaPanel(n){
   let b=`<h2>${esc(n.text)}</h2>`;
   if(panel.edit)b=`<label class="fl">Текст идеи<textarea id="fIdeaEdit" rows="5" maxlength="3000">${esc(drafts["i:"+n.id]??n.text)}</textarea></label><div class="row"><button class="btn primary" data-act="saveidea" ${sending?"disabled":""}>Сохранить идею</button><button class="btn" data-act="cancelideaedit">Отмена</button></div>`;
-  if(n.analysis)b+=working(n.analysis.stage==="thinking"?"Агент разбирает идею…":"Разбор идеи в очереди");
-  if(n.verdict)b+=`<div class="verdict s-${n.status}" data-verdict tabindex="0"><span class="pill">${ideaStatus(n)}</span><p>${esc(n.verdict)}</p>${n.analysis?`<small>Предыдущий итог, ожидается переоценка</small>`:""}</div>`;
+  if(n.analysis)b+=working(n.analysis.stage==="thinking"?"Агент разбирает идею…":"Разбор идеи в очереди")+waitNote();
+  if(n.verdict)b+=`<div class="verdict s-${n.status}" data-verdict tabindex="0"><span class="pill">${ideaStatus(n)}</span><p>${esc(n.verdict)}</p>${copyButton(n.verdict)}${n.analysis?`<small>Предыдущий итог, ожидается переоценка</small>`:""}</div>`;
   if(panel.deleteIdea)b+=`<div class="warn"><p>Удалить идею, все её вопросы, ответы и чаты?</p>${n.deleteBlocked?`<p>Дождитесь завершения работы с веткой идеи</p>`:""}<div class="row"><button class="btn" data-act="deleteidea" ${sending||n.deleteBlocked?"disabled":""}>Удалить всю ветку</button><button class="btn" data-act="cancelideadelete">Отмена</button></div></div>`;
   b+=discussTab(n);
   if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
@@ -550,6 +571,7 @@ function questionPanel(){
 }
 function openQuestion(id){openPanel({mode:"question",id,requestId:crypto.randomUUID()})}
 function toMarkdown(){
+  const merged=(sources,ind="")=>(sources||[]).map(m=>`${ind}- Сведено из: ${m.q}: ${m.answer}\n`+(m.verdict?`${ind}  - Вердикт: ${m.verdict}\n`:"")+(m.verdictHistory||[]).map(v=>`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`).join("")+merged(m.mergedFrom,ind+"  ")).join("");
   let md=`# ${S.title}\n\n**Бриф:** ${S.brief||""}\n\n**MVP-архитектура:** ${S.arch||"—"}\n\n`;
   const c=counts();md+=`Итого: ${ORDER.map(s=>`${STATUS[s]} ${c[s]}`).join(" · ")}\n\n`;
   if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
@@ -557,9 +579,9 @@ function toMarkdown(){
     if(r.kind==="preview"){md+=`## Превью · ${r.q}\n${r.commit||""}\n`;return}
     md+=r.kind==="idea"?`## Идея · [${ideaStatus(r)}]\n${r.text}\n`:`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
-    if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;(r.mergedFrom||[]).forEach(m=>{md+=`- Сведено из: ${m.q}: ${m.answer}\n`});
+    if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;
@@ -578,6 +600,7 @@ function summaryPanel(){
   if(rereadSending)b+=working("Перечитываю…");
   else if(S.rereadPending)b+=working(S.rereadPending.stage==="thinking"?"Агент перечитывает карту…":qs().some(n=>n.pending)?"Сначала разбираем отправленные ответы…":listening?"Перечитывание в очереди…":"Запрос сохранён. Ожидаем агента…");
   else if(qs().length)b+=`<div class="row"><button class="btn" data-act="reread">Перечитать карту</button></div>`;
+  if(S.reevaluationError)b+=`<div class="err">Переоценка родителей не выполнена: ${esc(S.reevaluationError.error)} (${S.reevaluationError.ids.map(esc).join(", ")})</div>`;
   const rr=S.rereadResult;
   if(rr?.error)b+=`<div class="err">Карта не изменилась: ${esc(rr.error)}</div>`;
   else if(rr)b+=`<div class="final">${esc(rr.summary||(rr.changed?"Схема обновлена.":"Схема в балансе, изменений нет."))}</div>`;
@@ -589,7 +612,6 @@ function summaryPanel(){
   if(S.specUpdatedAt)b+=`<p class="why">Последняя запись: ${esc(new Date(S.specUpdatedAt).toLocaleString(S.locale?.language||"ru"))}</p>`;
   if(S.specError)b+=`<div class="err">${esc(S.specError)}. Исправьте причину и повторите запрос.</div>`;
   b+=`<h3>Дальше</h3>`+waitNote();
-  b+=S.morePending?working("Агент ищет непокрытые слабые места…"):`<div class="row"><button class="btn" data-act="more">Добавить 3 главных вопроса</button></div>`;
   b+=`<div class="row"><button class="btn" data-act="addquestion">${S.questionRequests?.some(j=>j.parentId==="root")?"Агент готовит варианты ответа…":"Добавить свой вопрос"}</button></div>`;
   b+=S.finishPending?working("Агент готовит итог…"):`<div class="row"><button class="btn primary" data-act="finish">${S.finished?"Обновить итог":"Завершить и получить итог"}</button></div>`;
   b+=`<h3>Экспорт в Markdown</h3><p class="why" style="font-size:13px">Для Xmind, MindMeister, Markmap, Notion. Полный отчёт Агент сохраняет в папку карты: <code class="mono">.grill/&lt;имя&gt;/report.md</code> (у карты без имени — <code class="mono">.grill/report.md</code>).</p><textarea id="md" rows="8" readonly>${esc(toMarkdown())}</textarea><div class="row"><button class="btn" data-act="copy">Скопировать</button><span id="copied" class="mono" style="color:var(--ok)"></span></div>`;
@@ -598,11 +620,11 @@ function summaryPanel(){
 }
 function panelSig(){
   if(!panel)return"";
-  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
+  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.coverage,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,S.reevaluationError,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.pending,n.verdict,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(){
   const p=$("#panel");
@@ -630,28 +652,42 @@ function renderPanel(){
   /* a just-disabled or replaced control cannot hold focus: fall back to the input or the active tab */
   let f=fsel&&p.querySelector(fsel);if(ae&&(!f||f.disabled))f=p.querySelector("#fMsg,#fAns")||p.querySelector('[data-tab][aria-selected="true"]');
   if(f){f.focus({preventScroll:true});if(sel)f.setSelectionRange(...sel)}
+  requestAnimationFrame(ackVisibleMessages);
 }
+const reading=new Set();
+async function ackVisibleMessages(){
+  if(document.visibilityState!=="visible"||!document.hasFocus()||!panel?.id)return;
+  const n=get(panel.id),p=$("#panel"),box=p.querySelector(".pb");
+  if(!n||p.hidden||!box||!(n.kind==="root"||n.kind==="idea"||panel.tab==="discuss"))return;
+  const bounds=box.getBoundingClientRect();
+  for(const el of box.querySelectorAll("[data-message]")){
+    if(document.visibilityState!=="visible"||!document.hasFocus()||panel?.id!==n.id||!el.isConnected)return;
+    const m=(n.chat||[]).find(m=>m.id===el.dataset.message),r=el.getBoundingClientRect();
+    if(!m||m.from!=="claude"||m.readAt||reading.has(m.id)||r.bottom<=bounds.top||r.top>=bounds.bottom)continue;
+    reading.add(m.id);
+    try{await api("/api/discuss/read",{id:n.id,messageId:m.id});await poll(true)}catch{}finally{reading.delete(m.id)}
+  }
+}
+addEventListener("focus",()=>requestAnimationFrame(ackVisibleMessages));
+document.addEventListener("visibilitychange",()=>requestAnimationFrame(ackVisibleMessages));
+$("#panel").addEventListener("scroll",()=>requestAnimationFrame(ackVisibleMessages),true);
 function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id])panel.quote=draftQuotes[o.id];errMsg=null;confirmReset=false;render();renderPanel()}
 
 /* ---------- actions ---------- */
 async function submitAnswer(){
   if(sending)return;
-  const id=panel.id,t=$("#fAns"),answer=(t?t.value:"").trim();
+  const id=panel.id,t=$("#fAns"),raw=t?t.value:"",choices=[...(selections[id]||[])],answer=[...choices,raw.trim()].filter(Boolean).join("\n");
+  if(answer.length>3000){errMsg="Общий ответ длиннее 3000 символов.";renderPanel();return}
   if(!answer){errMsg="Напишите ответ или выберите вариант.";renderPanel();return}
   sending=id;errMsg=null;
-  try{await api("/api/answer",{id,answer});delete drafts[id];if(panel&&panel.id===id)panel.edit=false;await poll(true)}
+  try{await api("/api/answer",{id,answer});if(drafts[id]===undefined||drafts[id]===raw)delete drafts[id];if(JSON.stringify(selections[id]||[])===JSON.stringify(choices))delete selections[id];if(panel&&panel.id===id)panel.edit=false;await poll(true)}
   catch(e){errMsg=e.message}
   sending=null;render();renderPanel();
-}
-function saveExplanation(id,q,message){
-  const key="d:"+id,text=`«${q.text}»\n${message}`;
-  if(!drafts[key]?.includes(text))drafts[key]=drafts[key]?drafts[key]+"\n\n"+text:text;
-  draftQuotes[id]=q;if(panel?.id===id)panel.quote=q;
 }
 async function submitDiscuss(request){
   const id=panel.id,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined,images=request?[]:[...(draftImages[id]||[])];
   if(sending||(get(id)||{}).discuss==="thinking"){
-    if(request){saveExplanation(id,q,message);errMsg="Дождитесь ответа агента. Запрос объяснения сохранён в поле сообщения.";renderPanel()}
+    if(request){errMsg="Дождитесь ответа агента и повторите запрос объяснения.";renderPanel()}
     return;
   }
   if(!message&&!quote&&!images.length){errMsg="Напишите сообщение.";renderPanel();return}
@@ -663,7 +699,7 @@ async function submitDiscuss(request){
     if(!request&&draftQuotes[id]===q)delete draftQuotes[id];
     if(!request&&panel?.id===id&&panel.quote===q)panel.quote=null;
     await poll(true);
-  }catch(e){if(request)saveExplanation(id,q,message);errMsg=e.message}
+  }catch(e){errMsg=e.message}
   sending=null;render();renderPanel();
 }
 async function act(path,body){errMsg=null;try{await api(path,body||{});await poll(true)}catch(e){errMsg=e.message;renderPanel()}}
@@ -711,12 +747,12 @@ async function poll(force){
 
 /* ---------- events ---------- */
 $("#stage").addEventListener("mousedown",e=>{if(e.button===0&&e.detail>1&&e.target.closest(".node"))clearTimeout(clickTimer)});
-$("#stage").addEventListener("click",e=>{const b=e.target.closest(".node");if(!b)return;
+$("#stage").addEventListener("click",e=>{if(e.target.closest("[data-root-chat]")){clearTimeout(clickTimer);openPanel({mode:"project",id:"root",tab:"discuss"});return}const b=e.target.closest(".node");if(!b)return;
   clearTimeout(clickTimer);if(e.detail>1)return;
-  const id=b.dataset.id,open=()=>{if(get(id))openPanel(id==="root"?{mode:"summary"}:{mode:"node",id})};
+  const id=b.dataset.id,open=()=>{if(get(id))openPanel(id==="root"?{mode:"summary",id:"root"}:{mode:"node",id})};
   if(e.detail===0)open();else clickTimer=setTimeout(open,PAGE_DOUBLE_CLICK_MS);
 });
-$("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if(!b)return;
+$("#stage").addEventListener("dblclick",e=>{if(e.target.closest("[data-root-chat]")){e.preventDefault();return}const b=e.target.closest(".node");if(!b)return;
   e.preventDefault();clearTimeout(clickTimer);const id=b.dataset.id;
   if(get(id)?.kind==="preview"){openPreview(id).catch(error=>{errMsg=error.message;openPanel({mode:"node",id})});return}
   isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);
@@ -727,6 +763,7 @@ $("#bSummary").onclick=()=>openPanel({mode:"summary"});
 $("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
 $("#bStop").onclick=()=>{openPanel({mode:"summary"});act("/api/finish")};
 $("#bReread").onclick=requestReread;
+$("#bChat").onclick=()=>openPanel({mode:"project",id:"root",tab:"discuss"});
 $("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fIdeaEdit")drafts["i:"+panel.id]=e.target.value;if(e.target.id==="fIdea"){drafts.idea=e.target.value;ideaRequestId=null}if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion","fIdea","fIdeaEdit"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
 addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit));
 /* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
@@ -764,11 +801,13 @@ $("#panel").addEventListener("click",e=>{
   const im=e.target.closest("img[data-img]");if(im){if(im.src)window.open(im.src);return}
   const o=e.target.closest("[data-open]");if(o){openPanel({mode:"node",id:o.dataset.open});return}
   const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;errMsg=null;confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
-  const ch=e.target.closest("[data-chip]");if(ch){const t=$("#fAns");t.value=ch.dataset.chip;drafts[panel.id]=t.value;fit(t);t.focus();return}
+  const cb=e.target.closest("[data-copy]");if(cb){Promise.resolve().then(()=>navigator.clipboard.writeText(cb.dataset.copy)).then(()=>{if(cb.isConnected)cb.textContent="Скопировано"},()=>{errMsg="Не удалось скопировать. Выделите текст и скопируйте вручную.";renderPanel()});return}
+  const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
   const a=e.target.closest("[data-act]");if(!a)return;
   switch(a.dataset.act){
     case "close":panel=null;render();renderPanel();break;
     case "answer":submitAnswer();break;
+    case "explainquestion":{const n=get(panel.id);panel.tab="discuss";renderPanel();submitDiscuss({message:"Объясни вопрос простыми словами и укажи, какие сведения нужны для ответа.",quote:{about:"question",text:n.q}});break}
     case "question":submitQuestion();break;
     case "attachidea":attachIdea();break;
     case "saveidea":saveIdea();break;
@@ -784,7 +823,6 @@ $("#panel").addEventListener("click",e=>{
       api("/api/chatreset",{id}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{errMsg=err.message;renderPanel()});break}
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":act("/api/cancel",{id:panel.id});break;
-    case "more":act("/api/more");break;
     case "reread":requestReread();break;
     case "finish":act("/api/finish");break;
     case "spec":act("/api/spec");break;
@@ -800,7 +838,7 @@ $("#panel").addEventListener("click",e=>{
 let ctx=null;
 function closeCtx(refocus){if(!ctx)return;const c=ctx;ctx=null;c.el.remove();if(!refocus)return;
   /* a poll may have re-rendered the panel while the menu was open: look the target up again */
-  const t=c.target.isConnected?c.target:panel&&panel.id===c.id&&$(`#panel ${c.sel}`);if(t)t.focus()}
+  const t=c.target.isConnected?c.target:panel&&panel.id===c.id&&$(`#panel ${c.sel}`);if(t)(t.matches(".root")?t.querySelector(".root-main"):t)?.focus()}
 document.addEventListener("contextmenu",()=>closeCtx(),true);
 $("#panel").addEventListener("contextmenu",e=>{
   if(!panel)return;
@@ -822,7 +860,7 @@ $("#stage").addEventListener("contextmenu",e=>{
   const target=e.target.closest(".node");if(!target||selBefore)return;
   e.preventDefault();clearTimeout(clickTimer);
   const id=target.dataset.id,el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
-  el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="project">Задать вопрос</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
+  el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="project">Общий чат</button><button role="menuitem" data-ctx="reread">Перечитать</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
   if(get(id)?.kind!=="preview")el.innerHTML+=`<button role="menuitem" data-ctx="preview">Создать превью</button>`;
   else el.innerHTML=`<button role="menuitem" data-ctx="previewopen">Открыть превью</button>`;
   document.body.appendChild(el);const r=target.getBoundingClientRect();
@@ -832,7 +870,7 @@ $("#stage").addEventListener("contextmenu",e=>{
 });
 document.addEventListener("click",e=>{
   if(!ctx)return;const b=e.target.closest("#ctxmenu [data-ctx]");const c=ctx;closeCtx();
-  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
+  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="reread")requestReread();else if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
   if(!b||!panel||panel.id!==c.id)return;
   if(b.dataset.ctx==="discuss"||b.dataset.ctx==="explain"){
     panel.tab="discuss";errMsg=null;confirmReset=false;
@@ -845,7 +883,7 @@ document.addEventListener("click",e=>{
     }else{panel.quote=c.quote;draftQuotes[c.id]=c.quote;renderPanel()}
     const f=$("#fMsg");if(f)f.focus();
   }
-  else{const t=$("#fAns");if(t){t.value=c.quote.text;drafts[panel.id]=t.value;fit(t);t.focus()}}
+  else if($("#fAns"))toggleChoice(c.quote.text);
 },true);
 /* selection made before the right click (macOS selects the clicked word itself, so it is snapshotted on pointerdown) keeps the browser menu for copying */
 let selBefore=false;
@@ -879,7 +917,7 @@ function centerNode(id){
 }
 function focusFilter(){
   if(!flt){centerMap();return}
-  const matches=[...document.querySelectorAll("#stage .node.q")].filter(b=>{const n=get(b.dataset.id);return n&&n.kind==="q"&&!n.obsolete&&n.status===flt}).sort((a,b)=>a.offsetLeft-b.offsetLeft||a.offsetTop-b.offsetTop);
+  const matches=[...document.querySelectorAll("#stage .node.q")].filter(b=>{const n=get(b.dataset.id);return n&&["q","idea"].includes(n.kind)&&!n.obsolete&&n.status===flt}).sort((a,b)=>a.offsetLeft-b.offsetLeft||a.offsetTop-b.offsetTop);
   if(matches.length)centerNode(matches[0].dataset.id);else centerMap();
 }
 function centerMap(){
@@ -889,12 +927,23 @@ function centerMap(){
 /* zoom keeps the map point under (ax,ay) — viewport-relative, default centre — in place */
 function setZoom(z,ax,ay){
   stopGlide();
-  z=Math.min(2,Math.max(.3,z));if(z===zoom)return;
+  z=zoom<.1?.1:Math.min(2,Math.max(.1,z));if(z===zoom)return;
   if(ax==null){ax=vp.clientWidth/2;ay=vp.clientHeight/2}
   px=ax-(ax-px)*z/zoom;py=ay-(ay-py)*z/zoom;zoom=z;applyView();
 }
 const stepZoom=d=>setZoom(Math.round((zoom+d)*10)/10);
-$("#zIn").onclick=()=>stepZoom(.1);$("#zOut").onclick=()=>stepZoom(-.1);$("#zReset").onclick=()=>setZoom(1);
+$("#zIn").onclick=()=>stepZoom(.1);$("#zOut").onclick=()=>stepZoom(-.1);$("#zAll").onclick=()=>fitMap();$("#zBranch").onclick=()=>{if(panel?.id)fitMap(panel.id)};
+function fitMap(id){
+  stopGlide();flt=null;isolated=null;render();renderPanel();
+  const ids=id?new Set([id,...descendants(id)]):null;
+  const nodes=[...document.querySelectorAll("#stage .node")].filter(n=>!ids||ids.has(n.dataset.id));
+  if(!nodes.length)return;
+  const left=Math.min(...nodes.map(n=>n.offsetLeft)),top=Math.min(...nodes.map(n=>n.offsetTop));
+  const right=Math.max(...nodes.map(n=>n.offsetLeft+n.offsetWidth)),bottom=Math.max(...nodes.map(n=>n.offsetTop+n.offsetHeight));
+  const w=viewWidth(),h=vp.clientHeight;
+  zoom=Math.min(2,Math.max(1,w-48)/(right-left),Math.max(1,h-48)/(bottom-top));
+  px=(w-(right-left)*zoom)/2-left*zoom;py=(h-(bottom-top)*zoom)/2-top*zoom;applyView();
+}
 /* wheel zooms toward the cursor; mostly-horizontal trackpad swipes pan */
 vp.addEventListener("wheel",e=>{
   e.preventDefault();stopGlide();

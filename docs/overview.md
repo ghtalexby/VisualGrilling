@@ -14,11 +14,11 @@ The interaction takes place on a browser map:
 
 1. In the project, ask Claude Code to `grill my project`, or ask Codex `$grill grill my project`. You can include an idea brief.
 2. Following `SKILL.md`, the agent selects the language of the request before running `grill.mjs start`. The browser opens with a localized loading message.
-3. The agent reads the README, code, and configuration, then sends `init`: title, brief, MVP architecture, and exactly five main questions (P1–P5, most critical first).
-4. Answer on the map with an option or free text. Answers are queued; you can submit several without waiting.
+3. The agent reads the README, code, and configuration, then sends `init`: title, brief, MVP architecture, and the first five main questions (P1–P5, most critical first) and the remaining concrete candidates as a persistent hidden reserve.
+4. Answer on the map with multiple options and a free-text comment in one answer. Answers are queued; you can submit several without waiting.
 5. The agent repeats `wait → grade → apply`, assigning Closed / Weak / Gap / Verify, explaining the verdict, and adding follow-up questions. Code claims are checked against files. The discussion tab lets you clarify or dispute a verdict without grading or changing status.
-6. Summary lets you add three main questions (`more`) or prepare your own main question. Stop in the header (visible only while the agent is connected) and Finish and get the summary in the summary panel both send `finish`; the agent supplies a verdict, three risks, three checks for the week, and saves `.grill/<name>/report.md`.
-7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. Editing an existing answer queues the same review.
+6. Summary lets you reread the map or prepare your own main question. Stop in the header (visible only while the agent is connected) and Finish and get the summary in the summary panel both send `finish`; the agent supplies a verdict, three risks, three checks for the week, and saves `.grill/<name>/report.md`.
+7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues the same review.
 8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
 A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 (Codex) requires separate sessions. Use the header switcher to visit sibling maps. Finishing drains queued actions, then stops listening while leaving the page readable.
@@ -70,10 +70,18 @@ Use `npm run link:codex` for the test workspace or `npm run link:codex:global` t
 
 ## Ideas on the project map
 
-Use the root menu to attach an idea; the draft becomes a persistent card only after Attach. Discuss it in the drawer and select Analyze idea to start its own question branch in the context of the entire map. The agent can conclude without new questions when existing answers suffice. Ideas use the familiar five grades and an explanation; their grades stay outside question counters/filters. Idea cards remain visible when filtering their questions.
+Use the root menu to attach an idea; the draft becomes a persistent card only after Attach. Creation immediately queues analysis in the context of the entire map, including when the agent is disconnected. Discuss it in the drawer or select Analyze idea to request reassessment. The agent can conclude without new questions when existing answers suffice. Ideas use the familiar five grades and an explanation; ideas match status filters and their counters, but do not count toward question coverage.
 
 Text edits preserve history and automatically reassess the branch; changes to descendant answers also trigger reassessment. Editing during work invalidates old results. Deletion removes the whole branch only after confirmation and waits for work affecting it. Generated specs include only closed idea branches with their risks. If idea text changes during spec generation, the old request is canceled and a new snapshot follows reassessment. Closing an idea never starts implementation.
 
 ## Visual explanations
 
 Use Create preview on root/question menus for an interactive wireframe or a diagram. Preview cards have separate projects, manual generation, version history and per-version saved values; they are not graded questions. Git is an external dependency for this feature. See [preview.md](preview.md). `preview.mjs` owns storage and protocol, and `preview-view.mjs` provides the isolated renderer.
+
+## Coverage, discussion and navigation
+
+Root and Reread show one global coverage value: displayed current questions divided by displayed questions plus hidden candidates. Closed questions and follow-ups count; ideas, previews and obsolete questions do not. Unassessed reserve displays no invented percentage. 100% means only that the known reserve is empty, not that answers are satisfactory or all possible questions are known.
+
+Clarifying answers trigger substantive parent reassessment, preserving original answers and prior verdicts. A parent closes only when branch evidence resolves the weakness. New agent discussion replies highlight their cards until the corresponding discussion is open in an active tab; read state is shared across browsers. Message badges count both participants. Root has an explicit project-chat button. I do not understand requests an explanation of the question without sending the existing discussion draft. Separate copy controls copy each question, answer, verdict or chat message.
+
+Status filters include ideas and allow zero matches, showing only root when empty. Ancestors provide context but do not inflate match counts. A hidden selected card closes its panel while preserving drafts. Show all resets filters/isolation and fits the map; Zoom selected resets them and fits the selected branch without hiding other branches. Branch fit is disabled without a selection. Automatic fits can go below 10%; manual zoom has a 10% minimum and accounts for the open drawer.
