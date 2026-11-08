@@ -26,6 +26,7 @@ When adding an endpoint:
 | Statuses (`LABEL`, `ORDER`, `counts()`) | Their duplicates in `ui.html` (`STATUS`, `ORDER`, `counts()`), `.s-<status>` CSS classes, and color tokens |
 | UI source phrases, locale validation, or language selection | `locales/en.json`, `i18n.mjs`, `SKILL.md`, `docs/contract.md`, simulator options, and locale checks |
 | The `report()` format | The similar UI `toMarkdown()` implementation if matching output is needed |
+| Reread rules, event or transaction | `worker.md`, `SKILL.md`, `docs/contract.md`, `dev/simulate.mjs`, `dev/check-reread.mjs`, UI lock and result states |
 | Worker event rules or delegation | `worker.md`, `SKILL.md`, contract, simulator and `check-workers.mjs` |
 | Config keys or models | `config.default.json`, config validation, `SKILL.md`, contract and worker checks |
 | CLI commands | The header comment in `grill.mjs`, its `commands` object, `SKILL.md`, `docs/contract.md` |

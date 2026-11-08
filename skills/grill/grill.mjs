@@ -6,7 +6,7 @@
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
 //   node grill.mjs wait   [--timeout 280]                            block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] wait across timeouts for one event
-//   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"more"|"finish"|"spec"|"notes", ...}   send agent's result to the map
+//   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
 //   node grill.mjs config                                       print merged griller model config
 //   node grill.mjs spec                                         request an implementation plan
 //   node grill.mjs status | report | stop
@@ -57,7 +57,7 @@ const atomicWrite = (file, text) => {
   try { fs.writeFileSync(tmp, text, { flag: "wx" }); fs.renameSync(tmp, file); }
   finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
 };
-const freshState = () => ({ version: 0, title: "", brief: "", arch: "", notes: "", nodes: [{ id: "root", parentId: null, kind: "root" }], queue: [], questionRequests: [], summary: null, finished: false, morePending: false, finishPending: false });
+const freshState = () => ({ version: 0, title: "", brief: "", arch: "", notes: "", nodes: [{ id: "root", parentId: null, kind: "root" }], queue: [], questionRequests: [], summary: null, finished: false, morePending: false, finishPending: false, rereadJob: null, rereadResult: null });
 
 async function doubleClickTime() {
   const valid = value => Number.isFinite(value) && value > 0 && value <= 10000;
@@ -133,6 +133,12 @@ ${S.notes || "—"}
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
   recoverSpec();
+  const recoverReread = () => {
+    if (!S.rereadJob) return;
+    S.rereadJob.stage = "queued"; delete S.rereadJob.token; delete S.rereadJob.revision;
+    if (!S.queue.some(e => e.type === "reread")) S.queue.push({ type: "reread" });
+  };
+  recoverReread();
   save();
   writeSession();
   pruneImages();
@@ -190,6 +196,30 @@ ${S.notes || "—"}
       fs.renameSync(tmp, file);
     } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
   }
+  const isListening = () => waiters.some(w => !w.res.destroyed) || Date.now() - lastActivity < 180000;
+  // A running rebuild always locks answers. A requested one locks them only while an agent can reach it, and an automatic one never does, so edits in a row join a single run.
+  const rereadLocked = () => !!S.rereadJob && (S.rereadJob.stage === "thinking" || !!S.rereadJob.manual && isListening());
+  const rereadThinking = () => S.rereadJob?.stage === "thinking";
+  // The rebuild reads a settled map: submitted work goes first and a running specification finishes.
+  const rereadReady = () => !S.specJob && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss);
+  const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
+  const requestReread = (manual, edit) => {
+    if (S.rereadJob) {
+      if (manual) S.rereadJob.manual = true;
+      if (edit && !S.rereadJob.edits.includes(edit)) S.rereadJob.edits.push(edit);
+      save(); return;
+    }
+    S.rereadResult = null;
+    // edits: answer edits not yet graded. A withdrawn edit changed nothing, so it must not cost a run.
+    S.rereadJob = { stage: "queued", manual: !!manual, edits: edit ? [edit] : [], settled: false, requestedAt: Date.now() };
+    enqueue({ type: "reread" });
+  };
+  const dropEdit = id => {
+    const job = S.rereadJob;
+    if (!job?.edits.includes(id)) return;
+    job.edits = job.edits.filter(x => x !== id);
+    if (!job.manual && !job.settled && !job.edits.length && job.stage === "queued") { S.rereadJob = null; S.queue = S.queue.filter(e => e.type !== "reread"); }
+  };
   const maxPrio = () => Math.max(0, ...kids("root").map(n => n.prio || 0));
   const mkQ = (o, parentId, extra) => {
     const q = clean(o && o.q, 220); if (!q) return null;
@@ -243,6 +273,15 @@ ${S.notes || "—"}
       return { type: "question", id: job.id, token: job.token, parentId: parent.id, question: job.q,
         parent: contextNode(parent), branch: anc(parent).map(contextNode), existingQuestions: qs().map(x => x.q) };
     }
+    if (e.type === "reread") {
+      const j = S.rereadJob; if (!j) return null;
+      j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision();
+      const talk = m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) });
+      return { type: "reread", token: j.token, title: S.title, brief: S.brief, arch: S.arch,
+        nodes: qs().map(n => ({ id: n.id, parentId: n.parentId, level: depth(n), area: n.area, priority: n.prio ?? null, q: n.q, why: n.why, options: n.options, status: n.status, answer: n.answer || null, verdict: n.verdict || null, createdBy: n.createdBy || null,
+          conflictOf: n.conflictOf || [], mergedFrom: n.mergedFrom || [], chat: (n.chat || []).map(talk) })),
+        projectChat: (get("root").chat || []).map(talk) };
+    }
     if (e.type === "more") return { type: "more", mainQuestions: kids("root").sort((a, b) => a.prio - b.prio).map(r => ({ priority: r.prio, area: r.area, q: r.q, status: r.status, answer: r.answer || null })) };
     if (e.type === "finish") {
       const c = counts();
@@ -257,22 +296,24 @@ ${S.notes || "—"}
       const i = S.queue.findIndex(e => e.type === "answer" && specLocked(e.id));
       if (i > 0) S.queue.unshift(...S.queue.splice(i, 1));
     }
-    while (S.queue.length) {
-      const e = S.queue.shift(); let p;
-      try { p = payload(e); } catch (error) { S.queue.unshift(e); throw error; }
+    for (;;) {
+      const i = S.queue.findIndex(e => e.type !== "reread" || rereadReady());
+      if (i < 0) return null;
+      const [e] = S.queue.splice(i, 1); let p;
+      try { p = payload(e); } catch (error) { S.queue.splice(i, 0, e); throw error; }
       if (p) { save(); return { ...p, language: S.locale.language }; }
     }
-    return null;
   }
   function requeue(ev) {
     if (ev.type === "answer") { const n = get(ev.id); if (n && n.pending) n.pending.stage = "queued"; S.queue.unshift({ type: "answer", id: ev.id }); }
     else S.queue.unshift({ type: ev.type });
   }
   function pump() {
+    waiters = waiters.filter(w => !w.res.destroyed);
     while (waiters.length && S.queue.length) {
+      // A reread may have to wait, so a waiter keeps its timer until an event really exists.
+      const ev = takeEvent(); if (!ev) break;
       const w = waiters.shift(); clearTimeout(w.timer);
-      if (w.res.destroyed) continue;
-      const ev = takeEvent(); if (!ev) { waiters.unshift(w); break; }
       lastActivity = Date.now();
       send(w.res, 200, ev);
     }
@@ -288,9 +329,11 @@ ${S.notes || "—"}
     kids("root").sort((a, b) => a.prio - b.prio).forEach(r => {
       md += `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
       if (r.answer) md += `- ${t("Ответ:")} ${r.answer}\n`; if (r.verdict) md += `- ${t("Вердикт:")} ${r.verdict}\n`;
+      (r.mergedFrom || []).forEach(m => { md += `- ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
       const walk = (id, ind) => kids(id).forEach(k => {
         md += `${ind}- [${LABEL[k.status]}] ${k.q}\n`;
         if (k.answer) md += `${ind}  - ${t("Ответ:")} ${k.answer}\n`; if (k.verdict) md += `${ind}  - ${t("Вердикт:")} ${k.verdict}\n`;
+        (k.mergedFrom || []).forEach(m => { md += `${ind}  - ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
         walk(k.id, ind + "  ");
       });
       walk(r.id, ""); md += "\n";
@@ -338,6 +381,7 @@ ${S.notes || "—"}
       if (drop.size !== (changes.remove || []).length || new Set(moves.map(x => x?.id)).size !== moves.length) throw [400, "Повторная операция над вопросом"];
       for (const id of drop) {
         if (id === n.id || !scope.has(id)) throw [400, "Удаление вне затронутой ветки"];
+        if (get(id)?.conflictOf?.length) throw [400, "Расхождение решает только ответ пользователя"];
         if (S.questionRequests.some(j => j.parentId === id)) throw [409, "Сначала обработайте собственный вопрос этой карточки"];
         if (frozen && JSON.stringify(contextNode(get(id))) !== JSON.stringify(contextNode(frozen.find(x => x.id === id)))) throw [409, "Нельзя удалить вопрос с более поздними изменениями"];
       }
@@ -376,6 +420,7 @@ ${S.notes || "—"}
         return next;
       };
       const next = rebuild(S.nodes), nextFrozen = frozen && rebuild(frozen);
+      if (S.rereadJob?.edits.includes(n.id)) { S.rereadJob.edits = S.rereadJob.edits.filter(id => id !== n.id); S.rereadJob.settled = true; }
       S.nodes = next;
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || !drop.has(e.id));
       if (nextFrozen) {
@@ -413,10 +458,145 @@ ${S.notes || "—"}
       const add = (Array.isArray(b.questions) ? b.questions : []).slice(0, 5).map(o => mkQ(o, "root", { prio: ++p })).filter(Boolean);
       S.nodes.push(...add); S.morePending = false; save(); return { ok: true, added: add.length };
     }
+    if (b.type === "reread") return applyReread(b);
     if (b.type === "finish") {
       S.summary = clean(b.summary, 8000) || null; S.finished = true; S.finishPending = false; save(); return { ok: true };
     }
-    throw [400, "type должен быть answer, discuss, question, more, finish, spec или notes"];
+    throw [400, "type должен быть answer, discuss, question, more, reread, finish, spec или notes"];
+  }
+
+  // Whole-map rebuild: the candidate is built and validated on a clone, so any refusal leaves the map untouched.
+  function applyReread(b) {
+    const j = S.rereadJob;
+    if (!j || j.stage !== "thinking" || b.token !== j.token) throw [409, "Результат устарел, получите событие через wait"];
+    if (j.revision !== mapRevision()) { recoverReread(); save(); throw [409, "Карта изменилась, получите событие через wait"]; }
+    const finish = result => { S.rereadJob = null; S.rereadResult = { at: Date.now(), ...result }; };
+    const error = clean(b.error, 1000);
+    if (error) { finish({ changed: false, error: t(error) }); save(); return { ok: false, error: t(error) }; }
+    const bad = message => [400, message];
+    const list = (v, max) => { if (v !== undefined && (!Array.isArray(v) || v.length > max)) throw bad("Некорректный результат перечитывания"); return v || []; };
+    const close = list(b.close, 500), merge = list(b.merge, 100), add = list(b.add, 20), move = list(b.move, 500), remove = list(b.remove, 500), order = b.order === undefined ? null : list(b.order, 500);
+    const next = structuredClone(S.nodes), byId = new Map(next.map(n => [n.id, n]));
+    const question = id => { const n = typeof id === "string" ? byId.get(id) : null; if (!n || n.kind !== "q") throw bad("Нет вопроса с id " + id); return n; };
+    const original = id => { question(id); return get(id); };
+    // Each existing card takes part in at most one closing, merge or removal.
+    const used = new Set(), claim = id => { if (used.has(id)) throw bad("Повторная операция над вопросом"); used.add(id); };
+    for (const o of close) {
+      const n = question(o?.id), source = original(o.source), verdict = clean(o.verdict, 400);
+      claim(n.id);
+      if (n.conflictOf?.length) throw bad("Расхождение решает только ответ пользователя");
+      if (n.answer || source.id === n.id || !source.answer || !verdict) throw bad("Закрыть можно вопрос без ответа, указав другой вопрос с ответом и вердикт со ссылкой на него");
+      Object.assign(n, { status: "ok", answer: source.answer, verdict });
+    }
+    const merged = new Map(), combined = new Map();
+    for (const o of merge) {
+      const ids = list(o?.ids, 20), keepId = o?.keep ?? ids[0], answer = clean(o?.answer, 3000), verdict = clean(o?.verdict, 400);
+      if (ids.length < 2 || new Set(ids).size !== ids.length || !ids.includes(keepId) || !answer || !verdict || !["ok", "weak", "gap", "verify"].includes(o.status)) throw bad("Для сведения нужны минимум два вопроса, общий ответ, статус и вердикт");
+      const cards = ids.map(id => { const n = question(id); claim(id); if (!n.answer) throw bad("Свести можно только вопросы с ответами"); return n; });
+      // Answers on record as disagreeing are never combined; only the user settles them.
+      if (S.nodes.flatMap(n => [n, ...(n.mergedFrom || [])]).some(n => Object.keys(n.conflictAnswers || {}).filter(id => ids.includes(id)).length > 1)) throw bad("Расхождение решает только ответ пользователя");
+      const keep = byId.get(keepId);
+      // A merged conflict card must keep its disagreement on record, or it could be raised again.
+      const conflicts = [...new Set(cards.flatMap(n => n.conflictOf || []))];
+      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
+      // keep.conflictOf is only a union for display; each exact disagreement stays in mergedFrom.
+      if (conflicts.length) keep.conflictOf = conflicts;
+      delete keep.conflictAnswers;
+      // A kept descendant of a merged card moves to the parent of its highest merged ancestor; cards between them become its children.
+      const gone = new Set(ids.filter(id => id !== keepId));
+      for (let up = keep.parentId; up !== "root"; up = byId.get(up).parentId) if (gone.has(up)) keep.parentId = byId.get(up).parentId;
+      const chat = cards.flatMap(n => n.chat || []).sort((x, y) => (x.at || 0) - (y.at || 0));
+      if (chat.length > 100) throw bad("Обсуждение слишком длинное");
+      if (chat.length) keep.chat = chat;
+      combined.set(keepId, answer);
+      Object.assign(keep, { answer, verdict, status: o.status });
+      for (const n of cards) if (n !== keep) { merged.set(n.id, keep.id); byId.delete(n.id); }
+      for (const n of byId.values()) if (merged.has(n.parentId)) n.parentId = merged.get(n.parentId);
+    }
+    for (const id of remove) {
+      const n = question(id); claim(id);
+      if (n.conflictOf?.length) throw bad("Расхождение решает только ответ пользователя");
+      if (n.answer || (n.chat || []).length || n.mergedFrom?.length) throw bad("Убрать можно только вопрос без ответа и обсуждения");
+      byId.delete(id);
+    }
+    const resolve = id => merged.get(id) || id;
+    const refs = new Map();
+    // A disagreement is the cards plus their answers, so editing an answer can raise a new one on the same cards.
+    // A merge rewords an answer without the user changing it, so its result replaces the card's recorded answer.
+    const followMerges = answers => {
+      const out = {};
+      for (const [id, answer] of Object.entries(answers)) { const kept = resolve(id); out[kept] = combined.has(kept) ? combined.get(kept) : answer; }
+      return out;
+    };
+    const conflictKey = answers => JSON.stringify(Object.entries(followMerges(answers)).sort());
+    // Each merged conflict card keeps its own set in mergedFrom, because keep.conflictOf is only their union.
+    const known = new Set(S.nodes.flatMap(n => [n, ...(n.mergedFrom || [])]).filter(n => n.conflictAnswers).map(n => conflictKey(n.conflictAnswers)));
+    let newQuestions = 0;
+    const additions = add.map(o => {
+      if (!o || typeof o.key !== "string" || !/^\$[a-zA-Z0-9-]{1,40}$/.test(o.key) || refs.has(o.key)) throw bad("Нужен уникальный ключ нового вопроса");
+      const conflict = o.conflictOf === undefined ? null : list(o.conflictOf, 20);
+      if (conflict) {
+        if (new Set(conflict.map(resolve)).size < 2 || conflict.some(id => !(typeof id === "string" && get(id)?.answer))) throw bad("Карточка расхождения ссылается минимум на два вопроса с ответами");
+        const key = conflictKey(Object.fromEntries(conflict.map(id => [id, get(id).answer])));
+        if (known.has(key)) throw bad("Карточка этого расхождения уже есть");
+        known.add(key);
+      } else if (++newQuestions > 3) throw bad("Новых вопросов не больше 3 за запуск");
+      const q = mkQ(o, o.parentId, conflict ? { conflictOf: [...new Set(conflict.map(resolve))], conflictAnswers: Object.fromEntries(conflict.map(id => [id, get(id).answer])) } : {});
+      if (!q || q.options.length < 2) throw bad("Новому вопросу нужны текст и не менее двух вариантов");
+      refs.set(o.key, q.id);
+      return q;
+    });
+    const parentOf = id => id === "root" ? "root" : refs.get(id) || resolve(id);
+    for (const q of additions) { byId.set(q.id, q); q.parentId = parentOf(q.parentId); }
+    const moved = new Set();
+    for (const m of move) {
+      const n = question(m?.id);
+      if (moved.has(n.id)) throw bad("Повторная операция над вопросом");
+      moved.add(n.id); n.parentId = parentOf(m.parentId);
+    }
+    for (const n of byId.values()) for (const c of [n, ...(n.mergedFrom || [])]) if (c.conflictOf) {
+      c.conflictOf = [...new Set(c.conflictOf.map(resolve))];
+      if (c.conflictAnswers) c.conflictAnswers = followMerges(c.conflictAnswers);
+    }
+    const cards = [...byId.values()].filter(n => n.kind === "q");
+    for (const n of cards) {
+      const seen = new Set([n.id]);
+      let p = n;
+      while (p.parentId !== "root") {
+        p = byId.get(p.parentId);
+        if (!p || seen.has(p.id)) throw bad("Родитель не найден или обнаружен цикл");
+        seen.add(p.id);
+      }
+      if (n.parentId !== "root") { n.area = p.area; delete n.prio; }
+    }
+    // Priorities: an explicit order must name every final main question; otherwise new mains go last.
+    const mains = cards.filter(n => n.parentId === "root");
+    if (order) {
+      const named = order.map(id => refs.get(id) || resolve(id));
+      if (new Set(named).size !== mains.length || named.length !== mains.length || !named.every(id => byId.get(id)?.parentId === "root")) throw bad("Порядок должен перечислять все главные вопросы");
+      named.forEach((id, i) => { byId.get(id).prio = i + 1; });
+    } else {
+      let top = Math.max(0, ...mains.map(n => n.prio || 0));
+      for (const n of mains) if (!n.prio) n.prio = ++top;
+    }
+    // The server counts answers itself: the model only checks its own work.
+    const kept = new Set(cards.flatMap(n => [n.answer, ...(n.mergedFrom || []).map(m => m.answer)]));
+    for (const n of qs()) if (n.answer && !kept.has(n.answer)) throw bad("Ответ пользователя потерян");
+    const nodes = [...byId.values()];
+    for (const main of mains) boundBranch(subtree(nodes, main.id));
+    const brief = clean(b.brief, 6000) || S.brief;
+    const changed = brief !== S.brief || JSON.stringify(nodes) !== JSON.stringify(S.nodes);
+    const summary = clean(b.summary, 1000);
+    if (changed) {
+      // Without the running job, so restoring this copy cannot start the same rebuild again.
+      atomicWrite(path.join(DIR, "state.before-reread.json"), JSON.stringify({ ...S, rereadJob: null }, null, 2));
+      S.nodes = nodes; S.brief = brief;
+      S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || byId.has(e.id));
+    }
+    finish({ changed, summary });
+    save();
+    if (changed) { writeSession(); pruneImages(); }
+    return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length, moved: move.length, removed: remove.length };
   }
 
   function send(res, code, body, type = "application/json; charset=utf-8") {
@@ -446,8 +626,8 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/ping") return send(res, 200, { ok: true, dir: DIR, port, pid: process.pid });
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
-        const { queue, specJob, specOwner, ...rest } = S;
-        return send(res, 200, { ...rest, name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length } : null, queueLength: queue.length, listening: waiters.some(w => !w.res.destroyed) || Date.now() - lastActivity < 180000 });
+        const { queue, specJob, specOwner, rereadJob, ...rest } = S;
+        return send(res, 200, { ...rest, name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length, listening: isListening() });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/image") {
@@ -465,6 +645,7 @@ ${S.notes || "—"}
           save();
         }
         if (S.specJob?.stage === "thinking") { recoverSpec(); save(); }
+        if (rereadThinking()) { recoverReread(); save(); }
         // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
         // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
         const lost = S.nodes.filter(n => n.pending && n.pending.stage === "thinking" || n.discuss === "thinking");
@@ -495,10 +676,18 @@ ${S.notes || "—"}
         boundBranch(subtree(S.nodes, n.id));
         if (specLocked(n.id)) return send(res, 409, { error: "Ответ включён в запрос спеки. Дождитесь его оценки, затем измените ответ" });
         if (n.pending && n.pending.stage === "thinking") return send(res, 409, { error: "Агент уже разбирает ответ на этот вопрос" });
-        const queued = !!n.pending;
+        if (rereadLocked()) return send(res, 409, { error: "Карта перестраивается. Ответить можно будет после перечитывания" });
+        const edited = !!n.answer && n.answer !== answer, queued = !!n.pending;
         n.pending = { answer, stage: "queued", at: Date.now() };
-        if (queued) { save(); return send(res, 200, { ok: true }); }
-        enqueue({ type: "answer", id: n.id }); return send(res, 200, { ok: true });
+        if (queued) {
+          if (!edited) dropEdit(n.id);
+          save(); if (edited) requestReread(false, n.id);
+          return send(res, 200, { ok: true });
+        }
+        enqueue({ type: "answer", id: n.id });
+        // Another card may have been closed by the old text; only a rebuild can change other branches.
+        if (edited) requestReread(false, n.id);
+        return send(res, 200, { ok: true });
       }
       if (p === "/api/discuss") {
         const n = get(b.id); const text = clean(b.message, 2000), quote = clean(b.quote, 400), about = b.about === "verdict" ? "verdict" : "option";
@@ -507,6 +696,7 @@ ${S.notes || "—"}
         if (!Array.isArray(sources)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (!text && !quote && !sources.length) return send(res, 400, { error: "Пустое сообщение" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент уже отвечает в обсуждении этого вопроса" });
+        if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Отправить сообщение можно будет после перечитывания" });
         if ((n.chat || []).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
         if (sources.length > IMG_COUNT) return send(res, 400, { error: "Можно вставить не больше 4 картинок" });
         const decoded = sources.map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
@@ -521,16 +711,25 @@ ${S.notes || "—"}
         const n = get(b.id);
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент сейчас отвечает в обсуждении — сбросить можно после ответа" });
+        if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Сбросить чат можно будет после перечитывания" });
         delete n.chat; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
         return send(res, 200, { ok: true });
       }
       if (p === "/api/cancel") {
         const n = get(b.id);
         if (specLocked(b.id)) return send(res, 409, { error: "Ответ включён в запрос спеки. Дождитесь его оценки" });
-        if (n && n.pending && n.pending.stage === "queued") { n.pending = null; S.queue = S.queue.filter(e => !(e.type === "answer" && e.id === n.id)); save(); }
+        if (n && n.pending && n.pending.stage === "queued") {
+          n.pending = null; S.queue = S.queue.filter(e => !(e.type === "answer" && e.id === n.id));
+          dropEdit(n.id);
+          save();
+        }
         return send(res, 200, { ok: true });
       }
       if (p === "/api/more") { if (!S.morePending) { S.morePending = true; enqueue({ type: "more" }); } return send(res, 200, { ok: true }); }
+      if (p === "/api/reread") {
+        if (!qs().length) return send(res, 400, { error: "На карте пока нет вопросов" });
+        requestReread(true); return send(res, 200, { ok: true });
+      }
       if (p === "/api/question") {
         const parent = get(b.parentId), q = clean(b.q, 220), id = clean(b.id, 80);
         if (!parent) return send(res, 404, { error: "Вопрос не найден" });
@@ -540,6 +739,7 @@ ${S.notes || "—"}
           if (existing.parentId !== parent.id || existing.q !== q) return send(res, 409, { error: "Идентификатор уже использован" });
           return send(res, 200, { ok: true, id });
         }
+        if (rereadLocked()) return send(res, 409, { error: "Карта перестраивается. Добавить вопрос можно будет после перечитывания" });
         if (S.questionRequests.some(j => j.parentId === parent.id)) return send(res, 409, { error: "Собственный вопрос уже готовится" });
         if (S.questionRequests.length >= 20) return send(res, 400, { error: "Слишком много ожидающих вопросов" });
         S.questionRequests.push({ id, parentId: parent.id, q, stage: "queued", at: Date.now() });
@@ -547,6 +747,8 @@ ${S.notes || "—"}
       }
       if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
       if (p === "/api/spec") {
+        // A snapshot taken now would freeze the map from before the rebuild.
+        if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Создать спеку можно будет после перечитывания" });
         if (!S.specJob) {
           S.specError = null;
           S.specJob = { stage: "queued", token: null, requestedAt: Date.now(), title: S.title, brief: S.brief, arch: S.arch,

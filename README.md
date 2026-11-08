@@ -64,7 +64,7 @@ Run the following commands from this repository's root unless a directory change
 npm run sim          # start the server in test-project/.grill, load questions, open the browser
 ```
 
-Answer on the map. The simulator uses simple heuristics: `не знаю` ("I don't know") or fewer than 4 characters → Gap; more than 25 characters with a digit → Closed; `думаю…` ("I think…") → Verify; otherwise → Weak. It adds follow-up questions, replies to discussions, and handles requests for more questions, a final summary, and a specification. The summary panel shows the current map state.
+Answer on the map. The simulator uses simple heuristics: `не знаю` ("I don't know") or fewer than 4 characters → Gap; more than 25 characters with a digit → Closed; `думаю…` ("I think…") → Verify; otherwise → Weak. It adds follow-up questions, replies to discussions, and handles requests for more questions, a reread, a final summary, and a specification. The summary panel shows the current map state.
 
 `npm run sim` reinitializes the selected map. Use `--keep` to continue a saved map.
 

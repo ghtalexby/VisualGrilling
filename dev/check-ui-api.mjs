@@ -219,9 +219,12 @@ try {
   await request("question", { id: child.id, parentId: "root", q: "Unrelated custom request" });
   e = await wait(); assert.equal(e.type, "answer");
   await grade(e, { branchChanges: { remove: [child.id] } });
-  assert.equal((await state()).queueLength, 1);
+  // The custom question, plus the reread queued by the earlier answer edits.
+  assert.equal((await state()).queueLength, 2);
   e = await wait(); assert.equal(e.type, "question"); assert.equal(e.id, child.id);
   await request("apply", { type: "question", id: e.id, token: e.token, question: { options } });
+  e = await wait(); assert.equal(e.type, "reread");
+  await request("apply", { type: "reread", token: e.token, summary: "Nothing to change" });
 
   await request("more", {}); await request("more", {});
   assert.equal((await state()).queueLength, 1); await wait();

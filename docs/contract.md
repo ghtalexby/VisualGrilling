@@ -12,7 +12,7 @@ Common options: `--dir <directory>` selects the maps root (default `.grill` unde
 | `init` | JSON on stdin | `{"ok":true,"questions":N}` |
 | `wait [--timeout 280]` | — | One event or `{"type":"timeout","waitingAnswers":N,"waitingDiscussions":M}` |
 | `watch [--timeout 280] [--max-wait 1800] [--inbox]` | — | Swallows timeouts; prints one event, or a timeout body with `expired:true`; exits 0 |
-| `apply` | JSON on stdin | `{"ok":true,"added":N}`, `{"ok":true}`, or spec result below |
+| `apply` | JSON on stdin | `{"ok":true,"added":N}`, `{"ok":true}`, or spec and reread results below |
 | `config` | Optional `<--dir>/config.json` | Merged griller model, no server required |
 | `status` | — | `{name,title,url,counts,queue,finished}` |
 | `report` | — | Writes `report.md` in the map directory |
@@ -50,19 +50,20 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`.
 | `GET /` | Browser | Localized `ui.html` |
 | `GET /api/ping` | CLI `alive()`, start/stop/list | `{ok,dir,port,pid}`; compare `pid` with `server.json` |
 | `GET /api/maps` | Header switcher | `{maps:[{name,title,counts,queue,finished,updated,url,listening,current}]}`; same discovery and ordering as `list`, with `current` for this server |
-| `GET /api/state` | UI polling, CLI status | State without `queue`, internal spec job/owner; includes `name` (null for legacy), queue length, listening, locale, and spec progress |
+| `GET /api/state` | UI polling, CLI status | State without `queue`, internal spec job/owner, internal reread job; includes `name` (null for legacy), queue length, listening, locale, spec progress, `rereadPending:null\|{stage,locked}` and `rereadResult:null\|{at,changed,summary?,error?}` (a new job clears the previous result) |
 | `GET /api/report` | CLI report | Markdown |
 | `GET /api/wait?timeout=N` | CLI wait | Event or timeout |
 | `POST /api/locale` | CLI start | `{language,messages?}`; returns `{ok:true,language}`; 400 on invalid locale |
-| `POST /api/answer` | UI | `{id,answer}`; 404 missing question, 400 empty, 409 thinking or spec-locked |
+| `POST /api/answer` | UI | `{id,answer}`; 404 missing question, 400 empty, 409 thinking, spec-locked or reread-locked. Replacing an existing answer also queues an automatic reread |
 | `GET /api/image?file=<name>` | UI | A stored chat image with its type and `nosniff`; 404 for an unknown or malformed name. The UI fetches it with `x-grill` and shows a blob URL |
-| `POST /api/discuss` | UI | `{id,message,quote?,about?,images?}`; `about` is option (default) or verdict; `images` is an array of base64 data URLs; 404 missing node (root is allowed), 400 no text/quote/image, 100 messages reached or invalid image, 409 thinking |
-| `POST /api/chatreset` | UI | `{id}`; deletes chat and queued event, including root; 404 missing node, 409 thinking |
+| `POST /api/discuss` | UI | `{id,message,quote?,about?,images?}`; `about` is option (default) or verdict; `images` is an array of base64 data URLs; 404 missing node (root is allowed), 400 no text/quote/image, 100 messages reached or invalid image, 409 thinking or while a reread is running |
+| `POST /api/chatreset` | UI | `{id}`; deletes chat and queued event, including root; 404 missing node, 409 thinking or while a reread is running |
 | `POST /api/cancel` | UI | `{id}`; withdraws a queued answer; 409 if spec-locked |
 | `POST /api/question` | UI | `{id,parentId,q}`; persisted custom question preparation, see below |
 | `POST /api/more` | UI | Enqueues deduplicated more event |
+| `POST /api/reread` | UI | Enqueues deduplicated manual reread; 400 on a map with no questions |
 | `POST /api/finish` | UI | Enqueues deduplicated finish event |
-| `POST /api/spec` | UI, CLI | Captures map snapshot; deduplicates; returns `{ok,path}` |
+| `POST /api/spec` | UI, CLI | Captures map snapshot; deduplicates; returns `{ok,path}`; 409 while a reread is running |
 | `POST /api/init` | CLI | **Resets the whole map**; see below |
 | `POST /api/apply` | CLI | Applies an agent result |
 | `POST /api/stop` | CLI | Exits after 100 ms |
@@ -171,6 +172,9 @@ The server truncates through `clean(s,max)`; the skill uses stricter limits.
 | Discussion images | 4 per message, 8 MB each | — |
 | `children` | 4 | ok 0–1, weak/verify 1–3, gap 1–2 newly needed questions; 0 if retained questions suffice; level ≥ 4 at most 1 |
 | `more.questions` | 5 | 3 |
+| Reread `summary` / `error` | 1000 / 1000 | — |
+| Reread `close`, `move`, `remove` / `merge` / `add` | 500 each / 100 / 20, at most 3 without `conflictOf` | Only as the rules require |
+| Reread `merge[].ids`, `add[].conflictOf` | 20 each | — |
 | `init.questions` | 8 | 5 |
 | Request body | 1 MB; `/api/discuss` about 44 MB for its images | — |
 | Locale value | 2000, validated plain text | Complete translation dictionary for other languages |
@@ -189,13 +193,41 @@ Files live at `docs/specs/grill-<name>.md` or `grill-legacy.md` relative to the 
 
 The request and snapshot persist on disk. Restart and abandoned waits recover delivery with a new token; captured pending grades go first. Repeating an applied token returns 409.
 
+## Reread
+
+`POST /api/reread` creates a persisted job, and editing an existing answer creates an automatic one. Requests join a single job; a manual request upgrades an automatic job. `wait` delivers `{type:"reread",token,language,title,brief,arch,nodes,projectChat}` only when no answer is pending, no discussion is queued or thinking, no custom question is waiting and no specification job exists. `nodes` hold `{id,parentId,level,area,priority,q,why,options,status,answer,verdict,createdBy,conflictOf,mergedFrom,chat}`. Entries in `chat` and `projectChat` are `{from,text,quote?,images?}`, with absolute image paths. Reports and Markdown export list `mergedFrom`. Each delivery rotates the token; restart or a new `wait` returns an unapplied job to `queued`.
+
+Locks: `rereadPending.locked` is true while the job is `thinking`, or while a manual job is queued and an agent is listening. An automatic job does not lock until delivery, so edits in a row join one run. With no agent listening, a queued job does not lock. While locked, `/api/answer` and `/api/question` return 409. While `thinking`, `/api/discuss`, `/api/chatreset` and `/api/spec` also return 409. Only a result releases a running job. Resubmitting identical text is not an edit. Withdrawing the only ungraded edit, or restoring its original text before grading, cancels an automatic job that has not started.
+
+```json
+{"type":"reread","token":"...","summary":"...","brief":"...",
+ "close":[{"id":"open-id","source":"answered-id","verdict":"..."}],
+ "merge":[{"ids":["keep-id","other-id"],"keep":"keep-id","answer":"...","status":"ok","verdict":"..."}],
+ "add":[{"key":"$new","parentId":"root","area":"...","q":"...","why":"...","options":["...","..."],"conflictOf":["id-a","id-b"]}],
+ "move":[{"id":"kept-id","parentId":"$new"}],"remove":["obsolete-id"],"order":["main-id","$new"]}
+```
+
+All operations are optional. `{type:"reread",token,error}` refuses the run: the map stays unchanged, the lock is released and `rereadResult.error` is set, and apply returns `{ok:false,error}`. Otherwise apply returns `{ok:true,changed,closed,merged,added,moved,removed}`.
+
+The server builds the candidate on a clone, so any 400 leaves the map and job unchanged. It enforces:
+
+- `close`: the target has no answer and no `conflictOf`; the source is another question with an answer; a verdict is required. The server copies the source answer and sets `ok`. The link is only the verdict text.
+- `merge`: at least two answered questions, a combined answer, a valid status and a verdict. Originals go to `keep.mergedFrom:[{id,q,answer,status,verdict,conflictOf?,conflictAnswers?}]`, chats join by time (more than 100 messages returns 400), children move to `keep`, and a `keep` below a merged card moves to the parent of its highest merged ancestor, with the cards between them becoming its children. Cards on record as disagreeing cannot be merged.
+- `remove`: only a question with no answer, chat, `mergedFrom` or `conflictOf`. Children must be moved or removed too.
+- `add`: unique `$key`, at least two options, at most 3 per run without `conflictOf`, at most 20 in total. `conflictOf` names at least two answered questions that remain distinct after this run's merges; the same cards with the same answers (stored as `conflictAnswers`, a map of card ID to answer that follows merges) cannot get a second card, including one recorded in `mergedFrom`; an edited answer may raise a new one. Merged IDs in `conflictOf` follow `keep`, and `keep.conflictOf` is the union of the merged cards' sets.
+- `move`: no cycles or missing parents. Children take their main question's area.
+- `order`: when present, it must list every final main question.
+- Each existing card takes part in at most one closing, merge or removal. Every previous answer must remain as a card's answer or in `mergedFrom`.
+
+A changed map first writes one copy, without the running job, to `<map directory>/state.before-reread.json`, replacing the last. Chat images are not copied. A brief change regenerates `session.md`. A map changed since delivery requeues the job and returns 409; an invalid token returns 409. `init` cancels the job and clears the result.
+
 ## Worker transport and context
 
-`watch --inbox` atomically replaces `<map directory>/inbox.json` with the full delivered event before printing one compact line: `{"type":"answer","id":"n…","token":"delivery token","name":"arch","language":"en","inbox":"<absolute path>"}`. Only events with an id include `id`; answer, discuss, question and spec include `token`. More/finish omit both. No full event is printed in this mode. In inbox mode, expired timeout lines also include `name`; it is null for a legacy map. Exit codes and plain watch output are unchanged; timeouts do not write the inbox. Without `--inbox`, watch does not write it. The next work event overwrites it; only one waiter/worker may serve a map.
+`watch --inbox` atomically replaces `<map directory>/inbox.json` with the full delivered event before printing one compact line: `{"type":"answer","id":"n…","token":"delivery token","name":"arch","language":"en","inbox":"<absolute path>"}`. Only events with an id include `id`; answer, discuss, question, reread and spec include `token`. More/finish omit both. No full event is printed in this mode. In inbox mode, expired timeout lines also include `name`; it is null for a legacy map. Exit codes and plain watch output are unchanged; timeouts do not write the inbox. Without `--inbox`, watch does not write it. The next work event overwrites it; only one waiter/worker may serve a map.
 
 `apply {"type":"notes","text":"..."}` replaces `S.notes` using `clean(text,3000)` and returns `{"ok":true}`. Empty text clears notes. No queued event is needed or consumed; thinking work and the queue stay unchanged. `/api/state` includes notes, but the UI does not render them. `init` resets notes.
 
-The server atomically regenerates `<map directory>/session.md` on startup, init, notes updates and language updates. It contains:
+The server atomically regenerates `<map directory>/session.md` on startup, init, notes updates, language updates and a changing reread. It contains:
 
 ```markdown
 <!-- Generated by grill.mjs. Do not edit: changes are overwritten. -->
@@ -230,7 +262,7 @@ Answer events add `token`, `branchSnapshot` (complete affected subtree), `captur
  "add":[{"key":"$new","parentId":"graded-id","q":"New question","options":["A","B"]}]}
 ```
 
-Keys match `^\$[a-zA-Z0-9-]{1,40}$` and are unique; additions/moves may reference forward keys. Every existing ID and target parent must belong to the graded subtree; the graded node itself cannot move or be removed. Removals are explicit node IDs, not an implicit subtree cascade: move or remove remaining children of a removed parent. Cycles, missing parents, duplicate moves/removals, invalid recommendations and outside IDs reject the entire transaction. Existing question text/meaning cannot be rewritten through move: add a new open question instead. Moves retain IDs, answers, verdicts, chat and queued work; removals discard only deleted nodes’ events. Children retain the main branch area. No automatic/manual author distinction governs preservation.
+Keys match `^\$[a-zA-Z0-9-]{1,40}$` and are unique; additions/moves may reference forward keys. Every existing ID and target parent must belong to the graded subtree; the graded node itself cannot move or be removed. Removals are explicit node IDs, not an implicit subtree cascade: move or remove remaining children of a removed parent. A card with `conflictOf` cannot be removed. Cycles, missing parents, duplicate moves/removals, invalid recommendations and outside IDs reject the entire transaction. Existing question text/meaning cannot be rewritten through move: add a new open question instead. Moves retain IDs, answers, verdicts, chat and queued work; removals discard only deleted nodes’ events. Children retain the main branch area. No automatic/manual author distinction governs preservation.
 
 The same structural transaction updates frozen `specJob.gradingNodes` and the document projection for captured grading. Unchanged captured grades and structure are preserved; later answers/chat/new cards are not copied from live nodes. `protectedIds` marks live nodes changed since capture: they cannot be removed. Captured payloads use frozen grading context; agents must not use later activity or discussions for specification decisions. Explicitly removed waiting IDs leave `waiting`; retained pending grades stay queued. The candidate live tree and frozen tree must both validate before state changes.
 

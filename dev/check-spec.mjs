@@ -131,6 +131,9 @@ try {
   await request("discuss", { id: ids[0], message: "Объясни" });
   e = await wait(); assert.equal(e.type, "discuss");
   await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Объяснение" });
+  // The answer edits above queued a reread.
+  e = await wait(); assert.equal(e.type, "reread");
+  await request("apply", { type: "reread", token: e.token, summary: "Без изменений" });
   await request("more", {});
   e = await wait(); assert.equal(e.type, "more");
   await request("apply", { type: "more", questions: [{ q: "Дополнительный" }] });

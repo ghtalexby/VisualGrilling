@@ -18,7 +18,8 @@ The interaction takes place on a browser map:
 4. Answer on the map with an option or free text. Answers are queued; you can submit several without waiting.
 5. The agent repeats `wait → grade → apply`, assigning Closed / Weak / Gap / Verify, explaining the verdict, and adding follow-up questions. Code claims are checked against files. The discussion tab lets you clarify or dispute a verdict without grading or changing status.
 6. Summary lets you add three main questions (`more`) or prepare your own main question. Stop in the header (visible only while the agent is connected) and Finish and get the summary in the summary panel both send `finish`; the agent supplies a verdict, three risks, three checks for the week, and saves `.grill/<name>/report.md`.
-7. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
+7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. Editing an existing answer queues the same review.
+8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
 A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 (Codex) requires separate sessions. Use the header switcher to visit sibling maps. Finishing drains queued actions, then stops listening while leaving the page readable.
 

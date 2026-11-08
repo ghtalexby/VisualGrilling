@@ -84,6 +84,7 @@ main{flex:1;position:relative;min-height:0}
 .node.root .eyebrow{color:color-mix(in srgb,var(--bg) 65%,var(--ink))}
 .rtitle{font-family:var(--f-display);font-weight:500;font-size:16px;line-height:1.25;text-wrap:balance}
 .rmeta{font-family:var(--f-mono);font-size:11px;color:color-mix(in srgb,var(--bg) 65%,var(--ink))}
+.ridea{font-size:12px;line-height:1.35;color:color-mix(in srgb,var(--bg) 85%,var(--ink));display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden}
 .eyebrow{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 .busy-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1s infinite alternate;flex:none}
 
@@ -188,7 +189,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
     <div class="brand"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg><span>Грилинг-карта</span></div>
     <div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
-    <div class="actions"><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bStop" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту">Остановить</button><button class="btn" id="bSummary">Сводка и итог</button></div>
+    <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bStop" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту">Остановить</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
   <div class="lrow"><div class="ledger" id="ledger"></div><div class="conn" id="conn"></div></div>
   <div id="finishedNotice" hidden></div>
@@ -273,7 +274,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#mapList").hidd
 function nodeHTML(n){
   if(n.kind==="root"){
     const q=qs(),open=q.filter(x=>x.status==="open"&&!x.pending).length;
-    return `<span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span><span class="rmeta">${q.length} вопр. · ${open} открыто</span>`;
+    return `<span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто</span>`;
   }
   const p=n.parentId==="root"?`<b>P${n.prio}</b> · `:"";
   const pill=n.pending?`<span class="pill s-think">${n.pending.stage==="thinking"?"Разбор":"В очереди"}</span>`:`<span class="pill">${STATUS[n.status]}</span>`;
@@ -325,6 +326,8 @@ function renderHeader(){
   $("#finishedNotice").textContent=`Карта завершена, агент больше не слушает. Попросите продолжить карту: ${S.name??"Без имени"}`;
   $("#bSpec").textContent=S.specPending?"Спека в работе…":S.specUpdatedAt?"Обновить спеку":"Создать спеку";
   $("#bSpec").disabled=!!S.specPending;
+  $("#bReread").textContent=S.rereadPending?"Перечитываю…":"Перечитать";
+  $("#bReread").disabled=!!S.rereadPending||!qs().length;
   $("#bStop").textContent=S.finishPending?"Останавливаю…":"Остановить";
   $("#bStop").disabled=!!S.finishPending||!qs().length;
   $("#bStop").hidden=!listening||offline;
@@ -352,6 +355,9 @@ function nodePanel(n){
   if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
   if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
   b+=`<h2>${esc(n.q)}</h2>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
+  const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
+  if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
+  if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${n.mergedFrom.map(m=>`<div class="note"><b>${esc(m.q)}</b><br>Ваш ответ: ${esc(m.answer)}</div>`).join("")}`;
   const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
@@ -363,15 +369,15 @@ function nodePanel(n){
     const ch=kids(n.id);
     if(ch.length)b+=`<h3>Подвопросы</h3><div class="sublist">${ch.map(c=>`<button class="subq s-${vis(c)}" data-open="${c.id}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
     else if(n.status==="ok")b+=`<p class="why">Ветка закрыта, копать глубже не нужно.</p>`;
-    if(confirmReset)b+=`<div class="warn"><span>Новый ответ заменит текущий. Агент пересмотрит связи ветки, сохранит актуальные вопросы и может удалить устаревшие решения.</span><div class="row"><button class="btn small primary" data-act="edit">Ответить заново</button><button class="btn small" data-act="noreset">Отмена</button></div></div>`;
+    if(confirmReset)b+=`<div class="warn"><span>Новый ответ заменит текущий. Агент пересмотрит связи ветки, сохранит актуальные вопросы и может удалить устаревшие решения. Затем он перечитает всю карту: другие ветки тоже могут измениться, а отвечать на это время будет нельзя.</span><div class="row"><button class="btn small primary" data-act="edit">Ответить заново</button><button class="btn small" data-act="noreset">Отмена</button></div></div>`;
     else b+=`<div class="row"><button class="btn small" data-act="reset">Изменить ответ</button></div>`;
     const nx=nextOpen();if(nx&&nx.id!==n.id)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Следующий открытый вопрос →</button></div>`;
   }else{
-    b+=waitNote();
+    b+=S.rereadPending?.locked?`<div class="note">Карта перестраивается. Ответить можно будет после перечитывания, черновик сохранится.</div>`:waitNote();
     b+=`<div class="chips">${(n.options||[]).map(o=>`<button class="chip${n.recommendation?.option===o?" recommended":""}" data-chip="${esc(o)}"${n.recommendation?.option===o?' aria-describedby="recommendation"':""}>${n.recommendation?.option===o?"★ ":""}${esc(o)}</button>`).join("")}<button class="chip idk" data-chip="Не знаю">Не знаю</button></div>`;
     if(n.recommendation&&(n.options||[]).includes(n.recommendation.option))b+=`<div class="note" id="recommendation"><b>Рекомендация агента:</b> ${esc(n.recommendation.reason)}</div>`;
     b+=`<label class="fl">Ваш ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?n.answer:""))}</textarea></label>`;
-    b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
+    b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending||S.rereadPending?.locked?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
   }
   if(errMsg)b+=`<div class="err">${esc(errMsg)}</div>`;
   return{head,body:b};
@@ -379,7 +385,7 @@ function nodePanel(n){
 function discussTab(n){
   const chat=n.chat||[];
   let b=chat.length?`<div class="chat">${chat.map(m=>`<div class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
-    :n.kind==="root"?`<p class="why">Задайте общий вопрос агенту о проекте. Переписка не меняет ответы и карту.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».</p>`;
+    :n.kind==="root"?`<p class="why">Задайте общий вопрос агенту о проекте. Сама переписка не меняет ответы и карту, но агент учитывает её при перечитывании.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».</p>`;
   const busy=n.discuss==="thinking";
   if(busy)b+=working("Агент пишет ответ…");
   else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
@@ -409,8 +415,8 @@ function toMarkdown(){
   if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
   kids("root").forEach(r=>{
     md+=`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
-    if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;w(k.id,ind+"  ")});
+    if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;(r.mergedFrom||[]).forEach(m=>{md+=`- Сведено из: ${m.q}: ${m.answer}\n`});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;
@@ -425,6 +431,12 @@ function summaryPanel(){
   const group=(st,t)=>{const l=qs().filter(n=>n.status===st&&!n.pending);return l.length?`<h3>${t}</h3><div class="sublist">${l.map(n=>`<button class="subq s-${st}" data-open="${n.id}"><span>${esc(n.q)}</span><span class="mono" style="color:var(--muted)">P${rootPrio(n)}</span></button>`).join("")}</div>`:""};
   b+=group("gap","Дыры: ответа нет")+group("weak","Слабые ответы")+group("verify","Нужно проверить");
   const nx=nextOpen();if(nx)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Ответить на следующий вопрос →</button></div>`;
+  b+=`<h3>Перечитывание</h3><p class="why">Агент читает всю карту, закрывает решённое в других ветках, сводит совпадения и выносит расхождения в новые карточки. Копия карты до перестройки сохраняется в её папке.</p>`;
+  if(S.rereadPending)b+=working(S.rereadPending.stage==="thinking"?"Агент перечитывает карту…":qs().some(n=>n.pending)?"Сначала разбираем отправленные ответы…":listening?"Перечитывание в очереди…":"Запрос сохранён. Ожидаем агента…");
+  else if(qs().length)b+=`<div class="row"><button class="btn" data-act="reread">Перечитать карту</button></div>`;
+  const rr=S.rereadResult;
+  if(rr?.error)b+=`<div class="err">Карта не изменилась: ${esc(rr.error)}</div>`;
+  else if(rr)b+=`<div class="final">${esc(rr.summary||(rr.changed?"Схема обновлена.":"Схема в балансе, изменений нет."))}</div>`;
   b+=`<h3>Спецификация</h3><p class="why">План реализации по оценённым ответам. Обновление полностью заменяет файл, включая ручные правки.</p>`;
   if(S.specPending)b+=working(S.specPending.waiting?"Сначала разбираем ответы, отправленные до запроса…":S.specPending.stage==="thinking"?"Агент составляет спеку…":listening?"Запрос спеки в очереди…":"Запрос сохранён. Ожидаем агента…");
   else b+=`<div class="row"><button class="btn" data-act="spec">${S.specUpdatedAt?"Обновить спеку":"Создать спеку"}</button></div>`;
@@ -441,10 +453,10 @@ function summaryPanel(){
 }
 function panelSig(){
   if(!panel)return"";
-  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
+  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.q,n.why,n.options,n.recommendation,n.status,n.answer,n.pending,n.verdict,n.chat,n.discuss,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([n.q,n.why,n.options,n.recommendation,n.status,n.answer,n.pending,n.verdict,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(){
   const p=$("#panel");
@@ -554,6 +566,7 @@ $("#ledger").addEventListener("click",e=>{const b=e.target.closest("[data-flt]")
 $("#bSummary").onclick=()=>openPanel({mode:"summary"});
 $("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
 $("#bStop").onclick=()=>{openPanel({mode:"summary"});act("/api/finish")};
+$("#bReread").onclick=()=>act("/api/reread");
 $("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
 addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion").forEach(fit));
 /* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
@@ -607,6 +620,7 @@ $("#panel").addEventListener("click",e=>{
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":act("/api/cancel",{id:panel.id});break;
     case "more":act("/api/more");break;
+    case "reread":act("/api/reread");break;
     case "finish":act("/api/finish");break;
     case "spec":act("/api/spec");break;
     case "reset":confirmReset=true;renderPanel();break;

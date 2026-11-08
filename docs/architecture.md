@@ -47,6 +47,7 @@ Files live in `.grill/` or `.grill/<name>/`:
 |---|---|
 | `state.json` | Complete map state; atomic temporary-file rename; `version++` on each save |
 | `server.json` | `{port, pid, url}`; removed by `stop`, SIGINT, or SIGTERM |
+| `state.before-reread.json` | Copy of the map from before the last changing reread; replaced by the next one |
 | `session.md` | Server-generated title, language, brief, architecture and agent notes; atomic replacement |
 | `inbox.json` | Full last event from `watch --inbox`; atomic replacement |
 | `images/` | Images pasted into discussions; files without a chat reference are deleted |
@@ -58,10 +59,11 @@ Files live in `.grill/` or `.grill/<name>/`:
 S = {
   version, title, brief, arch, notes, locale,
   nodes: [{ id: "root", parentId: null, kind: "root" }, /* questions */],
-  queue: [/* answer, discuss, question, more, finish, spec events */],
+  queue: [/* answer, discuss, question, more, reread, finish, spec events */],
   questionRequests: [/* persisted custom question preparation */],
   summary, finished, morePending, finishPending,
-  specOwner, specFile, specUpdatedAt, specError, specJob
+  specOwner, specFile, specUpdatedAt, specError, specJob,
+  rereadJob, rereadResult
 }
 ```
 
@@ -76,7 +78,9 @@ A question (`kind: "q"`):
   pending: { answer, stage: "queued|thinking", at } /* or null */,
   answer, verdict,
   chat: [{ from: "user|claude", text, quote, about, images, at }],
-  discuss: "queued|thinking" /* or null */
+  discuss: "queued|thinking" /* or null */,
+  conflictOf: [/* optional: cards whose answers disagree */],
+  mergedFrom: [/* optional: original answers joined into this card */]
 }
 ```
 
@@ -107,6 +111,12 @@ Pasting an image into the discussion input adds a removable thumbnail held in me
 
 Chat belongs to a node: regrading and moves preserve it; explicit deletion removes only deleted nodes’ chats and events. Obsolete descendant events are skipped. `more` and `finish` use pending flags for deduplication; `apply` resets them.
 
+## Reread
+
+The header Reread button and summary control call `/api/reread`; editing an existing answer queues the same job automatically. The agent reads the whole map after submitted work settles and returns one transaction. This is the only operation that crosses branches: `branchChanges` stays limited to the graded subtree and `init` still wipes answers.
+
+The server validates the candidate on a clone, independently confirms that every previous answer survives, keeps one copy in `state.before-reread.json`, then commits. It cannot judge meaning, so chain coherence is the agent's check; an unsure agent returns `error`, which unlocks the map unchanged. A manual job locks answers while an agent is listening, and any delivered job locks them until its result. Recovery uses the same mechanism as other tokenized work, so a crash needs no timeout. The map's idea is the brief, shown on the root card and rewritable by this transaction. Rules and formats are in `worker.md` and [contract.md](contract.md).
+
 ## Recovery
 
 - `watch` is a client loop around the unchanged `/api/wait`: it swallows server timeout replies and exits on one event. When `--max-wait` expires, it aborts the outstanding request and prints a timeout body with `expired:true`. A host with automatic background completion wake-up can end the agent turn while it runs, then re-arm after applying an event or silently after expiry. Codex keeps the blocking `wait --timeout 50` loop. The active request keeps the map connected. An event taken at the cancellation boundary but not printed is returned to the queue by the next `wait` or `watch`.
@@ -124,7 +134,7 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 - `poll()` requests `/api/state` every 1.2 seconds. It redraws after version/listening changes or reconnection, and displays server-offline state when disconnected.
 - `render()` lays out the tree left to right: 252-pixel nodes, `HG=64`, `VG=14`. SVG Bézier edges use status colors; open edges are dashed. Zoom ranges from 0.3 to 2.
 - Header status counters filter by status while retaining ancestor chains (`ctx`) and the open panel's question. A second click resets the filter. `focusFilter()` chooses the matching question with minimum X, then Y; `centerNode()` centers it without opening a panel or changing zoom. `centerMap()` animates centering in the visible canvas left of the drawer; wide maps align their root left. Manual movement interrupts animation. Filter state `flt` lives only in the browser.
-- `nodePanel()` shows ancestors, Answer/Discuss tabs (`panel.tab`, `discussTab()`), verdict, children, and answer input. Editing warns that the agent will review the branch and may remove obsolete decisions. `summaryPanel()` shows counts, problem groups, more/finish/spec controls, and Markdown export.
+- `nodePanel()` shows ancestors, Answer/Discuss tabs (`panel.tab`, `discussTab()`), verdict, children, and answer input. Editing warns that the agent will review the branch, may remove obsolete decisions, and will then reread the whole map. `summaryPanel()` shows counts, problem groups, reread/more/finish/spec controls, and Markdown export.
 - `panelSig()` prevents unnecessary redraws and input loss. `drafts` stores answers and `"d:"+id` discussion drafts. `renderPanel()` preserves focus, cursor, and scroll, scrolling chat down when messages arrive.
 - `#panelGrip` resizes the drawer by dragging or with Left/Right arrow keys, from 320 px up to the window width minus 120 px. It is a sibling of `#panel`, so re-renders do not drop its pointer capture. The width is kept per browser in `localStorage` (`grill.panelWidth`), which is per origin, so maps served on different ports remember separate widths. CSS caps a saved width to the current window; at 560 px and below the drawer is full-width and the grip is hidden.
 - A newly finished map opens the summary automatically.
