@@ -53,6 +53,25 @@ try {
   assert.equal(await js('document.querySelectorAll("button button").length'), 0);
   assert.equal(await js('document.querySelector("#zReset")'), null);
   assert.equal(await js('document.querySelector("[data-act=more]")'), null);
+  // Reread failures must not replace the current drawer or interpret error HTML.
+  await js('window.savedApi=api;api=async()=>{throw new Error("Request failed <unsafe>")};panel=null;renderPanel()');
+  await click('#bReread'); await until(()=>js('!rereadSending'));
+  assert.equal(await js('panel'), null);
+  assert.equal(await js('document.querySelector("#errorToast").hidden'), false);
+  assert.equal(await js('document.querySelector("#errorToastText").textContent'), "Request failed <unsafe>");
+  assert.equal(await js('document.querySelector("#errorToast unsafe")'), null);
+  assert.equal(await js('document.querySelector("#bReread").disabled'), false);
+  await click('#closeErrorToast');
+  assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
+  await js('openPanel({mode:"node",id:qid})');
+  await input('#fAns', 'Retained draft');
+  await click('#bReread'); await until(()=>js('!rereadSending'));
+  assert.equal(await js('panel.id'), await js('qid'));
+  assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
+  await js('api=savedApi');
+  await click('#bReread'); await until(()=>js('!rereadSending'));
+  assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
+  await js('S.rereadPending=null;renderHeader()');
   await input("#fAns", "Unicode comment: ё猫\nsecond line");
   await click('[data-chip="Yes"]'); await click('[data-chip="No"]');
   assert.equal(await js('document.querySelectorAll(".chip[aria-pressed=true]").length'), 2);
