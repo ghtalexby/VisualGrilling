@@ -115,6 +115,8 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 
 The header Reread button and summary control call `/api/reread`; editing an existing answer queues the same job automatically. The agent reads the whole map after submitted work settles and returns one transaction. This is the only operation that crosses branches: `branchChanges` stays limited to the graded subtree and `init` still wipes answers.
 
+The Reread button disables immediately on submission and shows a spinner until the queued or running job completes. Both controls share the submission guard. Request errors open the summary and restore the control; reduced-motion preferences keep the spinner static.
+
 The server validates the candidate on a clone, independently confirms that every previous answer survives, keeps one copy in `state.before-reread.json`, then commits. It cannot judge meaning, so chain coherence is the agent's check; an unsure agent returns `error`, which unlocks the map unchanged. A manual job locks answers while an agent is listening, and any delivered job locks them until its result. Recovery uses the same mechanism as other tokenized work, so a crash needs no timeout. The map's idea is the brief, shown on the root card and rewritable by this transaction. Rules and formats are in `worker.md` and [contract.md](contract.md).
 
 ## Recovery

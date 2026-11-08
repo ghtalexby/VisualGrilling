@@ -43,6 +43,10 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn.primary:hover{filter:brightness(1.08)}
 .btn:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.btn.reread-busy{display:inline-flex;align-items:center;gap:8px;opacity:.8}
+.btn.reread-busy::before{content:"";width:12px;height:12px;flex:none;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:reread-spin .8s linear infinite}
+@keyframes reread-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.btn.reread-busy::before{animation:none}}
 .btn.small{padding:4px 9px;font-size:13px}
 .lrow{display:flex;gap:14px;flex-wrap:wrap;align-items:center;justify-content:space-between}
 .ledger{display:flex;gap:14px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
@@ -211,6 +215,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 
 let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, seenFinished=null;
+let rereadSending=false;
 let panel=null, errMsg=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
 const QLABEL={option:"Вариант ответа",verdict:"Вердикт"};
 const KEYS=`<span class="keys">Enter — отправить · Ctrl+Enter — перенос</span>`;
@@ -326,8 +331,11 @@ function renderHeader(){
   $("#finishedNotice").textContent=`Карта завершена, агент больше не слушает. Попросите продолжить карту: ${S.name??"Без имени"}`;
   $("#bSpec").textContent=S.specPending?"Спека в работе…":S.specUpdatedAt?"Обновить спеку":"Создать спеку";
   $("#bSpec").disabled=!!S.specPending;
-  $("#bReread").textContent=S.rereadPending?"Перечитываю…":"Перечитать";
-  $("#bReread").disabled=!!S.rereadPending||!qs().length;
+  const rereadBusy=rereadSending||!!S.rereadPending, rereadButton=$("#bReread");
+  rereadButton.textContent=rereadBusy?"Перечитываю…":"Перечитать";
+  rereadButton.disabled=rereadBusy||!qs().length;
+  rereadButton.classList.toggle("reread-busy",rereadBusy);
+  rereadButton.setAttribute("aria-busy",String(rereadBusy));
   $("#bStop").textContent=S.finishPending?"Останавливаю…":"Остановить";
   $("#bStop").disabled=!!S.finishPending||!qs().length;
   $("#bStop").hidden=!listening||offline;
@@ -432,7 +440,8 @@ function summaryPanel(){
   b+=group("gap","Дыры: ответа нет")+group("weak","Слабые ответы")+group("verify","Нужно проверить");
   const nx=nextOpen();if(nx)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Ответить на следующий вопрос →</button></div>`;
   b+=`<h3>Перечитывание</h3><p class="why">Агент читает всю карту, закрывает решённое в других ветках, сводит совпадения и выносит расхождения в новые карточки. Копия карты до перестройки сохраняется в её папке.</p>`;
-  if(S.rereadPending)b+=working(S.rereadPending.stage==="thinking"?"Агент перечитывает карту…":qs().some(n=>n.pending)?"Сначала разбираем отправленные ответы…":listening?"Перечитывание в очереди…":"Запрос сохранён. Ожидаем агента…");
+  if(rereadSending)b+=working("Перечитываю…");
+  else if(S.rereadPending)b+=working(S.rereadPending.stage==="thinking"?"Агент перечитывает карту…":qs().some(n=>n.pending)?"Сначала разбираем отправленные ответы…":listening?"Перечитывание в очереди…":"Запрос сохранён. Ожидаем агента…");
   else if(qs().length)b+=`<div class="row"><button class="btn" data-act="reread">Перечитать карту</button></div>`;
   const rr=S.rereadResult;
   if(rr?.error)b+=`<div class="err">Карта не изменилась: ${esc(rr.error)}</div>`;
@@ -521,6 +530,17 @@ async function submitDiscuss(request){
   sending=null;render();renderPanel();
 }
 async function act(path,body){errMsg=null;try{await api(path,body||{});await poll(true)}catch(e){errMsg=e.message;renderPanel()}}
+async function requestReread(){
+  if(rereadSending||S.rereadPending||!qs().length)return;
+  rereadSending=true;errMsg=null;renderHeader();renderPanel();
+  try{
+    await api("/api/reread",{});
+    // Keep the accepted request visible even if the immediate state poll fails.
+    S.rereadPending||={stage:"queued",locked:false};
+    await poll(true);
+  }catch(e){openPanel({mode:"summary"});errMsg=e.message}
+  finally{rereadSending=false;renderHeader();renderPanel()}
+}
 async function submitQuestion(){
   if(sending)return;
   const target=panel,id=target.id,q=$("#fQuestion").value.trim();
@@ -566,7 +586,7 @@ $("#ledger").addEventListener("click",e=>{const b=e.target.closest("[data-flt]")
 $("#bSummary").onclick=()=>openPanel({mode:"summary"});
 $("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
 $("#bStop").onclick=()=>{openPanel({mode:"summary"});act("/api/finish")};
-$("#bReread").onclick=()=>act("/api/reread");
+$("#bReread").onclick=requestReread;
 $("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
 addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion").forEach(fit));
 /* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
@@ -620,7 +640,7 @@ $("#panel").addEventListener("click",e=>{
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":act("/api/cancel",{id:panel.id});break;
     case "more":act("/api/more");break;
-    case "reread":act("/api/reread");break;
+    case "reread":requestReread();break;
     case "finish":act("/api/finish");break;
     case "spec":act("/api/spec");break;
     case "reset":confirmReset=true;renderPanel();break;
