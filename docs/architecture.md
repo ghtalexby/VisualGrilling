@@ -2,7 +2,7 @@
 
 ## Specification from answers
 
-This flow is independent of `finish`: UI/CLI `spec` → persisted `specJob` snapshot → grading captured pending answers → `wait` delivers `spec` → agent writes a plan → `apply spec` saves Markdown. The snapshot excludes discussions and later answers. Captured pending answers cannot be replaced or withdrawn before grading; their `apply` updates the snapshot, including explicit branch operations. Restart recovers the request; redelivery changes its token.
+This flow is independent of `finish`: UI/CLI `spec` → persisted `specJob` snapshot → grading captured pending answers → `wait` delivers `spec` → agent writes a plan → `apply spec` saves Markdown. The snapshot excludes question discussions and later answers; idea chat is captured as context. Captured pending answers cannot be replaced or withdrawn before grading; their `apply` updates the snapshot, including explicit branch operations. Restart recovers the request; redelivery changes its token.
 
 `specOwner` is a stable document-owner UUID; `specFile` is the path in `docs/specs`; `specUpdatedAt` records the last successful write; `specError` stores the latest error. `specJob` contains `stage, token, requestedAt, title, brief, arch, nodes, gradingNodes, waiting`. The UI receives only the stage and pending-grade count. Saving a specification does not change grades, summary, or completion. The writer checks ownership and regular directories/files, then replaces its file with a temporary-file rename. The server's working directory defines the project root independently of `--dir`.
 
@@ -184,3 +184,13 @@ Map rendering reuses visible card buttons and their unchanged markup across poll
 The worker compares every question, explanation, option and parent chain with current decisions and explicitly withdrawn assumptions. Successful rereads require a complete per-card audit; the server validates coverage and agreement with operations atomically. An explicit replacement decision is distinct from an unresolved disagreement.
 
 An obsolete card with user history stays in the tree with `obsolete:{reason,sources:[{id,q}]}`; its grade and history remain unchanged. Counts and finish problems exclude it, while reports and specification snapshots carry the marker. UI status filters do not match it, next-question navigation skips it and answering returns 409. Discussion and reread restoration remain available. Children are reviewed independently. A question without history can instead be removed and replaced by a new, currently meaningful question. Summary exposes the saved audit reasons.
+
+## Attached idea lifecycle
+
+Ideas are root children in the existing flat tree; their questions keep ordinary `kind:q`. The idea's full `text`, numeric content `revision`, five-valued `status`, explanation and chat persist. Separate `analysis` holds queue progress. Creation is idempotent and does not queue analysis; Analyze idea, text edits, descendant grades and changing rereads of previously analyzed ideas use the tokenized idea event. Editing requests a per-question premise audit, preserving history. Context revisions cover the whole map because other branches may supply decisive evidence.
+
+Specification processing adds frozen idea evaluations after captured answer grades. These update only `specJob.gradingNodes` and its projection; live idea work remains separate to avoid overwriting later activity. Only ok idea subtrees are delivered to the document worker. Text edits are an explicit invalidation boundary: the old spec token is canceled, a persisted refresh stage waits for live reassessment, and a new snapshot/request is captured. Ordinary late answers do not recapture a snapshot. Recovery restores both live and frozen work.
+
+Deletion checks pending branch work, rereads and spec references before deleting the entire subtree and its unused images. Editing instead remains available during work and invalidates outdated deliveries. UI filters keep all ideas but count/filter only their question descendants. Exports preserve all ideas regardless of spec inclusion. See the attached-ideas section in contract.md for exact routes, limits and audit shapes.
+
+Answer/discussion ancestor context includes `kind:"idea",text` for idea ancestors, preserving the complete premise beyond the 220-character `q` prefix. Workers must read full `text` when present.

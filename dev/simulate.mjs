@@ -63,8 +63,19 @@ function grade(e) {
 
 let moreRound = 0;
 const handlers = {
-  spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer).map(n => "- [" + n.status + "] " + n.q + ": " + n.answer).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
+  spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer || n.kind === "idea").map(n => "- [" + n.status + "] " + (n.text || n.q) + ": " + (n.answer || n.verdict)).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
   answer: e => grade(e),
+  idea: e => {
+    const ids = new Set([e.id]);
+    for (let size = -1; size !== ids.size;) { size = ids.size; for (const n of e.nodes) if (ids.has(n.parentId)) ids.add(n.id); }
+    const branch = e.nodes.filter(n => n.kind === "q" && ids.has(n.id));
+    const active = branch.filter(n => !n.obsolete);
+    return { type: "idea", id: e.id, token: e.token, capturedForSpec: e.capturedForSpec,
+      status: active.some(n => ["open", "gap"].includes(n.status)) ? "open" : "verify",
+      verdict: "[sim] Transport only; a real agent must assess this idea.",
+      audit: branch.map(n => ({ id: n.id, action: "keep", reason: "[sim] Preserve history; no semantic review." })),
+      children: branch.length ? [] : [{ q: "[sim] What evidence supports this idea?", options: ["Measured evidence", "Needs checking"] }] };
+  },
   discuss: e => ({ type: "discuss", id: e.id, token: e.token, reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${e.history.length}. Картинок: ${e.images.length}. Сам ответ отправьте во вкладке «Ответить».` }),
   question: e => ({ type: "question", id: e.id, token: e.token, question: { why: "[sim] User question", area: "Project", options: ["Есть данные", "Нужно проверить", "Не знаю"], recommendation: { option: "Нужно проверить", reason: "[sim] Сначала проверить допущение." } } }),
   more: e => ({ type: "more", questions: [1, 2, 3].map(i => ({
@@ -74,7 +85,7 @@ const handlers = {
   })) }),
   // Transport check only: closes one open card from an answer in another branch. It does not judge meaning.
   reread: e => {
-    const rootOf = n => { let p = n; while (p.parentId !== "root") p = e.nodes.find(x => x.id === p.parentId); return p.id; };
+    const rootOf = n => { let p = n; while (p.parentId !== "root") p = [...e.nodes, ...(e.ideas || [])].find(x => x.id === p.parentId); return p.id; };
     const source = e.nodes.find(n => n.answer && !n.obsolete), target = source && e.nodes.find(n => !n.obsolete && !n.answer && n.status === "open" && !n.conflictOf.length && rootOf(n) !== rootOf(source));
     const audit = e.nodes.map(n => ({ id: n.id, action: n === target ? "close" : "keep", reason: "[sim] Проверка транспорта, не семантическая оценка." }));
     if (!target) return { type: "reread", token: e.token, audit, summary: "[sim] Схема в балансе, изменений нет." };

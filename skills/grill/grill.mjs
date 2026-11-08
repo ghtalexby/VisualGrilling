@@ -6,7 +6,7 @@
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
 //   node grill.mjs wait   [--timeout 280]                            block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] wait across timeouts for one event
-//   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
+//   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"idea"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
 //   node grill.mjs config                                       print merged griller model config
 //   node grill.mjs spec                                         request an implementation plan
 //   node grill.mjs status | report | stop
@@ -98,6 +98,10 @@ async function serve() {
   }
   // answers and discussion messages that were being processed when the server stopped go back to the queue
   for (const n of S.nodes) {
+    if (n.analysis) {
+      n.analysis = { stage: "queued", reason: n.analysis.reason };
+      if (!S.queue.some(e => e.type === "idea" && e.id === n.id)) S.queue.push({ type: "idea", id: n.id });
+    }
     if (n.pending) {
       n.pending.stage = "queued";
       if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.push({ type: "answer", id: n.id });
@@ -129,7 +133,9 @@ ${S.notes || "—"}
   };
   const recoverSpec = () => {
     if (!S.specJob) return;
-    S.specJob.stage = "queued"; S.specJob.token = null;
+    if (S.specJob.stage !== "refresh") S.specJob.stage = "queued";
+    S.specJob.token = null; delete S.specJob.ideaWork;
+    S.specJob.ideaWaiting ||= [];
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
   recoverSpec();
@@ -150,8 +156,8 @@ ${S.notes || "—"}
   const rootOf = n => { let p = n; while (p.parentId && p.parentId !== "root") p = get(p.parentId); return p; };
   const qs = () => S.nodes.filter(n => n.kind === "q");
   const specNode = n => {
-    const { chat, discuss, discussToken, options, pending, ...rest } = n;
-    return { ...rest, ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) };
+    const { chat, discuss, discussToken, options, pending, analysis, ...rest } = n;
+    return { ...rest, ...(n.kind === "idea" ? { chat: chat || [] } : {}), ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) };
   };
   const specLocked = id => S.specJob?.waiting.includes(id);
   const subtree = (nodes, id) => {
@@ -161,7 +167,7 @@ ${S.notes || "—"}
   };
   // Processing stages and delivery credentials do not change a question's meaning.
   const contextNode = n => {
-    const { discuss, discussToken, pending, ...rest } = n;
+    const { discuss, discussToken, pending, analysis, ...rest } = n;
     return { ...rest, ...(pending ? { pending: { answer: pending.answer, at: pending.at } } : {}) };
   };
   const branchRevision = id => createHash("sha256").update(JSON.stringify([
@@ -201,7 +207,7 @@ ${S.notes || "—"}
   const rereadLocked = () => !!S.rereadJob && (S.rereadJob.stage === "thinking" || !!S.rereadJob.manual && isListening());
   const rereadThinking = () => S.rereadJob?.stage === "thinking";
   // The rebuild reads a settled map: submitted work goes first and a running specification finishes.
-  const rereadReady = () => !S.specJob && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss);
+  const rereadReady = () => !S.specJob && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis);
   const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
   const requestReread = (manual, edit) => {
     if (S.rereadJob) {
@@ -234,11 +240,92 @@ ${S.notes || "—"}
       options, recommendation, ...(extra || {}) };
   };
 
+  const ideaOf = (nodes, id) => {
+    let n = nodes.find(x => x.id === id);
+    while (n && n.kind !== "idea") n = nodes.find(x => x.id === n.parentId);
+    return n;
+  };
+  const queueIdea = (n, reason = "answers") => {
+    if (!n) return;
+    n.analysisStarted = true;
+    n.analysis = { stage: "queued", reason: reason === "edit" || n.analysis?.reason === "edit" ? "edit" : reason };
+    if (!S.queue.some(e => e.type === "idea" && e.id === n.id)) S.queue.push({ type: "idea", id: n.id });
+  };
+  const settled = () => !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss);
+  const captureSpec = () => {
+    const waiting = qs().filter(n => n.pending).map(n => n.id);
+    const ideaWaiting = [...new Set([...S.nodes.filter(n => n.analysis).map(n => n.id), ...waiting.map(id => ideaOf(S.nodes, id)?.id).filter(Boolean)])];
+    return { stage: "queued", token: null, requestedAt: Date.now(), title: S.title, brief: S.brief, arch: S.arch,
+      nodes: S.nodes.map(specNode), gradingNodes: structuredClone(S.nodes.map(contextNode)), waiting, ideaWaiting, ideaReasons: Object.fromEntries(S.nodes.filter(n => n.analysis).map(n => [n.id, n.analysis.reason])) };
+  };
+  const specNodes = nodes => {
+    const excluded = new Set(nodes.filter(n => n.kind === "idea" && n.status !== "ok").flatMap(n => subtree(nodes, n.id).map(x => x.id)));
+    return nodes.filter(n => !excluded.has(n.id));
+  };
+  const ideaBusy = id => {
+    const branch = subtree(S.nodes, id), ids = new Set(branch.map(n => n.id));
+    return !!S.rereadJob || branch.some(n => n.pending || n.discuss || n.analysis) || S.questionRequests.some(j => ids.has(j.parentId)) || !!S.specJob?.nodes.some(n => ids.has(n.id));
+  };
+  // Idea revisions use the entire map: evidence in another branch can invalidate the conclusion.
+  function ideaPayload(id, captured = false) {
+    const nodes = captured ? S.specJob.gradingNodes : S.nodes, n = nodes.find(x => x.id === id);
+    if (!n || !captured && !n.analysis) return null;
+    boundBranch(nodes);
+    const job = { id, stage: "thinking", token: randomUUID(), revision: mapRevision(), reason: captured ? S.specJob.ideaReasons?.[id] || "snapshot" : n.analysis.reason };
+    if (captured) S.specJob.ideaWork = job; else n.analysis = job;
+    return { type: "idea", id, token: job.token, capturedForSpec: captured, reason: job.reason, title: captured ? S.specJob.title : S.title,
+      brief: captured ? S.specJob.brief : S.brief, arch: captured ? S.specJob.arch : S.arch,
+      idea: contextNode(n), nodes: structuredClone(nodes.map(contextNode)) };
+  }
+  function applyIdea(b) {
+    const captured = b.capturedForSpec === true, n = get(b.id), job = captured ? S.specJob?.ideaWork : n?.analysis;
+    if (!job || job.stage !== "thinking" || job.token !== b.token || job.id !== b.id) throw [409, "Результат устарел, получите событие через wait"];
+    if (!captured && job.revision !== mapRevision()) {
+      queueIdea(n, job.reason); save(); throw [409, "Карта изменилась, получите событие через wait"];
+    }
+    const source = captured ? S.specJob.gradingNodes : S.nodes, next = structuredClone(source), idea = next.find(x => x.id === b.id);
+    const verdict = clean(b.verdict, 400);
+    if (!ORDER.includes(b.status) || !verdict) throw [400, "Нужны статус идеи и объяснение"];
+    const branch = subtree(next, idea.id).filter(x => x.kind === "q"), ids = new Set(branch.map(x => x.id));
+    if (b.audit !== undefined && (!Array.isArray(b.audit) || b.audit.length !== branch.length) || job.reason === "edit" && !Array.isArray(b.audit)) throw [400, "Нужна проверка каждой карточки"];
+    const audited = new Set(), drop = new Set();
+    for (const a of b.audit || []) {
+      const q = next.find(x => x.id === a?.id), reason = clean(a?.reason, 400);
+      if (!ids.has(a?.id) || audited.has(a.id) || !reason || !["keep", "obsolete", "restore", "remove"].includes(a.action)) throw [400, "Некорректная проверка карточки"];
+      audited.add(a.id);
+      if (a.action !== "keep" && q.conflictOf?.length) throw [400, "Расхождение решает только ответ пользователя"];
+      if (a.action === "remove") {
+        if (q.answer || q.chat?.length || q.mergedFrom?.length) throw [400, "Убрать можно только вопрос без ответа и обсуждения"];
+        drop.add(q.id);
+      }
+      if (a.action === "obsolete") q.obsolete = { reason, sources: [{ id: idea.id, q: idea.text }] };
+      if (a.action === "restore") { if (!q.obsolete) throw [400, "Карточка не устарела"]; delete q.obsolete; }
+    }
+    if (b.children !== undefined && (!Array.isArray(b.children) || b.children.length > 4)) throw [400, "Некорректные вопросы идеи"];
+    const children = (b.children || []).map(o => {
+      const q = mkQ({ ...o, area: o?.area || "" }, idea.id);
+      if (!q || q.options.length < 2) throw [400, "Новому вопросу нужны текст и не менее двух вариантов"];
+      return q;
+    });
+    const result = next.filter(x => !drop.has(x.id)); result.push(...children);
+    if (result.some(x => drop.has(x.parentId))) throw [400, "Родитель не найден или обнаружен цикл"];
+    if (b.status === "ok" && subtree(result, idea.id).some(x => x.kind === "q" && !x.obsolete && (x.pending || ["open", "gap"].includes(x.status)))) throw [400, "Сначала разберите открытые вопросы и дыры"];
+    Object.assign(idea, { status: b.status, verdict, analysis: null, reviewedAt: Date.now() });
+    boundBranch(result);
+    if (captured) {
+      S.specJob.gradingNodes = result; S.specJob.nodes = result.map(specNode);
+      S.specJob.ideaWaiting = S.specJob.ideaWaiting.filter(id => id !== idea.id); delete S.specJob.ideaWork;
+      // Frozen conclusions never overwrite later live work; the live idea has its own delivery.
+    } else S.nodes = result;
+    save(); pruneImages(); return { ok: true, added: children.length };
+  }
+
   function payload(e) {
+    if (e.type === "idea") return ideaPayload(e.id);
     if (e.type === "spec") {
       const j = S.specJob; if (!j) return null;
       j.stage = "thinking"; j.token = randomUUID();
-      return { type: "spec", token: j.token, path: S.specFile, requestedAt: j.requestedAt, title: j.title, brief: j.brief, arch: j.arch, nodes: j.nodes };
+      return { type: "spec", token: j.token, path: S.specFile, requestedAt: j.requestedAt, title: j.title, brief: j.brief, arch: j.arch, nodes: specNodes(j.nodes) };
     }
     if (e.type === "answer") {
       const n = get(e.id); if (!n || !n.pending) return null;
@@ -249,7 +336,7 @@ ${S.notes || "—"}
       while (parent && parent.kind !== "root") { branch.unshift(parent); parent = source.find(x => x.id === parent.parentId); }
       return { type: "answer", id: n.id, token: n.pending.token, question: n.q, why: n.why, area: n.area, level: depth(n), priority: rootOf(n).prio,
         answer: n.pending.answer, previousAnswer: n.answer || null,
-        branch: branch.map(a => ({ q: a.q, answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
+        branch: branch.map(a => ({ q: a.q, ...(a.kind === "idea" ? { kind: "idea", text: a.text } : {}), answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
         branchSnapshot: structuredClone(subtree(source, n.id).map(contextNode)), capturedForSpec: !!specLocked(n.id),
         questionRequests: S.questionRequests.filter(j => subtree(S.nodes, n.id).some(x => x.id === j.parentId)).map(j => ({ id: j.id, parentId: j.parentId, q: j.q })),
         protectedIds: specLocked(n.id) ? subtree(S.nodes, n.id).filter(x => !source.some(s => s.id === x.id && JSON.stringify(contextNode(s)) === JSON.stringify(contextNode(x)))).map(x => x.id) : [],
@@ -259,9 +346,9 @@ ${S.notes || "—"}
       const n = get(e.id); if (!n || !n.discuss) return null;
       n.discuss = "thinking"; n.discussToken = randomUUID();
       const chat = n.chat || []; let i = chat.length; while (i && chat[i - 1].from === "user") i--;
-      return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : "question", question: n.kind === "root" ? S.title : n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
+      return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : n.kind === "idea" ? "idea" : "question", question: n.kind === "root" ? S.title : n.text || n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
         status: n.status, obsolete: n.obsolete || null, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
-        branch: anc(n).map(a => ({ q: a.q, answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
+        branch: anc(n).map(a => ({ q: a.q, ...(a.kind === "idea" ? { kind: "idea", text: a.text } : {}), answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
         message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
         images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
         history: chat.slice(0, i).map(m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote, about: m.about || "option" } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) })) };
@@ -278,26 +365,31 @@ ${S.notes || "—"}
       j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision();
       const talk = m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) });
       return { type: "reread", token: j.token, title: S.title, brief: S.brief, arch: S.arch,
+        ideas: S.nodes.filter(n => n.kind === "idea").map(contextNode),
         nodes: qs().map(n => ({ id: n.id, parentId: n.parentId, level: depth(n), area: n.area, priority: n.prio ?? null, q: n.q, why: n.why, options: n.options, status: n.status, answer: n.answer || null, verdict: n.verdict || null, createdBy: n.createdBy || null,
           obsolete: n.obsolete || null, conflictOf: n.conflictOf || [], mergedFrom: n.mergedFrom || [], chat: (n.chat || []).map(talk) })),
         projectChat: (get("root").chat || []).map(talk) };
     }
-    if (e.type === "more") return { type: "more", mainQuestions: kids("root").sort((a, b) => a.prio - b.prio).map(r => ({ priority: r.prio, area: r.area, q: r.q, status: r.status, answer: r.answer || null, obsolete: r.obsolete || null })) };
+    if (e.type === "more") return { type: "more", mainQuestions: kids("root").filter(n => n.kind === "q").sort((a, b) => a.prio - b.prio).map(r => ({ priority: r.prio, area: r.area, q: r.q, status: r.status, answer: r.answer || null, obsolete: r.obsolete || null })) };
     if (e.type === "finish") {
       const c = counts();
-      return { type: "finish", counts: c, problems: qs().filter(n => !n.obsolete && ["gap", "weak", "verify"].includes(n.status)).map(n => ({ status: n.status, area: n.area, q: n.q, answer: n.answer, verdict: n.verdict })) };
+      return { type: "finish", counts: c, ideas: S.nodes.filter(n => n.kind === "idea").map(specNode), problems: qs().filter(n => !n.obsolete && ["gap", "weak", "verify"].includes(n.status)).map(n => ({ status: n.status, area: n.area, q: n.q, answer: n.answer, verdict: n.verdict })) };
     }
     return null;
   }
   const counts = () => countQ(S.nodes);
   function takeEvent() {
+    if (S.specJob?.stage === "refresh" && settled() && !S.nodes.some(n => n.analysis) && !rereadThinking()) S.specJob = captureSpec();
     // Captured answers must be graded before the snapshot can be delivered, including after restart.
     if (S.specJob?.waiting.length) {
       const i = S.queue.findIndex(e => e.type === "answer" && specLocked(e.id));
       if (i > 0) S.queue.unshift(...S.queue.splice(i, 1));
     }
+    if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.ideaWaiting?.length) {
+      const p = ideaPayload(S.specJob.ideaWaiting[0], true); save(); return { ...p, language: S.locale.language };
+    }
     for (;;) {
-      const i = S.queue.findIndex(e => e.type !== "reread" || rereadReady());
+      const i = S.queue.findIndex(e => e.type === "reread" ? rereadReady() : e.type === "idea" ? settled() && !rereadThinking() : e.type === "spec" ? S.specJob?.stage !== "refresh" && !S.specJob?.waiting.length && !S.specJob?.ideaWaiting?.length : true);
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) { S.queue.splice(i, 0, e); throw error; }
@@ -327,7 +419,8 @@ ${S.notes || "—"}
     if (S.summary) md += `## ${t("Итог")}\n\n${S.summary}\n\n`;
     md += `## ${t("Карта вопросов")}\n\n`;
     kids("root").sort((a, b) => a.prio - b.prio).forEach(r => {
-      md += `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
+      md += r.kind === "idea" ? `### ${t("Идея")} · [${t(r.status === "open" ? "Открыта" : r.status === "ok" ? "Закрыта" : LABEL[r.status])}]\n${r.text}\n` : `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
+      if (r.kind === "idea") for (const m of r.chat || []) md += `- ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
       if (r.answer) md += `- ${t("Ответ:")} ${r.answer}\n`; if (r.verdict) md += `- ${t("Вердикт:")} ${r.verdict}\n`;
       if (r.obsolete) md += `- ${t("Устарело:")} ${r.obsolete.reason}\n`;
       (r.mergedFrom || []).forEach(m => { md += `- ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
@@ -336,6 +429,7 @@ ${S.notes || "—"}
         if (k.answer) md += `${ind}  - ${t("Ответ:")} ${k.answer}\n`; if (k.verdict) md += `${ind}  - ${t("Вердикт:")} ${k.verdict}\n`;
         if (k.obsolete) md += `${ind}  - ${t("Устарело:")} ${k.obsolete.reason}\n`;
         (k.mergedFrom || []).forEach(m => { md += `${ind}  - ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
+        if (r.kind === "idea") for (const m of k.chat || []) md += `${ind}  - ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
         walk(k.id, ind + "  ");
       });
       walk(r.id, ""); md += "\n";
@@ -345,6 +439,7 @@ ${S.notes || "—"}
 
   function apply(b) {
     lastActivity = Date.now();
+    if (b.type === "idea") return applyIdea(b);
     if (b.type === "notes") {
       S.notes = clean(b.text, 3000); save(); writeSession(); return { ok: true };
     }
@@ -424,11 +519,14 @@ ${S.notes || "—"}
       const next = rebuild(S.nodes), nextFrozen = frozen && rebuild(frozen);
       if (S.rereadJob?.edits.includes(n.id)) { S.rereadJob.edits = S.rereadJob.edits.filter(id => id !== n.id); S.rereadJob.settled = true; }
       S.nodes = next;
+      queueIdea(ideaOf(S.nodes, n.id));
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || !drop.has(e.id));
       if (nextFrozen) {
         S.specJob.gradingNodes = nextFrozen;
         S.specJob.nodes = nextFrozen.map(specNode);
         S.specJob.waiting = S.specJob.waiting.filter(id => id !== n.id && !drop.has(id));
+        const idea = ideaOf(nextFrozen, n.id);
+        if (idea && !S.specJob.ideaWaiting.includes(idea.id)) S.specJob.ideaWaiting.push(idea.id);
       }
       save(); pruneImages(); return { ok: true, added: additions.length };
     }
@@ -453,6 +551,7 @@ ${S.notes || "—"}
         { createdBy: "user", requestId: job.id, ...(parent.kind === "root" ? { prio: maxPrio() + 1 } : {}) });
       if (q.options.length < 2) throw [400, "Подготовьте не менее двух вариантов"];
       S.nodes.push(q); S.questionRequests = S.questionRequests.filter(j => j.id !== job.id);
+      queueIdea(ideaOf(S.nodes, q.id));
       save(); return { ok: true, id: q.id };
     }
     if (b.type === "more") {
@@ -609,6 +708,7 @@ ${S.notes || "—"}
       // Without the running job, so restoring this copy cannot start the same rebuild again.
       atomicWrite(path.join(DIR, "state.before-reread.json"), JSON.stringify({ ...S, rereadJob: null }, null, 2));
       S.nodes = nodes; S.brief = brief;
+      for (const idea of S.nodes.filter(n => n.kind === "idea" && (n.analysisStarted || n.reviewedAt))) queueIdea(idea, "reread");
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || byId.has(e.id));
     }
     finish({ changed, summary, audit: [...audit.values()] });
@@ -645,7 +745,7 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
         const { queue, specJob, specOwner, rereadJob, ...rest } = S;
-        return send(res, 200, { ...rest, name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length, listening: isListening() });
+        return send(res, 200, { ...rest, nodes: S.nodes.map(n => n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length, listening: isListening() });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/image") {
@@ -662,7 +762,8 @@ ${S.notes || "—"}
           if (!S.queue.some(e => e.type === "question" && e.id === job.id)) S.queue.unshift({ type: "question", id: job.id });
           save();
         }
-        if (S.specJob?.stage === "thinking") { recoverSpec(); save(); }
+        if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork) { recoverSpec(); save(); }
+        for (const n of S.nodes.filter(n => n.analysis?.stage === "thinking")) { queueIdea(n, n.analysis.reason); save(); }
         if (rereadThinking()) { recoverReread(); save(); }
         // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
         // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
@@ -687,6 +788,55 @@ ${S.notes || "—"}
         S.locale = next; save(); writeSession(); return send(res, 200, { ok: true, language: next.language });
       }
 
+      if (["/api/idea/analyze", "/api/idea/edit", "/api/idea/delete"].includes(p)) {
+        const n = get(b.id);
+        if (!n || n.kind !== "idea") return send(res, 404, { error: "Идея не найдена" });
+        if (p === "/api/idea/delete") {
+          if (b.confirm !== true) return send(res, 400, { error: "Подтвердите удаление всей ветки идеи" });
+          if (ideaBusy(n.id)) return send(res, 409, { error: "Дождитесь завершения работы с веткой идеи" });
+          const ids = new Set(subtree(S.nodes, n.id).map(x => x.id));
+          S.nodes = S.nodes.filter(x => !ids.has(x.id)); S.queue = S.queue.filter(e => !ids.has(e.id));
+          save(); pruneImages(); return send(res, 200, { ok: true });
+        }
+        if (p === "/api/idea/edit") {
+          const text = clean(b.text, 3001);
+          if (!text || text.length > 3000) return send(res, 400, { error: "Нужен текст идеи до 3000 символов" });
+          if (b.revision !== n.revision) return send(res, 409, { error: "Идея изменена в другой вкладке. Откройте её заново" });
+          if (text === n.text) return send(res, 200, { ok: true });
+          n.text = text; n.q = clean(text, 220); n.revision++;
+          queueIdea(n, "edit");
+          // A full reread or answer delivery may have depended on the old premise.
+          if (rereadThinking()) recoverReread();
+          for (const q of subtree(S.nodes, n.id)) if (q.pending?.stage === "thinking") {
+            q.pending.stage = "queued"; delete q.pending.token;
+            if (!S.queue.some(e => e.type === "answer" && e.id === q.id)) S.queue.unshift({ type: "answer", id: q.id });
+          }
+          for (const q of subtree(S.nodes, n.id)) if (q.discuss === "thinking") {
+            q.discuss = "queued"; delete q.discussToken;
+            if (!S.queue.some(e => e.type === "discuss" && e.id === q.id)) S.queue.unshift({ type: "discuss", id: q.id });
+          }
+          if (S.specJob?.nodes.some(x => x.id === n.id)) {
+            S.specJob.stage = "refresh"; S.specJob.token = null; S.specJob.waiting = []; S.specJob.ideaWaiting = []; delete S.specJob.ideaWork;
+            if (!S.queue.some(e => e.type === "spec")) S.queue.push({ type: "spec" });
+          }
+        } else {
+          if (rereadLocked()) return send(res, 409, { error: "Дождитесь завершения перечитывания" });
+          if (!n.analysis) queueIdea(n, "manual");
+        }
+        save(); pump(); return send(res, 200, { ok: true });
+      }
+      if (p === "/api/idea") {
+        const text = clean(b.text, 3001), requestId = clean(b.id, 81);
+        if (!text || text.length > 3000 || !/^[a-zA-Z0-9-]{1,80}$/.test(requestId)) return send(res, 400, { error: "Нужны текст идеи до 3000 символов и идентификатор запроса" });
+        const existing = S.nodes.find(n => n.requestId === requestId) || S.questionRequests.find(j => j.id === requestId);
+        if (existing) {
+          if (existing.kind !== "idea" || existing.text !== text) return send(res, 409, { error: "Идентификатор уже использован" });
+          return send(res, 200, { ok: true, id: existing.id });
+        }
+        if (rereadLocked()) return send(res, 409, { error: "Карта перестраивается. Прикрепить идею можно будет после перечитывания" });
+        const idea = { id: uid(), parentId: "root", kind: "idea", text, q: clean(text, 220), area: t("Идея"), revision: 1, status: "open", verdict: null, chat: [], requestId };
+        S.nodes.push(idea); save(); return send(res, 200, { ok: true, id: idea.id });
+      }
       if (p === "/api/answer") {
         const n = get(b.id); const answer = clean(b.answer, 3000);
         if (!n || n.kind !== "q") return send(res, 404, { error: "Вопрос не найден" });
@@ -755,7 +905,7 @@ ${S.notes || "—"}
         if (!q || !/^[a-zA-Z0-9-]{1,80}$/.test(id)) return send(res, 400, { error: "Нужны текст и идентификатор запроса" });
         const existing = S.questionRequests.find(j => j.id === id) || S.nodes.find(n => n.requestId === id);
         if (existing) {
-          if (existing.parentId !== parent.id || existing.q !== q) return send(res, 409, { error: "Идентификатор уже использован" });
+          if (existing.kind === "idea" || existing.parentId !== parent.id || existing.q !== q) return send(res, 409, { error: "Идентификатор уже использован" });
           return send(res, 200, { ok: true, id });
         }
         if (rereadLocked()) return send(res, 409, { error: "Карта перестраивается. Добавить вопрос можно будет после перечитывания" });
@@ -770,8 +920,7 @@ ${S.notes || "—"}
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Создать спеку можно будет после перечитывания" });
         if (!S.specJob) {
           S.specError = null;
-          S.specJob = { stage: "queued", token: null, requestedAt: Date.now(), title: S.title, brief: S.brief, arch: S.arch,
-            nodes: S.nodes.map(specNode), gradingNodes: structuredClone(S.nodes.map(contextNode)), waiting: qs().filter(n => n.pending).map(n => n.id) };
+          S.specJob = captureSpec();
           enqueue({ type: "spec" });
         }
         return send(res, 200, { ok: true, path: S.specFile });

@@ -67,3 +67,9 @@ package.json           npm scripts; no dependencies
 Requires Node 18+ (`fetch` and `AbortSignal.timeout`). No build step, linter, or automated test framework is configured; standalone API checks are available.
 
 Use `npm run link:codex` for the test workspace or `npm run link:codex:global` to also link `~/.agents/skills/grill`. Invoke with `$grill grill my project`. `link` and `link:global` are the Claude Code equivalents. After installation, restart the host; the agent starts the server itself.
+
+## Ideas on the project map
+
+Use the root menu to attach an idea; the draft becomes a persistent card only after Attach. Discuss it in the drawer and select Analyze idea to start its own question branch in the context of the entire map. The agent can conclude without new questions when existing answers suffice. Ideas use the familiar five grades and an explanation; their grades stay outside question counters/filters. Idea cards remain visible when filtering their questions.
+
+Text edits preserve history and automatically reassess the branch; changes to descendant answers also trigger reassessment. Editing during work invalidates old results. Deletion removes the whole branch only after confirmation and waits for work affecting it. Generated specs include only closed idea branches with their risks. If idea text changes during spec generation, the old request is canceled and a new snapshot follows reassessment. Closing an idea never starts implementation.
