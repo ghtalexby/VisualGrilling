@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { circlePreview } from "./fixtures/preview.mjs";
+import { previews } from "../skills/grill/preview.mjs";
 
 const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-preview-")), dir = path.join(cwd, "maps");
@@ -23,12 +24,15 @@ const wait = () => api("wait?timeout=5");
 const apply = (e, extra) => api("apply", { type: "preview", id: e.id, token: e.token, projectId: e.projectId, base: e.base, ...extra });
 async function stop() { if (!server || server.exitCode !== null) return; const done = new Promise(r => server.once("exit", r)); await api("stop", {}); await done; }
 try {
-  await start(); await api("init", { title: "Preview", questions: [{ q: "Size?", options: ["A", "B"] }, { q: "Unrelated", options: ["A", "B"] }] });
+  await start(); await api("init", { title: "Preview", brief: "Original premise", arch: "Local UI", questions: [{ q: "Size?", options: ["A", "B"] }, { q: "Unrelated", options: ["A", "B"] }] });
   const [q, other] = (await api("state")).nodes.filter(n => n.kind === "q");
   assert.equal((await fetch(url + "api/preview?id=none")).status, 403);
-  await api("preview/prepare", { sourceId: "root" }, 400);
+  assert.equal((await api("preview/prepare", { sourceId: "root" }, 400)).error, "Select preview branches");
   const { id } = await api("preview/prepare", { sourceId: q.id });
+  assert.equal((await api("preview?id=" + id)).q, "Preview");
   let e = await wait(); assert.equal(e.phase, "prepare"); assert.ok(!e.context.some(n => n.id === other.id));
+  assert.equal(e.context.find(n => n.id === "root").brief, "Original premise");
+  assert.equal(e.context.find(n => n.id === "root").arch, "Local UI");
   await stop(); await start(); const retry = await wait(); assert.notEqual(retry.token, e.token);
   await api("apply", { ...e, question: "Which?", options: ["UI", "Diagram"] }, 409);
   await apply(retry, { question: "Which?", options: ["UI", "Diagram"] });
@@ -37,6 +41,9 @@ try {
   assert.equal((await api("preview?id=" + id)).commit, undefined);
   const first = await apply(e, { files: circlePreview, purpose: "Circle" });
   let n = await api("preview?id=" + id); assert.equal(n.commit, first.commit); assert.equal(n.stale, 0);
+  await api("reread", {}); const reread = await wait();
+  await api("apply", { type: "reread", token: reread.token, brief: "Updated premise", audit: reread.nodes.map(n => ({ id: n.id, action: "keep", reason: "Only the project premise changes" })) });
+  assert.equal((await api("preview?id=" + id)).stale, 1);
   await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 180 } });
   assert.equal((await api("state")).queueLength, 0);
   await api("spec", {}); const spec = await wait(), snapshot = spec.nodes.find(n => n.id === id);
@@ -111,5 +118,9 @@ try {
   }
   for (const id of prepared.slice(0, 20)) await api("preview/build", { id, request: "Build" });
   await api("preview/build", { id: prepared[20], request: "Over limit" }, 409);
+  const rootOnly = { nodes: [{ id: "root", kind: "root" }], queue: [] };
+  const frozenController = previews(cwd, () => rootOnly, () => {}, () => {});
+  const retained = frozenController.reconcile([{ id: "old-preview", kind: "preview", sourceId: "deleted-source", parentId: "deleted-source", snapshot: "f".repeat(64) }], [...rootOnly.nodes]);
+  assert.equal(retained.find(n => n.id === "old-preview").parentId, "root");
   console.log("Preview API checks passed: recovery, publication, save, fork, stale, restore, snapshots, rejection");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

@@ -559,7 +559,7 @@ function toMarkdown(){
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
     if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;(r.mergedFrom||[]).forEach(m=>{md+=`- Сведено из: ${m.q}: ${m.answer}\n`});
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;

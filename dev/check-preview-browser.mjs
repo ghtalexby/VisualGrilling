@@ -52,6 +52,7 @@ try {
   const id=e.id; await until(()=>js(`panel?.id==="${id}"`)); await js("poll(true)");
   await input("#fPreview","Circle UI"); await click('[data-preview="build"]');
   e=await api("wait?timeout=5"); await result({files:circlePreview,purpose:"Circle size"}); await js("poll(true)");
+  assert.ok((await js("toMarkdown()")).includes((await api("preview?id="+id)).commit));
   await click('[data-preview="open"]'); await until(()=>js("previewView?.ready"));
   assert.equal(await js('document.querySelector("iframe").getAttribute("sandbox")'),"allow-scripts");
   await js("window.originalFrame=previewView.frame;poll(true)"); assert.equal(await js("previewView.frame===originalFrame"),true);

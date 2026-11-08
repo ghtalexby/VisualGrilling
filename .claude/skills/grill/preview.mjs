@@ -27,7 +27,7 @@ export function validateFiles(files) {
   return files;
 }
 
-export function previews(directory, state, save, enqueue) {
+export function previews(directory, state, save, enqueue, translate = text => text) {
   const root = path.join(directory, "previews");
   const safe = (...parts) => {
     let current = directory;
@@ -63,7 +63,7 @@ export function previews(directory, state, save, enqueue) {
         for (let size = -1; size !== selected.size;) { size = selected.size; for (const n of nodes) if (n.parentId !== "root" && selected.has(n.parentId)) selected.add(n.id); }
       }
     } else chain(sourceId);
-    return nodes.filter(n => selected.has(n.id) && n.kind !== "preview" && !n.obsolete).map(n => ({ id: n.id, parentId: n.parentId, kind: n.kind, q: n.q, text: n.text, answer: n.pending?.answer || n.answer || null, chat: n.chat || [] }));
+    return nodes.filter(n => selected.has(n.id) && n.kind !== "preview" && !n.obsolete).map(n => ({ id: n.id, parentId: n.parentId, kind: n.kind, q: n.q, text: n.text, answer: n.pending?.answer || n.answer || null, chat: n.chat || [], ...(n.kind === "root" ? { title: state().title, brief: state().brief, arch: state().arch } : {}) }));
   };
   const revisions = nodes => Object.fromEntries(nodes.map(n => [n.id, hash(n)]));
   const lineEnd = id => {
@@ -125,7 +125,10 @@ export function previews(directory, state, save, enqueue) {
     const present = new Set(next.map(n => n.id));
     for (const n of before.filter(n => n.kind === "preview")) {
       if (present.has(n.sourceId) && present.has(n.job?.sourceId || n.sourceId) && present.has(n.id) && !(n.branches || []).some(id => !present.has(id))) continue;
-      const policy = all().find(x => x.id === n.id)?.deletionPolicy || n.deletionPolicy;
+      const live = all().find(x => x.id === n.id);
+      // A frozen reference outlives explicit project deletion. There is no longer
+      // a working project whose fate the user could choose; retain its snapshot.
+      const policy = !live && n.snapshot ? "keep" : live?.deletionPolicy || n.deletionPolicy;
       if (!policy) fail("Выберите судьбу превью перед удалением источника", 409);
       const i = next.findIndex(x => x.id === n.id); if (i >= 0) next.splice(i, 1);
       if (policy === "keep") next.push({ ...n, sourceId: "root", parentId: "root", branches: [], orphaned: true, job: undefined, epoch: (n.epoch || 0) + 1 });
@@ -166,7 +169,7 @@ export function previews(directory, state, save, enqueue) {
         const branched = line.some(x => pathIds.has(x.id) && state().nodes.filter(y => y.kind === "q" && y.parentId === x.id).length > 1);
         if (branched) { n = fork(n, source.id); state().nodes.push(n); }
       }
-      if (!n) { n = { id: "p" + randomUUID(), projectId: randomUUID(), kind: "preview", parentId: source.id, sourceId: source.id, branches, q: "Превью", versions: [] }; state().nodes.push(n); }
+      if (!n) { n = { id: "p" + randomUUID(), projectId: randomUUID(), kind: "preview", parentId: source.id, sourceId: source.id, branches, q: translate("Превью"), versions: [] }; state().nodes.push(n); }
       n.sourceId = source.id; n.branches = branches; queue(n, "prepare"); return { ok: true, id: n.id };
     }
     const n = get(b.id);
