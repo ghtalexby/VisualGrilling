@@ -78,6 +78,7 @@ function runtime(encoded) {
     else {
       const clone = camera.cloneNode(true);
       const originals = [camera, ...camera.querySelectorAll("*")], copies = [clone, ...clone.querySelectorAll("*")];
+      const liveControls = new Map(copies.map((copy, i) => [copy, originals[i]]));
       // Freeze computed values instead of replaying animations or depending on hover/focus.
       originals.forEach((original, i) => {
         const computed = getComputedStyle(original);
@@ -85,8 +86,8 @@ function runtime(encoded) {
         copies[i].style.animation = "none"; copies[i].style.transition = "none";
       });
       for (const el of clone.querySelectorAll("input,select,button")) {
-        const span = document.createElement("span"); span.style.cssText = el.style.cssText;
-        span.textContent = el.type === "checkbox" ? (el.checked ? "☑" : "☐") : el.tagName === "SELECT" ? el.selectedOptions[0]?.textContent || el.value : el.value || el.textContent;
+        const live = liveControls.get(el), span = document.createElement("span"); span.style.cssText = el.style.cssText;
+        span.textContent = live.type === "checkbox" ? (live.checked ? "☑" : "☐") : live.tagName === "SELECT" ? live.selectedOptions[0]?.textContent || live.value : live.value || live.textContent;
         el.replaceWith(span);
       }
       const wrap = document.createElement("div"); wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
