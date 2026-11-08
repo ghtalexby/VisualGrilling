@@ -24,7 +24,8 @@ async function request(route, body, expected = 200) {
   return r.json();
 }
 const state = () => request("state"), wait = () => request("wait?timeout=5");
-const reread = (e, body = {}, expected = 200) => request("apply", { type: "reread", token: e.token, summary: "Checked", ...body }, expected);
+const auditFor = (e, body = {}) => e.nodes.map(n => ({ id: n.id, action: body.close?.some(o => o.id === n.id) ? "close" : body.merge?.some(o => o.ids.includes(n.id)) ? "merge" : body.remove?.includes(n.id) ? "remove" : "keep", reason: "Transport fixture review" }));
+const reread = (e, body = {}, expected = 200) => request("apply", { type: "reread", token: e.token, summary: "Checked", audit: auditFor(e, body), ...body }, expected);
 const by = (s, q) => s.nodes.find(n => n.q === q);
 async function stop() {
   if (!server || server.exitCode !== null) return;
@@ -313,6 +314,66 @@ try {
   await reread(e, { merge: [{ ids: [top, low], keep: low, answer: "Deep", status: "ok", verdict: "Same" }] });
   s = await state();
   assert.equal(by(s, "Low?").parentId, "root"); assert.equal(by(s, "Middle?").parentId, low);
+
+  // Retired status vocabulary: replace unanswered cards, preserve answered/discussed history.
+  {
+  await request("init", { title: "Ideas", questions: ["Which statuses?", "When does implementing start?", "Why not implement?", "Implementation approval?"].map(q => ({ q, options })) });
+  s = await state();
+  const [decision, emptyOld, answeredOld, discussedOld] = s.nodes.filter(n => n.kind === "q").map(n => n.id);
+  await grade(decision, "Drop implementing/not implementing; use open/ok/weak/gap/verify.");
+  await grade(answeredOld, "We used to reject implementation.", { children: [{ q: "Still relevant detail?", options }] });
+  await request("discuss", { id: discussedOld, message: "Preserve this discussion." });
+  e = await wait(); await request("apply", { type: "discuss", id: discussedOld, token: e.token, reply: "Noted" });
+  const before = await state();
+  await request("reread", {}); e = await wait();
+  // Missing, duplicate, unknown, empty-reason and inconsistent audits cannot unlock or mutate the map.
+  for (const audit of [undefined, [], auditFor(e).slice(1), auditFor(e).map((a, i) => i === 1 ? { ...a, id: decision } : a), auditFor(e).map((a, i) => i === 0 ? { ...a, id: "missing" } : a), auditFor(e).map(a => ({ ...a, reason: " " })), auditFor(e).map(a => ({ ...a, action: "remove" }))]) {
+    await reread(e, { audit }, 400);
+    assert.deepEqual((await state()).nodes, before.nodes);
+    assert.equal((await state()).rereadPending.stage, "thinking");
+  }
+  const audit = auditFor(e).map(a => a.id === emptyOld ? { ...a, action: "remove", reason: "Removed statuses no longer exist." } : [answeredOld, discussedOld].includes(a.id) ? { ...a, action: "obsolete", reason: "The user explicitly removed these statuses.", sources: [decision] } : a);
+  await reread(e, { audit: audit.map(a => a.action === "obsolete" ? { ...a, sources: [emptyOld] } : a), remove: [emptyOld] }, 400);
+  await reread(e, { audit: audit.map(a => a.id === emptyOld ? { ...a, action: "close" } : a), close: [{ id: emptyOld, source: answeredOld, verdict: "Must not reuse a withdrawn answer" }] }, 400);
+  await reread(e, { audit, remove: [emptyOld], add: [{ key: "$current", parentId: "root", q: "What happens after Closed?", options }] });
+  s = await state();
+  assert.equal(s.nodes.some(n => n.id === emptyOld), false);
+  for (const id of [answeredOld, discussedOld]) {
+    const n = s.nodes.find(n => n.id === id), old = before.nodes.find(n => n.id === id);
+    assert.deepEqual({ ...n, obsolete: undefined }, { ...old, obsolete: undefined });
+    assert.deepEqual(n.obsolete.sources, [{ id: decision, q: "Which statuses?" }]);
+    await request("answer", { id, answer: "Cannot grade retired premises" }, 409);
+  }
+  assert.equal(by(s, "Still relevant detail?").parentId, answeredOld);
+  assert.equal(s.rereadResult.audit.length, e.nodes.length);
+  await request("answer", { id: by(s, "Still relevant detail?").id, answer: "Current child answer" });
+  let childEvent = await wait();
+  assert.ok(childEvent.branch[0].obsolete);
+  assert.equal(childEvent.existingQuestions.includes("Why not implement?"), false);
+  await request("apply", { type: "answer", id: childEvent.id, token: childEvent.token, status: "ok", verdict: "Current detail checked" });
+  await request("more", {}); let moreEvent = await wait();
+  assert.ok(moreEvent.mainQuestions.find(n => n.q === "Why not implement?").obsolete);
+  await request("apply", { type: "more", questions: [] });
+  await request("finish", {}); let finishEvent = await wait();
+  assert.equal(finishEvent.counts.ok, 2);
+  await request("apply", { type: "finish", summary: "Checked active counts" });
+  assert.match(await (await fetch(url + "api/report", { headers: { "x-grill": "1" } })).text(), /Устарело: The user explicitly/);
+  await request("spec", {}); let spec = await wait();
+  assert.ok(spec.nodes.find(n => n.id === answeredOld).obsolete);
+  await request("apply", { type: "spec", token: spec.token, markdown: "# Current decisions only" });
+  await stop(); await start();
+  assert.ok((await state()).nodes.find(n => n.id === answeredOld).obsolete);
+  await request("reread", {}); e = await wait();
+  assert.ok(e.nodes.find(n => n.id === discussedOld).obsolete);
+  assert.equal((await reread(e)).changed, false);
+  // A later explicit user decision can restore a historical card without changing its old answer.
+  await request("discuss", { id: answeredOld, message: "Restore this question; it applies again." });
+  e = await wait(); assert.ok(e.obsolete); await request("apply", { type: "discuss", id: answeredOld, token: e.token, reply: "Reread will review this." });
+  await request("reread", {}); e = await wait();
+  await reread(e, { audit: auditFor(e).map(a => a.id === answeredOld ? { ...a, action: "restore", reason: "Explicit user request in discussion.", sources: [answeredOld] } : a) });
+  assert.equal((await state()).nodes.find(n => n.id === answeredOld).obsolete, undefined);
+  assert.equal((await state()).nodes.find(n => n.id === answeredOld).answer, "We used to reject implementation.");
+  }
 
   // init cancels the job; a late result is stale.
   await request("reread", {}); e = await wait();

@@ -195,19 +195,28 @@ The request and snapshot persist on disk. Restart and abandoned waits recover de
 
 ## Reread
 
-`POST /api/reread` creates a persisted job, and editing an existing answer creates an automatic one. Requests join a single job; a manual request upgrades an automatic job. `wait` delivers `{type:"reread",token,language,title,brief,arch,nodes,projectChat}` only when no answer is pending, no discussion is queued or thinking, no custom question is waiting and no specification job exists. `nodes` hold `{id,parentId,level,area,priority,q,why,options,status,answer,verdict,createdBy,conflictOf,mergedFrom,chat}`. Entries in `chat` and `projectChat` are `{from,text,quote?,images?}`, with absolute image paths. Reports and Markdown export list `mergedFrom`. Each delivery rotates the token; restart or a new `wait` returns an unapplied job to `queued`.
+`POST /api/reread` creates a persisted job, and editing an existing answer creates an automatic one. Requests join a single job; a manual request upgrades an automatic job. `wait` delivers `{type:"reread",token,language,title,brief,arch,nodes,projectChat}` only when no answer is pending, no discussion is queued or thinking, no custom question is waiting and no specification job exists. `nodes` hold `{id,parentId,level,area,priority,q,why,options,status,answer,verdict,createdBy,obsolete,conflictOf,mergedFrom,chat}`. Entries in `chat` and `projectChat` are `{from,text,quote?,images?}`, with absolute image paths. Reports and Markdown export list `mergedFrom`. Each delivery rotates the token; restart or a new `wait` returns an unapplied job to `queued`.
 
 Locks: `rereadPending.locked` is true while the job is `thinking`, or while a manual job is queued and an agent is listening. An automatic job does not lock until delivery, so edits in a row join one run. With no agent listening, a queued job does not lock. While locked, `/api/answer` and `/api/question` return 409. While `thinking`, `/api/discuss`, `/api/chatreset` and `/api/spec` also return 409. Only a result releases a running job. Resubmitting identical text is not an edit. Withdrawing the only ungraded edit, or restoring its original text before grading, cancels an automatic job that has not started.
 
 ```json
 {"type":"reread","token":"...","summary":"...","brief":"...",
+ "audit":[{"id":"open-id","action":"close","reason":"Answered elsewhere"},{"id":"answered-id","action":"keep","reason":"Current decision"}],
  "close":[{"id":"open-id","source":"answered-id","verdict":"..."}],
  "merge":[{"ids":["keep-id","other-id"],"keep":"keep-id","answer":"...","status":"ok","verdict":"..."}],
  "add":[{"key":"$new","parentId":"root","area":"...","q":"...","why":"...","options":["...","..."],"conflictOf":["id-a","id-b"]}],
  "move":[{"id":"kept-id","parentId":"$new"}],"remove":["obsolete-id"],"order":["main-id","$new"]}
 ```
 
-All operations are optional. `{type:"reread",token,error}` refuses the run: the map stays unchanged, the lock is released and `rereadResult.error` is set, and apply returns `{ok:false,error}`. Otherwise apply returns `{ok:true,changed,closed,merged,added,moved,removed}`.
+Every successful result requires `audit:[{id,action,reason,sources?}]`, exactly one entry per delivered question (no root, omissions, duplicates or unknown IDs). Actions are `keep|close|merge|remove|obsolete|restore`; the first three mutation actions must match `close`, `merge` and `remove`. Reasons are bounded to 400 characters and must be nonempty. `keep` can accompany `move` and retains any existing obsolete marker. Replacing an unanswered question uses `remove` plus `add` with a fresh ID. The server verifies coverage and consistency, not whether the semantic conclusion is correct.
+
+`obsolete` and `restore` act directly through audit entries. Both require 1–20 unique `sources` IDs of existing nodes (including root) with an answer or user discussion. `obsolete` saves `{reason,sources:[{id,q}]}` on the node, preserving its text, answer, grade, chat and children; `restore` requires an existing marker and removes only that marker. Source titles are snapshots, so historical evidence remains identifiable after merges. Conflict cards cannot be obsoleted or restored through this mechanism. Obsolete cards cannot be closed/merged or used as the source of `close`. They remain visible on the full map and exports, but do not match status filters, contribute to counts/finish problems, or appear as the next open question. They may remain visible as ancestors of active descendants. `POST /api/answer` returns 409 for obsolete cards; discussions remain available. Answer and discussion ancestor projections, the discussion target, custom-question context, `more.mainQuestions`, and specification snapshots carry the marker; `existingQuestions` excludes obsolete questions. The worker excludes historical decisions from active requirements and blockers.
+
+`rereadResult.audit` saves `{id,action,reason}` for each reviewed card, including no-op runs; Summary displays the reasons. An audit alone does not count as a changed map or replace the pre-reread copy. Refusals with `error` may omit audit. Old clients without audit receive 400 with the job still open; update the worker/simulator and restart the server together.
+
+All tree operations are optional. `{type:"reread",token,error}` refuses the run: the map stays unchanged, the lock is released and `rereadResult.error` is set, and apply returns `{ok:false,error}`. Otherwise apply returns `{ok:true,changed,closed,merged,added,moved,removed}`.
+
+The operation-shape example above requires audit entries for every delivered ID, not just the two illustrated entries.
 
 The server builds the candidate on a clone, so any 400 leaves the map and job unchanged. It enforces:
 

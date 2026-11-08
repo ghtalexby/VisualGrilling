@@ -229,5 +229,10 @@
   "Ответ пользователя потерян": "A user answer would be lost",
   "Расхождение решает только ответ пользователя": "Only the user's answer settles a disagreement",
   "Карта перестраивается. Сбросить чат можно будет после перечитывания": "The map is being rebuilt. You can reset the chat after the reread",
-  "Карта перестраивается. Создать спеку можно будет после перечитывания": "The map is being rebuilt. You can create a spec after the reread"
+  "Карта перестраивается. Создать спеку можно будет после перечитывания": "The map is being rebuilt. You can create a spec after the reread",
+  "Устарело": "Obsolete",
+  "Устарело:": "Obsolete:",
+  "История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.": "History is preserved. To restore this question, discuss it and reread the map.",
+  "Проверенные карточки:": "Reviewed cards:",
+  "Вопрос устарел. Обсудите его и попросите перечитать карту": "This question is obsolete. Discuss it and ask to reread the map"
 }

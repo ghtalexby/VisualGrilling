@@ -46,7 +46,7 @@ const sniffImage = b => b.toString("latin1", 0, 8) === "\x89PNG\r\n\x1a\n" ? "pn
 const CLI = c => `node "${path.join(HERE, "grill.mjs")}" ${c}${NAME ? " --name " + NAME : ""}`;
 const START = CLI("start");
 const ORDER = ["gap", "weak", "verify", "open", "ok"];
-const countQ = nodes => { const c = { open: 0, ok: 0, weak: 0, gap: 0, verify: 0 }; nodes.filter(n => n.kind === "q").forEach(n => c[n.status]++); return c; };
+const countQ = nodes => { const c = { open: 0, ok: 0, weak: 0, gap: 0, verify: 0 }; nodes.filter(n => n.kind === "q" && !n.obsolete).forEach(n => c[n.status]++); return c; };
 const samePath = (a, b) => process.platform === "win32" ? String(a).toLowerCase() === b.toLowerCase() : a === b;
 
 const uid = () => "n" + Math.random().toString(36).slice(2, 9);
@@ -249,19 +249,19 @@ ${S.notes || "—"}
       while (parent && parent.kind !== "root") { branch.unshift(parent); parent = source.find(x => x.id === parent.parentId); }
       return { type: "answer", id: n.id, token: n.pending.token, question: n.q, why: n.why, area: n.area, level: depth(n), priority: rootOf(n).prio,
         answer: n.pending.answer, previousAnswer: n.answer || null,
-        branch: branch.map(a => ({ q: a.q, answer: a.answer || null, status: a.status })),
+        branch: branch.map(a => ({ q: a.q, answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
         branchSnapshot: structuredClone(subtree(source, n.id).map(contextNode)), capturedForSpec: !!specLocked(n.id),
         questionRequests: S.questionRequests.filter(j => subtree(S.nodes, n.id).some(x => x.id === j.parentId)).map(j => ({ id: j.id, parentId: j.parentId, q: j.q })),
         protectedIds: specLocked(n.id) ? subtree(S.nodes, n.id).filter(x => !source.some(s => s.id === x.id && JSON.stringify(contextNode(s)) === JSON.stringify(contextNode(x)))).map(x => x.id) : [],
-        existingQuestions: qs().map(x => x.q) };
+        existingQuestions: qs().filter(x => !x.obsolete).map(x => x.q) };
     }
     if (e.type === "discuss") {
       const n = get(e.id); if (!n || !n.discuss) return null;
       n.discuss = "thinking"; n.discussToken = randomUUID();
       const chat = n.chat || []; let i = chat.length; while (i && chat[i - 1].from === "user") i--;
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : "question", question: n.kind === "root" ? S.title : n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
-        status: n.status, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
-        branch: anc(n).map(a => ({ q: a.q, answer: a.answer || null, status: a.status })),
+        status: n.status, obsolete: n.obsolete || null, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
+        branch: anc(n).map(a => ({ q: a.q, answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
         message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
         images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
         history: chat.slice(0, i).map(m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote, about: m.about || "option" } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) })) };
@@ -271,7 +271,7 @@ ${S.notes || "—"}
       if (!parent) return null;
       job.stage = "thinking"; job.token = randomUUID(); job.revision = branchRevision(parent.id);
       return { type: "question", id: job.id, token: job.token, parentId: parent.id, question: job.q,
-        parent: contextNode(parent), branch: anc(parent).map(contextNode), existingQuestions: qs().map(x => x.q) };
+        parent: contextNode(parent), branch: anc(parent).map(contextNode), existingQuestions: qs().filter(x => !x.obsolete).map(x => x.q) };
     }
     if (e.type === "reread") {
       const j = S.rereadJob; if (!j) return null;
@@ -279,13 +279,13 @@ ${S.notes || "—"}
       const talk = m => ({ from: m.from, text: m.text, ...(m.quote ? { quote: m.quote } : {}), ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) });
       return { type: "reread", token: j.token, title: S.title, brief: S.brief, arch: S.arch,
         nodes: qs().map(n => ({ id: n.id, parentId: n.parentId, level: depth(n), area: n.area, priority: n.prio ?? null, q: n.q, why: n.why, options: n.options, status: n.status, answer: n.answer || null, verdict: n.verdict || null, createdBy: n.createdBy || null,
-          conflictOf: n.conflictOf || [], mergedFrom: n.mergedFrom || [], chat: (n.chat || []).map(talk) })),
+          obsolete: n.obsolete || null, conflictOf: n.conflictOf || [], mergedFrom: n.mergedFrom || [], chat: (n.chat || []).map(talk) })),
         projectChat: (get("root").chat || []).map(talk) };
     }
-    if (e.type === "more") return { type: "more", mainQuestions: kids("root").sort((a, b) => a.prio - b.prio).map(r => ({ priority: r.prio, area: r.area, q: r.q, status: r.status, answer: r.answer || null })) };
+    if (e.type === "more") return { type: "more", mainQuestions: kids("root").sort((a, b) => a.prio - b.prio).map(r => ({ priority: r.prio, area: r.area, q: r.q, status: r.status, answer: r.answer || null, obsolete: r.obsolete || null })) };
     if (e.type === "finish") {
       const c = counts();
-      return { type: "finish", counts: c, problems: qs().filter(n => ["gap", "weak", "verify"].includes(n.status)).map(n => ({ status: n.status, area: n.area, q: n.q, answer: n.answer, verdict: n.verdict })) };
+      return { type: "finish", counts: c, problems: qs().filter(n => !n.obsolete && ["gap", "weak", "verify"].includes(n.status)).map(n => ({ status: n.status, area: n.area, q: n.q, answer: n.answer, verdict: n.verdict })) };
     }
     return null;
   }
@@ -329,10 +329,12 @@ ${S.notes || "—"}
     kids("root").sort((a, b) => a.prio - b.prio).forEach(r => {
       md += `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
       if (r.answer) md += `- ${t("Ответ:")} ${r.answer}\n`; if (r.verdict) md += `- ${t("Вердикт:")} ${r.verdict}\n`;
+      if (r.obsolete) md += `- ${t("Устарело:")} ${r.obsolete.reason}\n`;
       (r.mergedFrom || []).forEach(m => { md += `- ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
       const walk = (id, ind) => kids(id).forEach(k => {
         md += `${ind}- [${LABEL[k.status]}] ${k.q}\n`;
         if (k.answer) md += `${ind}  - ${t("Ответ:")} ${k.answer}\n`; if (k.verdict) md += `${ind}  - ${t("Вердикт:")} ${k.verdict}\n`;
+        if (k.obsolete) md += `${ind}  - ${t("Устарело:")} ${k.obsolete.reason}\n`;
         (k.mergedFrom || []).forEach(m => { md += `${ind}  - ${t("Сведено из:")} ${m.q}: ${m.answer}\n`; });
         walk(k.id, ind + "  ");
       });
@@ -477,6 +479,21 @@ ${S.notes || "—"}
     const list = (v, max) => { if (v !== undefined && (!Array.isArray(v) || v.length > max)) throw bad("Некорректный результат перечитывания"); return v || []; };
     const close = list(b.close, 500), merge = list(b.merge, 100), add = list(b.add, 20), move = list(b.move, 500), remove = list(b.remove, 500), order = b.order === undefined ? null : list(b.order, 500);
     const next = structuredClone(S.nodes), byId = new Map(next.map(n => [n.id, n]));
+    // Coverage is mandatory even for a no-op: structural validation cannot judge the model's semantic review.
+    if (!Array.isArray(b.audit) || b.audit.length !== qs().length) throw bad("Нужна проверка каждой карточки");
+    const audit = new Map();
+    for (const a of b.audit) {
+      if (!a || get(a.id)?.kind !== "q" || audit.has(a.id) || !["keep", "close", "merge", "remove", "obsolete", "restore"].includes(a.action) || !clean(a.reason, 400)) throw bad("Некорректная проверка карточки");
+      const expected = close.some(o => o?.id === a.id) ? "close" : merge.some(o => Array.isArray(o?.ids) && o.ids.includes(a.id)) ? "merge" : remove.includes(a.id) ? "remove" : ["obsolete", "restore"].includes(a.action) ? a.action : "keep";
+      if (a.action !== expected) throw bad("Проверка не соответствует операциям");
+      if (["obsolete", "restore"].includes(a.action)) {
+        const n = byId.get(a.id), sources = list(a.sources, 20);
+        if (n.conflictOf?.length || !sources.length || new Set(sources).size !== sources.length || sources.some(id => !get(id) || !(get(id).answer || get(id).chat?.some(m => m.from === "user")))) throw bad("Нужны источники решения об актуальности карточки");
+        if (a.action === "restore") { if (!n.obsolete) throw bad("Карточка не устарела"); delete n.obsolete; }
+        else n.obsolete = { reason: clean(a.reason, 400), sources: sources.map(id => ({ id, q: get(id).q || S.title })) };
+      }
+      audit.set(a.id, { id: a.id, action: a.action, reason: clean(a.reason, 400) });
+    }
     const question = id => { const n = typeof id === "string" ? byId.get(id) : null; if (!n || n.kind !== "q") throw bad("Нет вопроса с id " + id); return n; };
     const original = id => { question(id); return get(id); };
     // Each existing card takes part in at most one closing, merge or removal.
@@ -484,6 +501,7 @@ ${S.notes || "—"}
     for (const o of close) {
       const n = question(o?.id), source = original(o.source), verdict = clean(o.verdict, 400);
       claim(n.id);
+      if (n.obsolete || byId.get(source.id).obsolete) throw bad("Устаревшую карточку нельзя закрыть или использовать как актуальный ответ");
       if (n.conflictOf?.length) throw bad("Расхождение решает только ответ пользователя");
       if (n.answer || source.id === n.id || !source.answer || !verdict) throw bad("Закрыть можно вопрос без ответа, указав другой вопрос с ответом и вердикт со ссылкой на него");
       Object.assign(n, { status: "ok", answer: source.answer, verdict });
@@ -492,7 +510,7 @@ ${S.notes || "—"}
     for (const o of merge) {
       const ids = list(o?.ids, 20), keepId = o?.keep ?? ids[0], answer = clean(o?.answer, 3000), verdict = clean(o?.verdict, 400);
       if (ids.length < 2 || new Set(ids).size !== ids.length || !ids.includes(keepId) || !answer || !verdict || !["ok", "weak", "gap", "verify"].includes(o.status)) throw bad("Для сведения нужны минимум два вопроса, общий ответ, статус и вердикт");
-      const cards = ids.map(id => { const n = question(id); claim(id); if (!n.answer) throw bad("Свести можно только вопросы с ответами"); return n; });
+      const cards = ids.map(id => { const n = question(id); claim(id); if (!n.answer || n.obsolete) throw bad("Свести можно только актуальные вопросы с ответами"); return n; });
       // Answers on record as disagreeing are never combined; only the user settles them.
       if (S.nodes.flatMap(n => [n, ...(n.mergedFrom || [])]).some(n => Object.keys(n.conflictAnswers || {}).filter(id => ids.includes(id)).length > 1)) throw bad("Расхождение решает только ответ пользователя");
       const keep = byId.get(keepId);
@@ -593,7 +611,7 @@ ${S.notes || "—"}
       S.nodes = nodes; S.brief = brief;
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || byId.has(e.id));
     }
-    finish({ changed, summary });
+    finish({ changed, summary, audit: [...audit.values()] });
     save();
     if (changed) { writeSession(); pruneImages(); }
     return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length, moved: move.length, removed: remove.length };
@@ -672,6 +690,7 @@ ${S.notes || "—"}
       if (p === "/api/answer") {
         const n = get(b.id); const answer = clean(b.answer, 3000);
         if (!n || n.kind !== "q") return send(res, 404, { error: "Вопрос не найден" });
+        if (n.obsolete) return send(res, 409, { error: "Вопрос устарел. Обсудите его и попросите перечитать карту" });
         if (!answer) return send(res, 400, { error: "Пустой ответ" });
         boundBranch(subtree(S.nodes, n.id));
         if (specLocked(n.id)) return send(res, 409, { error: "Ответ включён в запрос спеки. Дождитесь его оценки, затем измените ответ" });

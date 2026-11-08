@@ -75,9 +75,10 @@ const handlers = {
   // Transport check only: closes one open card from an answer in another branch. It does not judge meaning.
   reread: e => {
     const rootOf = n => { let p = n; while (p.parentId !== "root") p = e.nodes.find(x => x.id === p.parentId); return p.id; };
-    const source = e.nodes.find(n => n.answer), target = source && e.nodes.find(n => !n.answer && n.status === "open" && !n.conflictOf.length && rootOf(n) !== rootOf(source));
-    if (!target) return { type: "reread", token: e.token, summary: "[sim] Схема в балансе, изменений нет." };
-    return { type: "reread", token: e.token, summary: `[sim] Закрыт вопрос «${target.q.slice(0, 60)}».`, close: [{ id: target.id, source: source.id, verdict: `[sim] Закрыто ответом на вопрос «${source.q.slice(0, 80)}».` }] };
+    const source = e.nodes.find(n => n.answer && !n.obsolete), target = source && e.nodes.find(n => !n.obsolete && !n.answer && n.status === "open" && !n.conflictOf.length && rootOf(n) !== rootOf(source));
+    const audit = e.nodes.map(n => ({ id: n.id, action: n === target ? "close" : "keep", reason: "[sim] Проверка транспорта, не семантическая оценка." }));
+    if (!target) return { type: "reread", token: e.token, audit, summary: "[sim] Схема в балансе, изменений нет." };
+    return { type: "reread", token: e.token, audit, summary: `[sim] Закрыт вопрос «${target.q.slice(0, 60)}».`, close: [{ id: target.id, source: source.id, verdict: `[sim] Закрыто ответом на вопрос «${source.q.slice(0, 80)}».` }] };
   },
   finish: e => ({ type: "finish", summary: `Вердикт: Жив при условии… (симуляция)\n\nСчётчики: ${JSON.stringify(e.counts)}\n\nРиски:\n${e.problems.slice(0, 3).map((p, i) => `${i + 1}. ${p.q}`).join("\n") || "—"}\n\nПроверки на неделю:\n1. Проверка из симулятора. Успех — карта отрисовала итог.` }),
 };

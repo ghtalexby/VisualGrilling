@@ -39,9 +39,9 @@ try {
   // A continued map retains finished:true; its connected header must allow another finish.
   const controls = {}, headerState = { finished: true, nodes: [{ kind: "q" }] };
   const headerContext = vm.createContext({
-    S: headerState, loaded: true, listening: true, offline: false, panel: null,
+    S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false,
     qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
-    $: selector => controls[selector] ||= {}
+    $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute() {} }
   });
   const headerCode = ui.match(/function renderHeader\(\)\{[\s\S]*?\n\}/)[0] + "\nrenderHeader();";
   vm.runInContext(headerCode, headerContext);
@@ -49,6 +49,28 @@ try {
   const stopLabel = controls["#bStop"].textContent;
   headerState.finishPending = true; vm.runInContext(headerCode, headerContext);
   assert.equal(controls["#bStop"].disabled, true); assert.notEqual(controls["#bStop"].textContent, stopLabel);
+
+  // Historical cards retain readable answers but are not answerable or selected as active work.
+  const oldCard = { id: "old", parentId: "root", kind: "q", prio: 1, area: "Lifecycle", q: "Old status?", status: "open", answer: "Old answer", obsolete: { reason: "Removed <script>status</script>", sources: [{ id: "new", q: "Decision" }] } };
+  const newCard = { id: "new", parentId: "old", kind: "q", area: "Lifecycle", q: "Current detail?", status: "open" };
+  const historicalState = { title: "History", nodes: [oldCard, newCard] };
+  const historicalContext = vm.createContext({
+    S: historicalState, panel: { tab: "answer" }, errMsg: null,
+    qs: () => historicalState.nodes, kids: id => historicalState.nodes.filter(n => n.parentId === id),
+    get: id => historicalState.nodes.find(n => n.id === id), ancestors: () => [], rootPrio: () => 1, depth: () => 1,
+    esc: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
+    STATUS: { open: "Открыт" }, ORDER: ["open"], node: oldCard
+  });
+  for (const name of ["counts", "nextOpen", "nodePanel", "toMarkdown"]) {
+    const start = ui.indexOf("function " + name + "("), end = ui.indexOf("\nfunction ", start + 1);
+    vm.runInContext(ui.slice(start, end), historicalContext);
+  }
+  assert.equal(vm.runInContext("counts().open", historicalContext), 1);
+  assert.equal(vm.runInContext("nextOpen().id", historicalContext), "new");
+  const historicalPanel = vm.runInContext("nodePanel(node).body", historicalContext);
+  assert.match(historicalPanel, /Устарело/); assert.match(historicalPanel, /Old answer/);
+  assert.match(historicalPanel, /&lt;script&gt;/); assert.doesNotMatch(historicalPanel, /<script>|id="fAns"|data-act="answer"/);
+  assert.match(vm.runInContext("toMarkdown()", historicalContext), /Устарело: Removed/);
 
   // Removed attachments release completed blob URLs; late fetches cannot recreate them.
   const imgUrls = {}, imageState = { nodes: [{ chat: [{ images: ["kept.png", "removed.png", "late.png"] }] }] };
@@ -224,7 +246,7 @@ try {
   e = await wait(); assert.equal(e.type, "question"); assert.equal(e.id, child.id);
   await request("apply", { type: "question", id: e.id, token: e.token, question: { options } });
   e = await wait(); assert.equal(e.type, "reread");
-  await request("apply", { type: "reread", token: e.token, summary: "Nothing to change" });
+  await request("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Nothing to change" });
 
   await request("more", {}); await request("more", {});
   assert.equal((await state()).queueLength, 1); await wait();

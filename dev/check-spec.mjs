@@ -133,7 +133,7 @@ try {
   await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Объяснение" });
   // The answer edits above queued a reread.
   e = await wait(); assert.equal(e.type, "reread");
-  await request("apply", { type: "reread", token: e.token, summary: "Без изменений" });
+  await request("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Без изменений" });
   await request("more", {});
   e = await wait(); assert.equal(e.type, "more");
   await request("apply", { type: "more", questions: [{ q: "Дополнительный" }] });

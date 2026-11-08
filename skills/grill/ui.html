@@ -278,11 +278,11 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#mapList").hidd
 /* ---------- map ---------- */
 function nodeHTML(n){
   if(n.kind==="root"){
-    const q=qs(),open=q.filter(x=>x.status==="open"&&!x.pending).length;
+    const q=qs().filter(n=>!n.obsolete),open=q.filter(x=>x.status==="open"&&!x.pending).length;
     return `<span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто</span>`;
   }
   const p=n.parentId==="root"?`<b>P${n.prio}</b> · `:"";
-  const pill=n.pending?`<span class="pill s-think">${n.pending.stage==="thinking"?"Разбор":"В очереди"}</span>`:`<span class="pill">${STATUS[n.status]}</span>`;
+  const pill=n.obsolete?`<span class="pill">Устарело</span>`:n.pending?`<span class="pill s-think">${n.pending.stage==="thinking"?"Разбор":"В очереди"}</span>`:`<span class="pill">${STATUS[n.status]}</span>`;
   const a=n.pending?n.pending.answer:n.answer,c=(n.chat||[]).length;
   return `<span class="nhead"><span class="area">${p}${esc(n.area||"")}${c?` · обсужд. ${c}`:""}</span>${pill}</span><span class="qtext">${esc(n.q)}</span>${a?`<span class="ans">${esc(a)}</span>`:""}`;
 }
@@ -294,7 +294,7 @@ function render(){
   if(isolated&&!get(isolated.id)){flt=isolated.filter;isolated=null;requestAnimationFrame(focusFilter)}
   if(isolated)chain(get(isolated.id));
   else{
-    S.nodes.forEach(n=>{if(n.kind!=="q"||flt&&n.status!==flt)return;hit.add(n.id);chain(n)});
+    S.nodes.forEach(n=>{if(n.kind!=="q"||flt&&(n.obsolete||n.status!==flt))return;hit.add(n.id);chain(n)});
     if(panel&&panel.mode==="node")chain(get(panel.id));
   }
   $("#bIsolation").hidden=!isolated;
@@ -324,7 +324,7 @@ function render(){
   stage.style.width=W+"px";stage.style.height=H+"px";applyView();
   renderHeader();
 }
-function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};qs().forEach(n=>c[n.status]++);return c}
+function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};qs().filter(n=>!n.obsolete).forEach(n=>c[n.status]++);return c}
 function renderHeader(){
   $("#bMaps").textContent=loaded?(S.name??"Без имени"):"Карты";
   $("#finishedNotice").hidden=!S.finished||listening||offline;
@@ -356,19 +356,21 @@ function renderHeader(){
 /* ---------- panel ---------- */
 function working(t){return`<div class="working"><span class="busy-dot"></span><span>${t}</span></div>`}
 function waitNote(){return listening?"":`<div class="note">Агент сейчас не слушает карту. Ответ встанет в очередь и будет разобран, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`}
-function nextOpen(){const o=[];const w=id=>kids(id).forEach(k=>{o.push(k);w(k.id)});w("root");return o.find(n=>n.status==="open"&&!n.pending)}
+function nextOpen(){const o=[];const w=id=>kids(id).forEach(k=>{o.push(k);w(k.id)});w("root");return o.find(n=>!n.obsolete&&n.status==="open"&&!n.pending)}
 function nodePanel(n){
   const head=`<span class="eyebrow">P${rootPrio(n)} · ${esc(n.area)} · уровень ${depth(n)}</span>`;
   let b="";const anc=ancestors(n);
   if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
   if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
   b+=`<h2>${esc(n.q)}</h2>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
+  if(n.obsolete)b+=`<div class="note"><b>Устарело</b>: ${esc(n.obsolete.reason)}<br>История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.</div>`;
   const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
   if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${n.mergedFrom.map(m=>`<div class="note"><b>${esc(m.q)}</b><br>Ваш ответ: ${esc(m.answer)}</div>`).join("")}`;
   const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
+  else if(n.obsolete){if(n.answer)b+=`<div class="note">Ваш ответ: ${esc(n.answer)}${n.verdict?`<p>${esc(n.verdict)}</p>`:""}</div>`}
   else if(n.pending){
     b+=`<div class="verdict s-think"><span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p></div>`;
     b+=n.pending.stage==="thinking"?working("Агент оценивает ответ и ищет слабые места…"):waitNote()+`<div class="row"><button class="btn small" data-act="cancel">Отозвать ответ</button></div>`;
@@ -424,7 +426,8 @@ function toMarkdown(){
   kids("root").forEach(r=>{
     md+=`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;(r.mergedFrom||[]).forEach(m=>{md+=`- Сведено из: ${m.q}: ${m.answer}\n`});
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});w(k.id,ind+"  ")});
+    if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;
@@ -436,7 +439,7 @@ function summaryPanel(){
   b+=`<div class="bar">${ORDER.map(s=>c[s]?`<span class="s-${s}" style="flex:${c[s]}" title="${STATUS[s]}: ${c[s]}"></span>`:"").join("")}</div>`;
   b+=`<div class="stats">${ORDER.map(s=>`<div class="s-${s}"><b>${c[s]}</b><span class="pill">${STATUS[s]}</span></div>`).join("")}</div>`;
   if(S.summary)b+=`<h3>Итог от агента</h3><div class="final">${esc(S.summary)}</div>`;
-  const group=(st,t)=>{const l=qs().filter(n=>n.status===st&&!n.pending);return l.length?`<h3>${t}</h3><div class="sublist">${l.map(n=>`<button class="subq s-${st}" data-open="${n.id}"><span>${esc(n.q)}</span><span class="mono" style="color:var(--muted)">P${rootPrio(n)}</span></button>`).join("")}</div>`:""};
+  const group=(st,t)=>{const l=qs().filter(n=>!n.obsolete&&n.status===st&&!n.pending);return l.length?`<h3>${t}</h3><div class="sublist">${l.map(n=>`<button class="subq s-${st}" data-open="${n.id}"><span>${esc(n.q)}</span><span class="mono" style="color:var(--muted)">P${rootPrio(n)}</span></button>`).join("")}</div>`:""};
   b+=group("gap","Дыры: ответа нет")+group("weak","Слабые ответы")+group("verify","Нужно проверить");
   const nx=nextOpen();if(nx)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Ответить на следующий вопрос →</button></div>`;
   b+=`<h3>Перечитывание</h3><p class="why">Агент читает всю карту, закрывает решённое в других ветках, сводит совпадения и выносит расхождения в новые карточки. Копия карты до перестройки сохраняется в её папке.</p>`;
@@ -446,6 +449,7 @@ function summaryPanel(){
   const rr=S.rereadResult;
   if(rr?.error)b+=`<div class="err">Карта не изменилась: ${esc(rr.error)}</div>`;
   else if(rr)b+=`<div class="final">${esc(rr.summary||(rr.changed?"Схема обновлена.":"Схема в балансе, изменений нет."))}</div>`;
+  if(rr?.audit)b+=`<details><summary>Проверенные карточки: ${rr.audit.length}</summary>${rr.audit.map(a=>`<p><b>${esc(get(a.id)?.q||a.id)}</b><br>${esc(a.reason)}</p>`).join("")}</details>`;
   b+=`<h3>Спецификация</h3><p class="why">План реализации по оценённым ответам. Обновление полностью заменяет файл, включая ручные правки.</p>`;
   if(S.specPending)b+=working(S.specPending.waiting?"Сначала разбираем ответы, отправленные до запроса…":S.specPending.stage==="thinking"?"Агент составляет спеку…":listening?"Запрос спеки в очереди…":"Запрос сохранён. Ожидаем агента…");
   else b+=`<div class="row"><button class="btn" data-act="spec">${S.specUpdatedAt?"Обновить спеку":"Создать спеку"}</button></div>`;
@@ -465,7 +469,7 @@ function panelSig(){
   if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.q,n.why,n.options,n.recommendation,n.status,n.answer,n.pending,n.verdict,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([n.q,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.pending,n.verdict,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(){
   const p=$("#panel");
@@ -732,7 +736,7 @@ function centerNode(id){
 }
 function focusFilter(){
   if(!flt){centerMap();return}
-  const matches=[...document.querySelectorAll("#stage .node.q")].filter(b=>get(b.dataset.id)?.status===flt).sort((a,b)=>a.offsetLeft-b.offsetLeft||a.offsetTop-b.offsetTop);
+  const matches=[...document.querySelectorAll("#stage .node.q")].filter(b=>{const n=get(b.dataset.id);return n&&!n.obsolete&&n.status===flt}).sort((a,b)=>a.offsetLeft-b.offsetLeft||a.offsetTop-b.offsetTop);
   if(matches.length)centerNode(matches[0].dataset.id);else centerMap();
 }
 function centerMap(){

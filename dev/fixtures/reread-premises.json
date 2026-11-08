@@ -1,0 +1,15 @@
+{
+  "type": "reread",
+  "token": "fixture-only",
+  "language": "en",
+  "title": "Ideas on the project map",
+  "brief": "Attach ideas to a project map. Ideas have implementing and not-implementing statuses and a discussion drawer.",
+  "arch": "A local tree of questions with a discussion on each card.",
+  "projectChat": [],
+  "nodes": [
+    { "id": "decision", "parentId": "root", "q": "Which statuses do ideas use?", "why": "Define their lifecycle.", "options": ["Implementing / not implementing", "Ordinary question grades"], "answer": "Let's drop implementing and not implementing. Ideas use open, closed, weak, gap and verify, just like questions.", "status": "ok", "verdict": "Status vocabulary selected.", "chat": [], "conflictOf": [], "mergedFrom": [] },
+    { "id": "transition", "parentId": "root", "q": "Who switches the idea into implementing, and does that start code changes?", "why": "Define the implementing transition.", "options": ["User switches implementing on", "Agent switches implementing on"], "answer": null, "status": "open", "chat": [], "conflictOf": [], "mergedFrom": [] },
+    { "id": "history", "parentId": "root", "q": "What does not implementing mean?", "why": "Explain the negative outcome.", "options": ["Rejected permanently", "Deferred"], "answer": "Deferred until the next planning cycle.", "status": "ok", "verdict": "Defined.", "chat": [{ "from": "user", "text": "Keep my reasoning about why deferral was useful." }], "conflictOf": [], "mergedFrom": [] },
+    { "id": "input", "parentId": "root", "q": "When is an idea saved if the drawer is closed?", "why": "Avoid losing drafts.", "options": ["Save a draft", "Discard unsent input"], "answer": null, "status": "open", "chat": [], "conflictOf": [], "mergedFrom": [] }
+  ]
+}
