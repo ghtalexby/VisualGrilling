@@ -497,8 +497,8 @@ ${S.notes || "—"}
         refs.set(o.key, q.id); additions.push(q);
       }
       const parentId = id => refs.get(id) || id;
-      const allowedParent = id => scope.has(id) && !drop.has(id) || additions.some(x => x.id === id);
-      for (const m of moves) if (!m || m.id === n.id || !scope.has(m.id) || drop.has(m.id) || !allowedParent(parentId(m.parentId))) throw [400, "Перенос вне затронутой ветки"];
+      const allowedParent = id => scope.has(id) && !drop.has(id) && ["q", "idea"].includes(get(id)?.kind) || additions.some(x => x.id === id);
+      for (const m of moves) if (!m || get(m.id)?.kind !== "q" || m.id === n.id || !scope.has(m.id) || drop.has(m.id) || !allowedParent(parentId(m.parentId))) throw [400, "Перенос вне затронутой ветки"];
       for (const q of additions) { q.parentId = parentId(q.parentId); if (!allowedParent(q.parentId)) throw [400, "Родитель вопроса не найден"];
       }
       const ch = (Array.isArray(b.children) ? b.children : []).slice(0, 4).map(o => mkQ({ ...o, area: n.area }, n.id)).filter(Boolean);
@@ -685,6 +685,7 @@ ${S.notes || "—"}
     }
     const cards = [...byId.values()].filter(n => n.kind === "q");
     for (const n of cards) {
+      if (byId.get(n.parentId)?.kind === "preview") throw bad("Родитель вопроса не найден");
       const seen = new Set([n.id]);
       let p = n;
       while (p.parentId !== "root") {
@@ -924,7 +925,7 @@ ${S.notes || "—"}
       }
       if (p === "/api/question") {
         const parent = get(b.parentId), q = clean(b.q, 220), id = clean(b.id, 80);
-        if (!parent) return send(res, 404, { error: "Вопрос не найден" });
+        if (!parent || !["root", "q", "idea"].includes(parent.kind)) return send(res, 404, { error: "Вопрос не найден" });
         if (!q || !/^[a-zA-Z0-9-]{1,80}$/.test(id)) return send(res, 400, { error: "Нужны текст и идентификатор запроса" });
         const existing = S.questionRequests.find(j => j.id === id) || S.nodes.find(n => n.requestId === id);
         if (existing) {

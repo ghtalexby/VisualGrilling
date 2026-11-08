@@ -58,7 +58,13 @@ try {
   await api("answer", { id: q.id, answer: "Diameter should be 240" });
   const second = await apply(e, { files: { ...circlePreview, "script.js": circlePreview["script.js"].replace("120", "240") }, purpose: "Larger circle" });
   n = await api("preview?id=" + id); assert.equal(n.stale, 1); assert.equal(n.savedState, null);
-  e = await wait(); await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "Branch A", options: ["A", "B"] }, { q: "Branch B", options: ["A", "B"] }] });
+  e = await wait();
+  const beforeInvalidMove = (await api("state")).nodes;
+  await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Invalid cycle", branchChanges: { move: [{ id, parentId: id }] } }, 400);
+  await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Invalid parent", branchChanges: { add: [{ key: "$child", parentId: id, q: "A preview cannot parent a question", options: ["A", "B"] }] } }, 400);
+  await api("question", { id: "bad-preview-child", parentId: id, q: "A preview cannot parent a custom question" }, 404);
+  assert.deepEqual((await api("state")).nodes, beforeInvalidMove);
+  await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "Branch A", options: ["A", "B"] }, { q: "Branch B", options: ["A", "B"] }] });
   let state = await api("state"), copies = state.nodes.filter(p => p.forkOf === n.projectId); assert.equal(copies.length, 2);
   const copy = await api("preview?id=" + copies[0].id); assert.equal(copy.versions.length, 2);
   await api("preview/restore", { id: copy.id, commit: copy.commit, epoch: copy.epoch, target: first.commit });
