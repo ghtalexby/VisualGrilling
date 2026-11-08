@@ -112,6 +112,59 @@ try {
   await stop(); await start(); assert.equal((await wait()).type, "timeout");
   await api("finish", {}); e = await wait(); assert.equal(e.type, "finish"); await api("apply", { type: "finish", summary: "Stopped" });
   await reply("After stopping"); assert.equal((await wait()).type, "timeout");
+  // Finishing cancels automatic edit reviews, but preserves queued answer grading.
+  for (const editBeforeFinish of [false, true]) {
+    await api("init", { title: "Stop edits", questions: [question("Editable?")], reserve });
+    const q = (await state()).nodes.find(n => n.kind === "q");
+    await grade(q.id, "Original");
+    if (editBeforeFinish) await api("answer", { id: q.id, answer: "Edited" });
+    await api("finish", {});
+    if (!editBeforeFinish) await api("answer", { id: q.id, answer: "Edited" });
+    assert.equal((await state()).rereadPending, null);
+    await stop(); await start(); assert.equal((await state()).rereadPending, null);
+    for (let i = 0; i < 2; i++) {
+      e = await wait();
+      if (e.type === "answer") await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Edited grade" });
+      else { assert.equal(e.type, "finish"); await api("apply", { type: "finish", summary: "Stopped" }); }
+    }
+    assert.equal((await node(q.id)).answer, "Edited");
+    assert.equal((await state()).queueLength, 0);
+    assert.equal((await wait()).type, "timeout");
+    await grade(q.id, "Edited after finish");
+    assert.equal((await state()).rereadPending, null);
+    await stop(); await start(); assert.equal((await wait()).type, "timeout");
+  }
+  // An already delivered automatic token is invalid at the finish-request boundary.
+  await api("init", { title: "Stop delivered review", questions: [question("Last?")], reserve });
+  await grade((await state()).nodes.find(n => n.kind === "q").id, "Answer");
+  e = await wait(); assert.equal(e.type, "reread");
+  await api("finish", {});
+  assert.equal((await state()).rereadPending, null);
+  await reread(e, { add: [{ key: "$late", parentId: "root", ...question("Too late?") }] }, 409);
+  assert.equal((await state()).nodes.filter(n => n.kind === "q").length, 1);
+  await stop(); await start(); await reread(e, {}, 409);
+  assert.equal((await wait()).type, "finish"); await api("apply", { type: "finish", summary: "Stopped" });
+  await api("reread", {}); e = await wait(); assert.equal(e.type, "reread");
+  await reread(e, { add: [{ key: "$manual", parentId: "root", ...question("Explicitly requested?") }], reserve: [] });
+  assert.equal((await state()).nodes.filter(n => n.kind === "q").length, 2);
+  // Upgrading a queued or delivered automatic review makes it explicit work to drain.
+  for (const delivered of [false, true]) {
+    await api("init", { title: "Manual upgrade", questions: [question("Editable?")], reserve: [] });
+    const q = (await state()).nodes.find(n => n.kind === "q");
+    await grade(q.id, "Original");
+    if (delivered) { e = await wait(); assert.equal(e.type, "reread"); }
+    else await api("answer", { id: q.id, answer: "Edit" });
+    await api("reread", {}); await api("finish", {});
+    assert.ok((await state()).rereadPending);
+    if (delivered) await reread(e, { reserve: [] });
+    else {
+      e = await wait(); assert.equal(e.type, "answer");
+      await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Graded" });
+      e = await wait(); assert.equal(e.type, "reread"); await reread(e, { reserve: [] });
+    }
+    assert.equal((await wait()).type, "finish"); await api("apply", { type: "finish", summary: "Stopped" });
+    assert.equal((await state()).queueLength, 0);
+  }
   // Drain readiness includes semantic work after finish and child grading.
   await api("init", { title: "Drain", questions: [question("Parent")], reserve: [] });
   const drainParent = (await state()).nodes.find(n => n.kind === "q");

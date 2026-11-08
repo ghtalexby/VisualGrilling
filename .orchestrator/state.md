@@ -1,7 +1,7 @@
 # UX completeness implementation
 
 Project: VisualGrilling. Specification: docs/specs/grill-ux-completeness.md (2026-11-08).
-Iteration: 1. Phase: fixing review 1 findings. Limits: 5 iterations, 3 review rounds per unit (mandatory repository review loop takes precedence).
+Iteration: 1. Phase: fixing review 2 finding. Limits: 5 iterations, 3 review rounds per unit (mandatory repository review loop takes precedence).
 Unrelated user changes: .gitignore, AGENTS.md. Preserve; exclude from commits.
 Checks: dev/check-*.mjs, disposable simulator, browser checks when available.
 
@@ -65,3 +65,17 @@ None. User authorized full implementation; no deployment/push requested.
 - Real Claude Code semantic smoke (claude --print, no tools, isolated temp cwd, default configured model) passed supplied worker fixtures: resolved duplicate-charge risk → ok; unanswered throughput assumption despite answered unrelated children → verify; duplicate reserve candidate discarded and useful candidate issued. No files/tools or host wake-up behavior tested. Session 9977bb55-4d70-44b8-8714-170b5462fb36. This is a small semantic smoke, not proof of model completeness.
 
 - Review1 fix/check phase complete: all13 root-run standalone API/browser checks passed; scoped diff whitespace clean. Base commit16d524f8e0cd3c5cbb1b584eea10f43f85739479. Preparing one task commit for non-clean review iteration1, then fresh review2.
+
+
+- Task implementation and review1 fixes committed as b1b58a1. Unrelated .gitignore/AGENTS remain unstaged. Fresh read-only review2 assigned full base16d524f..HEAD scope without previous findings. Review round2 W1/W2/W3.
+
+- Final b1b58a1 simulator smoke passed on disposable ux-final-1794130769027: child grading queued and applied ancestor review, idea creation auto-analyzed, reread consumed reserve, frozen idea/spec events, finish/report. Server stopped; only smoke-generated specification removed. Earlier smoke also covered gap/ok/verify, root chat, compatibility more and403.
+
+
+## Review pass 2 (CHANGES_REQUESTED)
+- F4 P1 lifecycle: queued edit-triggered automatic reread survives finish; already delivered automatic reread remains applicable after finish request because content revision omits lifecycle. Independent public API probe confirms finish→edited answer→automatic reread with finished:true. Explicit manual reread must remain allowed.
+- Fresh distinct fixer fix2 assigned cancellation/commit boundary, queue drain preservation, lifecycle regression and docs. Review2 independently passed completeness API/browser; no other concrete findings.
+
+- Fix2 frozen: automatic rereads canceled at finish request/recovery/dispatch/apply boundaries; manual requests/upgrades and answer/ancestor drain preserved. Root simulator ux-stop-1794131152924 passed in-flight cancel (old apply409), after-finish edit without issuing reserve, explicit manual reread issued3. Other root suite checks passed; completeness result recorded by orchestration tool.
+
+- All13 checks PASS after fix2; scoped whitespace check clean. Preparing review2 fix commit and fresh full-scope review3.

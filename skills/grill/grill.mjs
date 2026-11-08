@@ -145,7 +145,14 @@ ${S.notes || "—"}
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
   recoverSpec();
+  const cancelStoppedReread = () => {
+    if (!(S.finished || S.finishPending) || !S.rereadJob || S.rereadJob.manual) return false;
+    S.rereadJob = null;
+    S.queue = S.queue.filter(e => e.type !== "reread");
+    return true;
+  };
   const recoverReread = () => {
+    cancelStoppedReread();
     if (!S.rereadJob) return;
     S.rereadJob.stage = "queued"; delete S.rereadJob.token; delete S.rereadJob.revision;
     if (!S.queue.some(e => e.type === "reread")) S.queue.push({ type: "reread" });
@@ -219,6 +226,7 @@ ${S.notes || "—"}
   const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
   const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.arch, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
   const requestReread = (manual, edit) => {
+    if (!manual && (S.finished || S.finishPending)) return;
     if (S.rereadJob) {
       if (manual) S.rereadJob.manual = true;
       if (edit && !S.rereadJob.edits.includes(edit)) S.rereadJob.edits.push(edit);
@@ -466,6 +474,7 @@ ${S.notes || "—"}
   }
   const counts = () => countQ(S.nodes);
   function takeEvent() {
+    if (cancelStoppedReread()) save();
     if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) { const p = reviewPayload(true); save(); return { ...p, language: S.locale.language }; }
     if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) { const p = reviewPayload(); save(); return { ...p, language: S.locale.language }; }
     if (!S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
@@ -673,13 +682,14 @@ ${S.notes || "—"}
     }
     if (b.type === "reread") return applyReread(b);
     if (b.type === "finish") {
-      S.summary = clean(b.summary, 8000) || null; S.finished = true; S.finishPending = false; save(); return { ok: true };
+      S.summary = clean(b.summary, 8000) || null; S.finished = true; S.finishPending = false; cancelStoppedReread(); save(); return { ok: true };
     }
     throw [400, "type должен быть answer, discuss, question, more, reread, finish, spec или notes"];
   }
 
   // Whole-map rebuild: the candidate is built and validated on a clone, so any refusal leaves the map untouched.
   function applyReread(b) {
+    if (cancelStoppedReread()) save();
     const j = S.rereadJob;
     if (!j || j.stage !== "thinking" || b.token !== j.token) throw [409, "Результат устарел, получите событие через wait"];
     if (j.revision !== mapRevision()) { recoverReread(); save(); throw [409, "Карта изменилась, получите событие через wait"]; }
@@ -1055,7 +1065,7 @@ ${S.notes || "—"}
         S.questionRequests.push({ id, parentId: parent.id, q, stage: "queued", at: Date.now() });
         enqueue({ type: "question", id }); return send(res, 200, { ok: true, id });
       }
-      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
+      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
       if (p === "/api/spec") {
         // A snapshot taken now would freeze the map from before the rebuild.
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Создать спеку можно будет после перечитывания" });

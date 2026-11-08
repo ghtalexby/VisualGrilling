@@ -181,6 +181,8 @@ Map rendering reuses visible card buttons and their unchanged markup across poll
 
 ## Reread coverage and obsolete premises
 
+A finish request cancels queued or delivered automatic rereads and invalidates their tokens; a stale apply returns 409. Automatic rereads, including answer-edit reviews, stay disabled while finish is pending or the map is finished, including after restart. Submitted grading and ancestor reassessment still drain. Explicit manual rereads remain available, including automatic jobs upgraded to manual before the finish request.
+
 The worker compares every question, explanation, option and parent chain with current decisions and explicitly withdrawn assumptions. Successful rereads require a complete per-card audit; the server validates coverage and agreement with operations atomically. An explicit replacement decision is distinct from an unresolved disagreement.
 
 An obsolete card with user history stays in the tree with `obsolete:{reason,sources:[{id,q}]}`; its grade and history remain unchanged. Counts and finish problems exclude it, while reports and specification snapshots carry the marker. UI status filters do not match it, next-question navigation skips it and answering returns 409. Discussion and reread restoration remain available. Children are reviewed independently. A question without history can instead be removed and replaced by a new, currently meaningful question. Summary exposes the saved audit reasons.
