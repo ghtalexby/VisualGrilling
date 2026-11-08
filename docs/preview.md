@@ -8,7 +8,7 @@ Double-click a preview to open the full-screen viewer. Polling retains the ifram
 
 The manifest is an object of file names to strings, at most 32 files and 700000 UTF-8 bytes serialized. Each string is at most 250000 characters. `index.html` and `script.js` are required; `style.css` is optional. Local raster pictures use `images/<name>.png|jpg|gif|webp` with base64 content and verified signatures. Names contain only ASCII letters, digits, underscores and hyphens (1–60 characters). No packages, imports, build, dev server, SVG assets or arbitrary paths.
 
-HTML is an inert fragment sanitized by a trusted renderer. It accepts common structural/text/table/form controls and SVG diagram shapes; scripts, frames, links, forms, event attributes and inline styles are removed. Style the fragment through `style.css` and classes. Pictures reference a manifest image name in `src`; the renderer embeds data URLs. CSS imports, URL functions and escape sequences are rejected; external resources are also blocked by CSP. Put local images in HTML img elements.
+HTML is an inert fragment sanitized by a trusted renderer. It accepts common structural/text/table/form controls (including strong/emphasis text and associated labels) and SVG diagram shapes; scripts, frames, links, forms, event attributes and inline styles are removed. Style the fragment through `style.css` and classes. Pictures reference a manifest image name in `src`; the renderer embeds data URLs. CSS imports, URL functions and escape sequences are rejected; external resources are also blocked by CSP. Put local images in HTML img elements.
 
 JavaScript is a **worker state reducer**, not a DOM script:
 

@@ -13,8 +13,8 @@ function runtime(encoded) {
   const send = (type, extra = {}) => parent.postMessage({ type, instance: p.instance, ...extra }, "*");
   const camera = document.querySelector("#camera");
   const template = document.createElement("template"); template.innerHTML = p.files["index.html"];
-  const tags = new Set("DIV SPAN P H1 H2 H3 H4 LABEL INPUT SELECT OPTION BUTTON OUTPUT SECTION MAIN HEADER FOOTER UL OL LI TABLE THEAD TBODY TR TD TH BR HR IMG SVG G PATH RECT CIRCLE LINE POLYLINE POLYGON TEXT DEFS MARKER".split(" "));
-  const attrs = new Set("id class title role aria-label type min max step value checked selected name data-bind data-text data-width data-height data-radius data-color data-action viewbox d x y x1 x2 y1 y2 cx cy r width height fill stroke stroke-width points transform marker-end markerwidth markerheight refx refy orient".split(" "));
+  const tags = new Set("DIV SPAN P H1 H2 H3 H4 H5 H6 STRONG EM B I SMALL CODE PRE BLOCKQUOTE DL DT DD FIELDSET LEGEND LABEL INPUT SELECT OPTION BUTTON OUTPUT SECTION MAIN HEADER FOOTER UL OL LI TABLE THEAD TBODY TR TD TH BR HR IMG SVG G PATH RECT CIRCLE LINE POLYLINE POLYGON TEXT DEFS MARKER".split(" "));
+  const attrs = new Set("id class title role aria-label aria-labelledby aria-describedby for disabled readonly placeholder type min max step value checked selected name data-bind data-text data-width data-height data-radius data-color data-action viewbox d x y x1 x2 y1 y2 cx cy r width height fill stroke stroke-width points transform marker-end markerwidth markerheight refx refy orient".split(" "));
   for (const el of [...template.content.querySelectorAll("*")]) {
     if (!tags.has(el.tagName.toUpperCase())) { el.remove(); continue; }
     for (const a of [...el.attributes]) if (!attrs.has(a.name.toLowerCase()) && !(el.tagName === "IMG" && a.name === "src") || /url\s*\(|\\/i.test(a.value)) el.removeAttribute(a.name);

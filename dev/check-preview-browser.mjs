@@ -61,7 +61,7 @@ try {
   const inside=async expression=>{const r=await cdp("Runtime.evaluate",{expression,contextId:world,awaitPromise:true,returnByValue:true});if(r.exceptionDetails)throw new Error(JSON.stringify(r.exceptionDetails));return r.result.value};
   await inside('(()=>{const e=document.querySelector("input");for(const value of [140,150,160,170,180]){e.value=value;e.dispatchEvent(new Event("input",{bubbles:true}));}})()');
   await until(()=>js("previewView.dirty")); await sleep(100);
-  assert.equal(await inside('document.querySelector("output").textContent'),"180");
+  assert.equal(await inside('document.querySelector("[data-text=diameter]").textContent'),"180");
   await click('[data-view="close"]'); await until(()=>js('!!document.querySelector("dialog[open]")'));
   await click('[data-choice="cancel"]'); assert.equal(await js("!!previewView"),true);
   await click('[data-view="save"]'); await until(()=>js("!previewView.dirty"));
