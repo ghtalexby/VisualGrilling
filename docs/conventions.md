@@ -47,3 +47,7 @@ When adding an endpoint:
 Inbox and session paths are fixed within the selected map directory and never taken from API requests. Only the server writes `session.md`; only `watch --inbox` writes `inbox.json`.
 
 `GET /api/maps` reads only the server's `--dir` root and valid sibling map directories, ignores request parameters, and never starts processes. Keep list discovery shared with CLI `list`. Escape map text and validate local link URLs in the switcher. `name` in inbox-mode watch lines identifies the map; plain watch stays compatible. Keep dispatcher rules, worker checks and map checks synchronized.
+
+## Preview synchronization
+
+Changes to preview files, reducers, message protocol or versions must synchronize `preview.mjs`, `preview-view.mjs`, `ui.html`, agent instructions, [preview.md](preview.md), simulator fixtures and preview checks. Never run generated project code in the map window or grant iframe same-origin privileges. Preserve per-version state, token/base/epoch checks, immutable snapshots, explicit deletion choices and independent Git copies. Do not count previews as questions.

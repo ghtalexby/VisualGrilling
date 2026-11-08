@@ -151,3 +151,9 @@ In both languages exercise root menu → Attach idea, close/reopen the draft, at
 A real agent session must verify reuse of existing answers without artificial children, material weak conclusions without a percentage formula, a conflict question before ok, preservation of superseded answered history on edits, and no automatic code implementation. Deterministic transport checks do not prove these semantic behaviors.
 
 Optional `node dev/check-ideas-browser.mjs` uses Chromium CDP with built-in Node 22+ WebSocket (no packages). Set GRILL_BROWSER to an executable when not using the standard Windows Chrome/Edge location. It exercises actual drawer drafts, both edit/chat inputs and caret preservation, menu actions, deletion locks, filters, escaped text, and English/Russian pages. Missing browser support is reported as a skip. The skill itself still supports Node 18+.
+
+## Preview validation
+
+Run `node dev/check-preview.mjs` for publication, retry/restart, bad file names, Save without queued work, source staleness, independent fork history/state, restore invalidation and immutable snapshot retention. Run `node dev/check-preview-browser.mjs` (Chromium and Node 22+) for the circle size wireframe, stable iframe polling, Save, three-way dirty prompt, static SVG and sandbox isolation in RU/EN. The browser harness disables process isolation only for CDP inspection; iframe sandbox/CSP remain enabled. Run existing API/browser checks and `node dev/simulate.mjs --no-open --delay 200 --name preview-check` on a disposable map.
+
+Real-agent acceptance is separate: create a contextual UI and root diagram from explicitly selected branches, refine one of two instances, preserve accepted decisions and separate conflicts. Inspect useful output and export quality. Simulator fixtures and protocol checks cannot prove semantic quality. See [preview.md](preview.md) for the supported format and tab-close limitations.

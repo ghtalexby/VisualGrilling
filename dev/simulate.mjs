@@ -15,6 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { circlePreview } from "./fixtures/preview.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GRILL = path.join(ROOT, "skills", "grill", "grill.mjs");
@@ -63,7 +64,9 @@ function grade(e) {
 
 let moreRound = 0;
 const handlers = {
-  spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer || n.kind === "idea").map(n => "- [" + n.status + "] " + (n.text || n.q) + ": " + (n.answer || n.verdict)).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
+  preview: e => ({ type: "preview", id: e.id, projectId: e.projectId, base: e.base, token: e.token,
+    ...(e.phase === "prepare" ? { question: "[sim] Which visual explanation?", options: ["Circle size wireframe", "Relationship diagram"] } : { purpose: "[sim] Interactive circle size", files: circlePreview }) }),
+  spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer || n.kind === "idea" || n.kind === "preview").map(n => n.kind === "preview" ? "- [" + n.q + "](" + n.link + ") · " + n.commit : "- [" + n.status + "] " + (n.text || n.q) + ": " + (n.answer || n.verdict)).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
   answer: e => grade(e),
   idea: e => {
     const ids = new Set([e.id]);

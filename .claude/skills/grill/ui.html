@@ -277,8 +277,95 @@ document.addEventListener("click",e=>{if(!e.target.closest("#mapPicker"))closeMa
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#mapList").hidden){closeMaps();$("#bMaps").focus()}});
 
 /* ---------- map ---------- */
+/* Preview iframe lives outside the polling drawer and is replaced only after a guarded action. */
+let previewView=null;
+const previewRequests=new Map();
+function previewPanel(n){
+  if(panel.mode==="previewSetup"){
+    const line=new Set([n.id,...ancestors(n).map(a=>a.id)]);
+    const available=S.nodes.filter(p=>p.kind==="preview"&&line.has(p.sourceId)&&!p.orphaned);
+    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p>${esc(n.q||S.title)}</p><label>Экземпляр<select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></label>${n.id==="root"?`<h3>Выберите ветки</h3>${kids("root").filter(n=>n.kind!=="preview").map(n=>`<label><input type="checkbox" data-preview-branch="${esc(n.id)}" ${(panel.branches||[]).includes(n.id)?"checked":""}>${esc(n.q||n.text)}</label>`).join("")}`:""}<button class="btn primary" data-preview="prepare">Предложить варианты</button>${errMsg?`<p class="err">${esc(errMsg)}</p>`:""}`};
+  }
+  return {head:"Превью",body:`<h2>${esc(n.q)}</h2>${n.orphaned?"<p>Источник удалён. Проект сохранён отдельно.</p>":""}<p>${n.job?"Агент готовит превью…":n.stale?`Устарело: ${n.stale}`:""}</p>${n.error?`<p class="err">${esc(n.error)}</p>`:""}${n.commit?`<button class="btn primary" data-preview="open">Открыть превью</button>`:""}<h3>${esc(n.question||"Подготовка вариантов")}</h3>${(n.options||[]).map(o=>`<button class="btn" data-preview-option="${esc(o)}">${esc(o)}</button>`).join("")}<label>Запрос<textarea id="fPreview" rows="4">${esc(drafts["p:"+n.id]??n.request??"")}</textarea></label><button class="btn primary" data-preview="build" ${n.job||!n.question?"disabled":""}>Создать новую версию</button><h3>При удалении источника</h3><p>Выберите судьбу проекта до удаления ветки агентом.</p><button class="btn" data-preview="keep" ${n.deletionPolicy==="keep"?"disabled":""}>Сохранить отдельно</button><button class="btn" data-preview="deletePolicy" ${n.deletionPolicy==="delete"?"disabled":""}>Удалить вместе</button><button class="btn" data-preview="delete">Удалить превью</button>${errMsg?`<p class="err">${esc(errMsg)}</p>`:""}`};
+}
+async function previewAction(action){
+  errMsg=null;
+  try{
+    if(action==="prepare"){
+      const result=await api("/api/preview/prepare",{sourceId:panel.id,id:$("#previewTarget").value||undefined,branches:[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
+      await poll(true);openPanel({mode:"node",id:result.id});
+    }else if(action==="open")await openPreview(panel.id);
+    else if(action==="build"){
+      if(previewView?.id===panel.id&&!await guardPreview())return;
+      await api("/api/preview/build",{id:panel.id,request:$("#fPreview").value});await poll(true);
+    }else if(action==="delete"){
+      if(!confirm("Удалить проект превью и историю?"))return;
+      if(previewView?.id===panel.id){if(!await guardPreview())return;closePreviewNow()}
+      await api("/api/preview/delete",{id:panel.id,confirm:true});await poll(true);
+    }else{await api("/api/preview/policy",{id:panel.id,policy:action==="keep"?"keep":"delete"});await poll(true)}
+  }catch(e){errMsg=e.message;renderPanel()}
+}
+$("#panel").addEventListener("input",e=>{if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
+$("#panel").addEventListener("change",e=>{if(e.target.id==="previewTarget")panel.previewTarget=e.target.value;if(e.target.matches("[data-preview-branch]"))panel.branches=[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
+$("#panel").addEventListener("click",e=>{const option=e.target.closest("[data-preview-option]");if(option){$("#fPreview").value=option.dataset.previewOption;drafts["p:"+panel.id]=option.dataset.previewOption}const b=e.target.closest("[data-preview]");if(b)previewAction(b.dataset.preview)});
+function closePreviewNow(){for(const request of previewRequests.values())request.reject(new Error("Превью закрыто"));previewRequests.clear();previewView?.el.remove();previewView=null}
+function frameRequest(type){
+  const v=previewView;if(!v?.ready)return Promise.reject(new Error("Превью ещё не готово"));
+  return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID(),timer=setTimeout(()=>{previewRequests.delete(requestId);reject(new Error("Превью не ответило"))},5000);
+    previewRequests.set(requestId,{type,resolve:value=>{clearTimeout(timer);resolve(value)},reject:error=>{clearTimeout(timer);reject(error)}});
+    v.frame.contentWindow.postMessage({type,instance:v.instance,requestId},"*");
+  });
+}
+async function savePreview(){
+  const v=previewView;if(v.snapshot)throw new Error("Снимок доступен только для просмотра");
+  const generation=v.dirtyRevision,data=await frameRequest("save");
+  if(v!==previewView)throw new Error("Превью закрыто");
+  await api("/api/preview/save",{id:v.id,commit:v.commit,epoch:v.epoch,state:data.state});
+  if(v.dirtyRevision===generation)v.dirty=false;
+  v.message.textContent=v.dirty?"Есть несохранённые изменения":"Значения сохранены";
+}
+async function guardPreview(){
+  if(!previewView?.dirty)return true;
+  const v=previewView;
+  return new Promise(resolve=>{
+    const d=document.createElement("dialog");d.innerHTML=`<p>Есть несохранённые изменения</p><button data-choice="save">Сохранить</button><button data-choice="discard">Продолжить без сохранения</button><button data-choice="cancel">Отменить</button><p class="err"></p>`;v.el.append(d);d.showModal();
+    const done=value=>{d.close();d.remove();resolve(value)};d.oncancel=e=>{e.preventDefault();done(false)};
+    d.onclick=async e=>{const choice=e.target.dataset.choice;if(!choice)return;if(choice==="save"){e.target.disabled=true;try{await savePreview();done(!v.dirty)}catch(error){d.querySelector(".err").textContent=error.message;e.target.disabled=false}}else done(choice==="discard")};
+  });
+}
+async function openPreview(id,snapshot){
+  if(!await guardPreview())return;
+  const instance=crypto.randomUUID(),params=new URLSearchParams(snapshot?{key:snapshot,instance}:{id,instance});
+  const data=await api("/api/preview/document?"+params);
+  closePreviewNow();
+  const el=document.createElement("section");el.id="previewViewer";el.style.cssText="position:fixed;inset:0;z-index:200;background:var(--bg,#fff);display:flex;flex-direction:column;padding:12px";
+  el.innerHTML=`<div class="row"><strong>Превью</strong><button class="btn" data-view="save" ${snapshot?"disabled":""}>Снять значения</button><select aria-label="История" id="previewHistory">${(get(id)?.versions||[]).map(v=>`<option value="${esc(v.commit)}" ${v.commit===data.commit?"selected":""}>${esc(v.purpose)} · ${esc(v.commit.slice(0,8))}</option>`).join("")}</select><button class="btn" data-view="restore" ${snapshot?"disabled":""}>Восстановить</button><button class="btn" data-view="refresh">Обновить просмотр</button><button class="btn" data-view="export">Экспорт SVG</button><button class="btn" data-view="close">Закрыть</button></div><p role="status"></p>`;
+  const frame=document.createElement("iframe");frame.setAttribute("sandbox","allow-scripts");frame.title="Превью";frame.style.cssText="flex:1;background:white;border:1px solid #aaa;width:100%";
+  const v=previewView={id,snapshot,instance,el,frame,commit:data.commit,epoch:data.epoch,dirty:false,dirtyRevision:0,ready:false,message:el.querySelector('[role="status"]')};
+  frame.srcdoc=data.document;el.append(frame);document.body.append(el);
+  el.addEventListener("click",async e=>{const action=e.target.closest("[data-view]")?.dataset.view;if(!action)return;
+    try{
+      if(action==="save")await savePreview();
+      if(action==="close"&&await guardPreview())closePreviewNow();
+      if(action==="refresh")await openPreview(id,snapshot);
+      if(action==="restore"&&await guardPreview()){await api("/api/preview/restore",{id,commit:v.commit,epoch:v.epoch,target:$("#previewHistory").value});v.dirty=false;await poll(true);await openPreview(id)}
+      if(action==="export"){const result=await frameRequest("export"),url=URL.createObjectURL(new Blob([result.svg],{type:"image/svg+xml"})),a=document.createElement("a");a.href=url;a.download="preview.svg";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+    }catch(error){v.message.textContent=error.message}
+  });
+}
+addEventListener("message",e=>{
+  const v=previewView,m=e.data;if(!v||e.source!==v.frame.contentWindow||m?.instance!==v.instance)return;
+  if(m.type==="ready"){v.ready=true;return}if(m.type==="dirty"){v.dirty=true;v.dirtyRevision++;v.message.textContent="Есть несохранённые изменения";return}
+  if(m.type==="error"){v.message.textContent="Ошибка превью";if(m.requestId)previewRequests.get(m.requestId)?.reject(new Error("Ошибка превью"));return}
+  const request=previewRequests.get(m.requestId);if(!request)return;
+  if(request.type==="save"&&m.type==="saved"&&m.state&&JSON.stringify(m.state).length<=65536||request.type==="export"&&m.type==="exported"&&typeof m.svg==="string"&&m.svg.length<=1000000){previewRequests.delete(m.requestId);request.resolve(m)}
+});
+addEventListener("beforeunload",e=>{if(previewView?.dirty){e.preventDefault();e.returnValue=""}});
+addEventListener("keydown",async e=>{if(e.key==="Escape"&&previewView&&!previewView.el.querySelector("dialog")){e.preventDefault();if(await guardPreview())closePreviewNow()}},true);
+
 const ideaStatus=n=>n.status==="open"?"Открыта":n.status==="ok"?"Закрыта":STATUS[n.status];
 function nodeHTML(n){
+  if(n.kind==="preview")return `<span class="nhead"><span class="area">▧ Превью</span><span class="pill">${n.job?"В очереди":n.stale?`Устарело: ${n.stale}`:""}</span></span><span class="qtext">${esc(n.q)}</span>${n.error?`<span class="ans">${esc(n.error)}</span>`:""}`;
   if(n.kind==="root"){
     const q=qs().filter(n=>!n.obsolete),open=q.filter(x=>x.status==="open"&&!x.pending).length;
     return `<span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто</span>`;
@@ -297,7 +384,7 @@ function render(){
   if(isolated&&!get(isolated.id)){flt=isolated.filter;isolated=null;requestAnimationFrame(focusFilter)}
   if(isolated)chain(get(isolated.id));
   else{
-    S.nodes.forEach(n=>{if(n.kind==="idea"){chain(n);return}if(n.kind!=="q"||flt&&(n.obsolete||n.status!==flt))return;hit.add(n.id);chain(n)});
+    S.nodes.forEach(n=>{if(n.kind==="idea"||n.kind==="preview"){chain(n);return}if(n.kind!=="q"||flt&&(n.obsolete||n.status!==flt))return;hit.add(n.id);chain(n)});
     if(panel&&panel.mode==="node")chain(get(panel.id));
   }
   $("#bIsolation").hidden=!isolated;
@@ -462,11 +549,12 @@ function toMarkdown(){
   const c=counts();md+=`Итого: ${ORDER.map(s=>`${STATUS[s]} ${c[s]}`).join(" · ")}\n\n`;
   if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
   kids("root").forEach(r=>{
+    if(r.kind==="preview"){md+=`## Превью · ${r.q}\n${r.commit||""}\n`;return}
     md+=r.kind==="idea"?`## Идея · [${ideaStatus(r)}]\n${r.text}\n`:`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
     if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;(r.mergedFrom||[]).forEach(m=>{md+=`- Сведено из: ${m.q}: ${m.answer}\n`});
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;(k.mergedFrom||[]).forEach(m=>{md+=`${ind}  - Сведено из: ${m.q}: ${m.answer}\n`});chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;
@@ -509,20 +597,20 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.pending,n.verdict,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.pending,n.verdict,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(){
   const p=$("#panel");
   if(!panel){p.hidden=true;p.dataset.key="";return}
   let r;
   if(panel.mode==="summary")r=summaryPanel();
-  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)+(errMsg?`<div class="err">${esc(errMsg)}</div>`:"")}:nodePanel(n)}
+  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)+(errMsg?`<div class="err">${esc(errMsg)}</div>`:"")}:nodePanel(n)}
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
   const key=[panel.mode,panel.id,panel.tab].join("|"),same=p.dataset.key===key;
   if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
   deferPanel=false;if(!same)composing=false; /* the composing textarea is gone; compositionend may never reach #panel */
   p.dataset.key=key;
-  const keep=same?[...p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit")]:[];
+  const keep=same?[...p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview")]:[];
   const ae=same&&document.activeElement&&p.contains(document.activeElement)?document.activeElement:null;
   const fsel=!ae?null:ae.id?"#"+ae.id:(ae.hasAttribute("data-verdict")?"[data-verdict]":["data-tab","data-act","data-chip","data-open"].map(a=>ae.hasAttribute(a)?`[${a}="${CSS.escape(ae.getAttribute(a))}"]`:"").find(Boolean))||null;
   const sel=ae&&ae.id&&ae.selectionStart!=null?[ae.selectionStart,ae.selectionEnd]:null;
@@ -530,7 +618,7 @@ function renderPanel(){
   p.innerHTML=`<div class="ph">${r.head}<button class="close" data-act="close" aria-label="Закрыть">×</button></div><div class="pb">${r.body}</div>`;
   p.hidden=false;syncGrip();
   for(const field of keep){const nt=p.querySelector("#"+field.id);if(nt){if(field.value!==nt.value)field.value=nt.value;nt.replaceWith(field)}}
-  p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit").forEach(fit);showImages(p);
+  p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit);showImages(p);
   const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
   quietScroll=performance.now()+150; /* restoring scrollTop fires a scroll event that must not close the context menu */
   pb.scrollTop=nc>oc&&ob?pb.scrollHeight:top;
@@ -605,6 +693,8 @@ async function poll(force){
       const first=!loaded;S=d;listening=d.listening;loaded=true;pruneImgUrls();
       if(!first)S.nodes.forEach(n=>{if(!oldIds.has(n.id))fresh.add(n.id)});
       render();
+      if(previewView&&!previewView.snapshot){const n=get(previewView.id);if(!n||n.commit!==previewView.commit||n.epoch!==previewView.epoch)previewView.message.textContent="Доступна другая версия. Обновите просмотр."}
+      if(first&&/^#preview=[a-f0-9]{64}$/.test(location.hash))openPreview(null,location.hash.slice(9)).catch(()=>{});
       if(seenFinished===null)seenFinished=!!S.finished;
       else if(S.finished&&!seenFinished){seenFinished=true;openPanel({mode:"summary"});return}
       if(panelSig()!==before)renderPanel();
@@ -623,6 +713,7 @@ $("#stage").addEventListener("click",e=>{const b=e.target.closest(".node");if(!b
 });
 $("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if(!b)return;
   e.preventDefault();clearTimeout(clickTimer);const id=b.dataset.id;
+  if(get(id)?.kind==="preview"){openPreview(id).catch(error=>{errMsg=error.message;openPanel({mode:"node",id})});return}
   isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);
 });
 $("#bIsolation").onclick=()=>{if(!isolated)return;flt=isolated.filter;isolated=null;render();focusFilter()};
@@ -632,7 +723,7 @@ $("#bSpec").onclick=()=>{openPanel({mode:"summary"});act("/api/spec")};
 $("#bStop").onclick=()=>{openPanel({mode:"summary"});act("/api/finish")};
 $("#bReread").onclick=requestReread;
 $("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fIdeaEdit")drafts["i:"+panel.id]=e.target.value;if(e.target.id==="fIdea"){drafts.idea=e.target.value;ideaRequestId=null}if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion","fIdea","fIdeaEdit"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
-addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit").forEach(fit));
+addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit));
 /* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
 $("#panel").addEventListener("paste",async e=>{
   if(e.target.id!=="fMsg"||!panel)return;
@@ -727,6 +818,8 @@ $("#stage").addEventListener("contextmenu",e=>{
   e.preventDefault();clearTimeout(clickTimer);
   const id=target.dataset.id,el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
   el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="project">Задать вопрос</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
+  if(get(id)?.kind!=="preview")el.innerHTML+=`<button role="menuitem" data-ctx="preview">Создать превью</button>`;
+  else el.innerHTML=`<button role="menuitem" data-ctx="previewopen">Открыть превью</button>`;
   document.body.appendChild(el);const r=target.getBoundingClientRect();
   el.style.left=Math.max(8,Math.min(e.clientX||r.left,innerWidth-el.offsetWidth-8))+"px";el.style.top=Math.max(8,Math.min(e.clientY||r.bottom,innerHeight-el.offsetHeight-8))+"px";
   ctx={el,target,id,card:true};el.querySelector("button").focus();
@@ -734,7 +827,7 @@ $("#stage").addEventListener("contextmenu",e=>{
 });
 document.addEventListener("click",e=>{
   if(!ctx)return;const b=e.target.closest("#ctxmenu [data-ctx]");const c=ctx;closeCtx();
-  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
+  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
   if(!b||!panel||panel.id!==c.id)return;
   if(b.dataset.ctx==="discuss"||b.dataset.ctx==="explain"){
     panel.tab="discuss";errMsg=null;confirmReset=false;
@@ -817,7 +910,7 @@ vp.addEventListener("auxclick",e=>{if(e.button===1)e.preventDefault()});
 const grip=$("#panelGrip"),PANEL_KEY="grill.panelWidth",PANEL_MIN=320;
 let gripDrag=null,panelW=0; /* panelW: width the user set in this page; a saved width that is only capped by the window stays untouched until then */
 function syncGrip(){const p=$("#panel");grip.setAttribute("aria-valuemin",PANEL_MIN);grip.setAttribute("aria-valuemax",Math.max(PANEL_MIN,innerWidth-120));if(!p.hidden)grip.setAttribute("aria-valuenow",p.offsetWidth)}
-function setPanelWidth(w){const p=$("#panel"),n=Math.round(Math.min(Math.max(PANEL_MIN,innerWidth-120),Math.max(PANEL_MIN,w)));if(n===p.offsetWidth)return;panelW=n;document.documentElement.style.setProperty("--panel-w",n+"px");syncGrip();p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit").forEach(fit)}
+function setPanelWidth(w){const p=$("#panel"),n=Math.round(Math.min(Math.max(PANEL_MIN,innerWidth-120),Math.max(PANEL_MIN,w)));if(n===p.offsetWidth)return;panelW=n;document.documentElement.style.setProperty("--panel-w",n+"px");syncGrip();p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit)}
 function savePanelWidth(){if(!panelW)return;try{localStorage.setItem(PANEL_KEY,panelW)}catch{}}
 try{const w=Number(localStorage.getItem(PANEL_KEY));if(Number.isFinite(w)&&w>=PANEL_MIN)document.documentElement.style.setProperty("--panel-w",Math.round(w)+"px")}catch{} /* not clamped to this window: the CSS cap restores the full width once the window grows */
 const endGrip=()=>{if(!gripDrag)return;gripDrag=null;grip.classList.remove("drag");savePanelWidth()};

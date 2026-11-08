@@ -309,3 +309,7 @@ Specs capture `ideaWaiting`, `ideaReasons`, and optional `ideaWork` as internal 
 UI status filters always retain idea cards; question descendants follow normal filtering and ancestor retention. Isolation remains a separate view mode. Drafts survive closing the drawer within a tab. Full reports/Markdown exports include every idea's complete text, grade, verdict, history and branch, independent of spec filtering. Editing/deletion have distinct menu entries; deletion has a separate whole-branch confirmation and explains work locks.
 
 Answer/discussion ancestor context includes `kind:"idea",text` for idea ancestors, preserving the complete premise beyond the 220-character `q` prefix. Workers must read full `text` when present.
+
+## Preview events and API
+
+The [preview contract](preview.md#protocol) defines `type:preview` prepare/build deliveries, apply fields and protected `/api/preview/*` routes. The global body limit remains 1 MB. Manifests are at most 32 files / 700000 UTF-8 bytes, each string 250000 characters. Save is at most 65536 UTF-8 bytes. Preview cards are not questions. Answer payloads add `previews:[{id,commit,state}]`; specifications carry immutable preview purpose, commit and local snapshot links. `init` and agent removals require a recorded preview deletion policy when they remove a source.

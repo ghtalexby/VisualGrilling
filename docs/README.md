@@ -11,3 +11,5 @@ Context for a new session, whether human or AI. Read in this order:
 The code in `skills/grill/` is the source of truth. If documentation disagrees with the code, trust the code and correct the documentation.
 
 Documentation is in English. The browser interface follows the language of the user's launch request. Exact protocol strings, Russian CLI diagnostics, and simulator trigger phrases are quoted in their original language with English explanations where needed.
+
+Visual explanations: [preview.md](preview.md) documents the project format, API, isolation, versions and retention.

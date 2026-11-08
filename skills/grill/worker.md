@@ -174,3 +174,13 @@ Specification events are already filtered to include only ok ideas and their com
 Users may edit text during analysis; old analysis/discussion/answer deliveries affected by that premise become stale. Editing preserves history and requests a new audit. Deletion requires explicit UI confirmation, removes the whole branch and is blocked during work affecting it. Never work around that lock, delete files manually, or start implementation automatically.
 
 Answer/discussion ancestor context includes `kind:"idea",text` for idea ancestors, preserving the complete premise beyond the 220-character `q` prefix. Workers must read full `text` when present.
+
+## Visual explanations (`type:preview`)
+
+Read `preview-format.md`. Echo `type,id,token,projectId,base` exactly. For `phase:prepare`, suggest a contextual question (up to 500 characters) and 2–4 options (300 each), without building or answering for the user. For `phase:build`, reuse the supplied `files` when refining, return the complete bounded manifest and a purpose (500); errors return `error` (1000). Do not write files directly, run Git, install packages or modify the reviewed application.
+
+Use only captured `context` and the selected sources. Current submitted answers and explicitly accepted discussion decisions are requirements; images, hypotheses and unchosen suggestions are context. Historical obsolete answers are absent and must not be reintroduced. Show the complete screen accumulated along the current line, or only selected branches for a root diagram. Represent incompatible decisions as labeled alternatives. Do not silently choose a winner. Wireframes are sufficient; diagrams support viewing and camera controls, with structural edits by the agent. Saved values inform the next generation, but a new version starts with your defaults and does not promise migration.
+
+A 409 means the project was restored/deleted or the delivery superseded; return to the dispatcher. Answer changes during generation permit completion but mark it stale. Do not rebuild automatically or start a second waiter. Save alone creates no event. A source-deletion policy error requires the user to choose Keep separately or Delete together in the preview drawer; do not set that policy for them or remove files manually.
+
+Specification preview nodes carry purpose and immutable `link`/commit: include those supplied links and explain that they require the local map server. Never replace them with live versions or later saved state. Preview nodes have no grade and are outside question audits/counts.

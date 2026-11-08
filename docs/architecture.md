@@ -194,3 +194,7 @@ Specification processing adds frozen idea evaluations after captured answer grad
 Deletion checks pending branch work, rereads and spec references before deleting the entire subtree and its unused images. Editing instead remains available during work and invalidates outdated deliveries. UI filters keep all ideas but count/filter only their question descendants. Exports preserve all ideas regardless of spec inclusion. See the attached-ideas section in contract.md for exact routes, limits and audit shapes.
 
 Answer/discussion ancestor context includes `kind:"idea",text` for idea ancestors, preserving the complete premise beyond the 220-character `q` prefix. Workers must read full `text` when present.
+
+## Preview projects
+
+`preview.mjs` separates project identity, card placement, captured source revisions, Git publication and per-commit saved settings. `preview-view.mjs` renders sanitized HTML/CSS and executes project reducers in a network-isolated worker inside a sandbox iframe. Polling retains the viewer. Immutable spec snapshots have separate retention. See [preview.md](preview.md) for lifecycle and trust boundaries.

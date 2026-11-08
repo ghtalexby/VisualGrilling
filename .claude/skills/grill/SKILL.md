@@ -160,3 +160,7 @@ Keep a served-map table: absolute maps root (`--dir`), `name` (null for legacy),
 - `apply discuss` returns 409: chat was reset or restart requeued messages. Resume the selected waiting loop.
 - `G spec` returns 409 while a reread is running: run it again after the reread result is applied.
 - If the user does not want runtime state committed, suggest adding `.grill/` to `.gitignore`.
+
+## Visual explanation events
+
+Handle `type:preview` using the preview section of `worker.md`. This narrowly authorizes producing preview files through `apply`, never editing or launching the reviewed application. Read `preview-format.md` before generating files. Prepare options, then await the user’s explicit build request in the normal sequential loop. Git is required; report errors without installing it. Codex keeps level 0 and one map per session. Preview work does not automatically delegate or create a parallel waiter.

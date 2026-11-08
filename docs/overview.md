@@ -73,3 +73,7 @@ Use `npm run link:codex` for the test workspace or `npm run link:codex:global` t
 Use the root menu to attach an idea; the draft becomes a persistent card only after Attach. Discuss it in the drawer and select Analyze idea to start its own question branch in the context of the entire map. The agent can conclude without new questions when existing answers suffice. Ideas use the familiar five grades and an explanation; their grades stay outside question counters/filters. Idea cards remain visible when filtering their questions.
 
 Text edits preserve history and automatically reassess the branch; changes to descendant answers also trigger reassessment. Editing during work invalidates old results. Deletion removes the whole branch only after confirmation and waits for work affecting it. Generated specs include only closed idea branches with their risks. If idea text changes during spec generation, the old request is canceled and a new snapshot follows reassessment. Closing an idea never starts implementation.
+
+## Visual explanations
+
+Use Create preview on root/question menus for an interactive wireframe or a diagram. Preview cards have separate projects, manual generation, version history and per-version saved values; they are not graded questions. Git is an external dependency for this feature. See [preview.md](preview.md). `preview.mjs` owns storage and protocol, and `preview-view.mjs` provides the isolated renderer.
