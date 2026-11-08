@@ -44,7 +44,7 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
   // Freeze polling and record API writes so each UI scenario has deterministic state.
-  await js(`window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
+  await js(`window.originalApi=api;window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
     S.coverage={shown:5,reserve:5,percent:50};
     window.qid=S.nodes.find(n=>n.kind==="q").id;
     S.nodes.push({id:"idea",parentId:"root",kind:"idea",text:"Idea",status:"weak",chat:[]});
@@ -164,6 +164,25 @@ try {
   await click('#closeErrorToast');
   await js('originalPoll(true)');
   assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
+  await js('window.originalFetch=fetch;fetch=async()=>new Response(JSON.stringify({error:"not found"}),{status:404})');
+  assert.match(await js('originalApi("/api/reread",{}).catch(e=>e.message)'), /Could not reread the map.*Restart the map server/);
+  assert.match(await js('originalApi("/api/spec",{}).catch(e=>e.message)'), /could not find this command/);
+  await js('fetch=async()=>new Response(JSON.stringify({error:"Question missing"}),{status:404})');
+  assert.equal(await js('originalApi("/api/question",{}).catch(e=>e.message)'), "Question missing");
+  await js('fetch=originalFetch;showError("First timer")');
+  assert.equal(await js('errorCountdown.effect.getTiming().duration'), 10000);
+  await sleep(5500);
+  assert.ok(await js('parseFloat(getComputedStyle(document.querySelector("#closeErrorToast circle")).strokeDashoffset)>40'));
+  await js('showError("Replacement timer")');
+  await sleep(5000);
+  assert.equal(await js('document.querySelector("#errorToast").hidden'), false);
+  await until(()=>js('document.querySelector("#errorToast").hidden'));
+  await js('showError("Manual dismissal")');await click('#closeErrorToast');
+  assert.equal(await js('errorTimer===null&&errorCountdown===null'),true);
+  await cdp("Emulation.setEmulatedMedia",{features:[{name:"prefers-reduced-motion",value:"reduce"}]});
+  await js('showError("Reduced motion")');
+  assert.equal(await js('errorCountdown===null&&errorTimer!==null'),true);
+  await click('#closeErrorToast');
   console.log("Completeness browser checks passed");
 } finally {
   ws?.close(); await end(browser); await end(server);

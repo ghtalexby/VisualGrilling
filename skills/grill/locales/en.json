@@ -347,5 +347,7 @@
   "Охват требует обновления": "Coverage needs refresh",
   "Открыть чат с агентом": "Open chat with agent",
   "Вопрос": "Question",
-  "Переоценка родителей не выполнена:": "Parent reassessment failed:"
+  "Переоценка родителей не выполнена:": "Parent reassessment failed:",
+  "Не удалось перечитать карту. Сервер не поддерживает эту команду. Перезапустите сервер карты и обновите страницу.": "Could not reread the map. The server does not support this command. Restart the map server and reload the page.",
+  "Сервер не нашёл команду. Перезапустите сервер карты и обновите страницу.": "The server could not find this command. Restart the map server and reload the page."
 }
