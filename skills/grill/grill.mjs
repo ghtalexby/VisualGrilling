@@ -321,7 +321,7 @@ ${S.notes || "—"}
       S.specJob.gradingNodes = result; S.specJob.nodes = result.map(specNode);
       S.specJob.ideaWaiting = S.specJob.ideaWaiting.filter(id => id !== idea.id); delete S.specJob.ideaWork;
       // Frozen conclusions never overwrite later live work; the live idea has its own delivery.
-    } else S.nodes = result;
+    } else S.nodes = preview.branchCopies(result);
     save(); pruneImages(); return { ok: true, added: children.length };
   }
 

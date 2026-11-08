@@ -78,13 +78,13 @@ export function previews(directory, state, save, enqueue, translate = text => te
   const recover = () => { for (const n of all()) if (n.job) { n.job.stage = "queued"; delete n.job.token; if (!state().queue.some(e => e.type === "preview" && e.id === n.id)) state().queue.push({ type: "preview", id: n.id }); } };
   const queue = (n, phase) => {
     const sourceId = lineEnd(n.sourceId), context = sources(sourceId, n.branches);
-    n.job = { phase, stage: "queued", base: n.commit || null, epoch: n.epoch || 0, sourceId, context, sources: revisions(context) };
+    n.job = { phase, stage: "queued", base: n.commit || null, epoch: n.epoch || 0, sourceId, context, sources: revisions(context), savedState: n.commit ? structuredClone(version(n).savedState ?? null) : null };
     n.error = null; enqueue({ type: "preview", id: n.id });
   };
   const payload = id => {
     const n = all().find(n => n.id === id), j = n?.job; if (!j) return null;
     j.stage = "thinking"; j.token = randomUUID();
-    return { type: "preview", id, token: j.token, phase: j.phase, projectId: n.projectId, base: j.base, sourceId: n.sourceId, branches: n.branches, request: n.request, context: j.context, files: n.commit ? files(n) : null, savedState: n.commit ? version(n).savedState ?? null : null };
+    return { type: "preview", id, token: j.token, phase: j.phase, projectId: n.projectId, base: j.base, sourceId: n.sourceId, branches: n.branches, request: n.request, context: j.context, files: n.commit ? files(n) : null, savedState: j.savedState ?? null };
   };
   const apply = b => {
     const n = get(b.id), j = n.job;
@@ -206,7 +206,7 @@ export function previews(directory, state, save, enqueue, translate = text => te
     const copies = [];
     const next = nodes.map(n => n.kind === "preview" ? { ...n, forkedBranches: [...(n.forkedBranches || [])] } : n);
     const projects = next.filter(n => n.kind === "preview");
-    for (const split of nodes.filter(n => n.kind === "q")) {
+    for (const split of nodes.filter(n => n.kind === "q" || n.kind === "idea")) {
       const children = nodes.filter(q => q.kind === "q" && q.parentId === split.id);
       if (children.length < 2) continue;
       const chain = []; for (let at = split; at; at = nodes.find(n => n.id === at.parentId)) chain.push(at.id);

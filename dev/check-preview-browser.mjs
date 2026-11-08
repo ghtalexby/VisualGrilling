@@ -51,7 +51,7 @@ try {
   await result({question:"Choose visual",options:["Circle UI","Diagram"]});
   const id=e.id; await until(()=>js(`panel?.id==="${id}"`)); await js("poll(true)");
   await input("#fPreview","Circle UI"); await click('[data-preview="build"]');
-  e=await api("wait?timeout=5"); await result({files:circlePreview,purpose:"Circle size"}); await js("poll(true)");
+  e=await api("wait?timeout=5"); await result({files:{...circlePreview,"index.html":circlePreview["index.html"]+'<button class="export-control">Styled control</button>',"style.css":circlePreview["style.css"]+'.export-control{position:absolute;left:321px;top:111px;width:150px;background:rgb(1,2,3)}'},purpose:"Circle size"}); await js("poll(true)");
   assert.ok((await js("toMarkdown()")).includes((await api("preview?id="+id)).commit));
   await click('[data-preview="open"]'); await until(()=>js("previewView?.ready"));
   assert.equal(await js('document.querySelector("iframe").getAttribute("sandbox")'),"allow-scripts");
@@ -67,6 +67,7 @@ try {
   await click('[data-view="save"]'); await until(()=>js("!previewView.dirty"));
   assert.equal((await api("preview?id="+id)).savedState.diameter,180);
   const picture=await js('frameRequest("export")'); assert.ok(picture.svg.includes("180")); assert.ok(!picture.svg.includes("<script"));
+  assert.equal(await js(`(()=>{const doc=new DOMParser().parseFromString(${JSON.stringify(picture.svg)},"image/svg+xml");const control=[...doc.querySelectorAll("span")].find(n=>n.textContent==="Styled control");return control.style.left==="321px"&&control.style.backgroundColor==="rgb(1, 2, 3)";})()`),true);
   // A refresh response arriving after a new edit must prompt again and preserve Cancel.
   await js('window.realApi=api;window.releaseRefresh=null;api=async(...args)=>{const value=await realApi(...args);if(args[0].startsWith("/api/preview/document"))await new Promise(r=>releaseRefresh=r);return value};document.querySelector("[data-view=refresh]").click()');
   await until(()=>js("!!releaseRefresh"));

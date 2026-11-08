@@ -51,7 +51,9 @@ try {
   await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 200 } });
   assert.equal((await api("preview/snapshot?key=" + snapshot.snapshot)).savedState.diameter, 180);
   await api("apply", { type: "spec", token: spec.token, markdown: "# Plan\n\n[Circle](" + snapshot.link + ")" });
-  await api("preview/build", { id, request: "Larger" }); e = await wait(); assert.equal(e.savedState.diameter, 200);
+  await api("preview/build", { id, request: "Larger" });
+  await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 230 } });
+  e = await wait(); assert.equal(e.savedState.diameter, 200);
   assert.equal((await api("preview?id=" + id)).commit, first.commit);
   await api("answer", { id: q.id, answer: "Diameter should be 240" });
   const second = await apply(e, { files: { ...circlePreview, "script.js": circlePreview["script.js"].replace("120", "240") }, purpose: "Larger circle" });
@@ -60,13 +62,13 @@ try {
   let state = await api("state"), copies = state.nodes.filter(p => p.forkOf === n.projectId); assert.equal(copies.length, 2);
   const copy = await api("preview?id=" + copies[0].id); assert.equal(copy.versions.length, 2);
   await api("preview/restore", { id: copy.id, commit: copy.commit, epoch: copy.epoch, target: first.commit });
-  assert.equal((await api("preview?id=" + copy.id)).savedState.diameter, 200);
+  assert.equal((await api("preview?id=" + copy.id)).savedState.diameter, 230);
   assert.equal((await api("preview?id=" + id)).commit, second.commit);
   await api("preview/build", { id, request: "A pending revision" }); e = await wait();
   await api("preview/restore", { id, commit: n.commit, epoch: n.epoch, target: first.commit });
   await api("apply", { ...e, files: circlePreview }, 409);
   await api("preview/save", { id, commit: second.commit, epoch: n.epoch, state: { diameter: 260 } });
-  assert.equal((await api("preview?id=" + id)).savedState.diameter, 200);
+  assert.equal((await api("preview?id=" + id)).savedState.diameter, 230);
   await api("preview/save", { id, commit: "0".repeat(40), epoch: n.epoch, state: {} }, 404);
   assert.match(await api("report"), /Circle/);
   await api("preview/delete", { id, confirm: true });
@@ -122,5 +124,14 @@ try {
   const frozenController = previews(cwd, () => rootOnly, () => {}, () => {});
   const retained = frozenController.reconcile([{ id: "old-preview", kind: "preview", sourceId: "deleted-source", parentId: "deleted-source", snapshot: "f".repeat(64) }], [...rootOnly.nodes]);
   assert.equal(retained.find(n => n.id === "old-preview").parentId, "root");
+  for (const p of (await api("state")).nodes.filter(n => n.kind === "preview")) await api("preview/policy", { id: p.id, policy: "delete" });
+  await api("init", { title: "Idea preview", questions: [{ q: "Existing", options: ["A", "B"] }] });
+  const idea = await api("idea", { id: "preview-idea-check", text: "An idea with an explanatory preview" });
+  const ideaPreview = await api("preview/prepare", { sourceId: idea.id }); e = await wait(); await apply(e, { question: "Visual?", options: ["UI", "Diagram"] });
+  await api("preview/build", { id: ideaPreview.id, request: "Idea wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "Idea wireframe" });
+  const ideaProject = await api("preview?id=" + ideaPreview.id);
+  await api("idea/analyze", { id: idea.id }); e = await wait();
+  await api("apply", { type: "idea", id: idea.id, token: e.token, status: "open", verdict: "Compare both branches", children: [{ q: "First branch", options: ["A", "B"] }, { q: "Second branch", options: ["A", "B"] }] });
+  assert.equal((await api("state")).nodes.filter(n => n.forkOf === ideaProject.projectId).length, 2);
   console.log("Preview API checks passed: recovery, publication, save, fork, stale, restore, snapshots, rejection");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

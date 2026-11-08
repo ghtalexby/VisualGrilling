@@ -84,7 +84,11 @@ function runtime(encoded) {
         for (const property of computed) if (!property.startsWith("animation") && !property.startsWith("transition")) copies[i].style.setProperty(property, computed.getPropertyValue(property));
         copies[i].style.animation = "none"; copies[i].style.transition = "none";
       });
-      for (const el of clone.querySelectorAll("input,select,button")) { const span = document.createElement("span"); span.textContent = el.type === "checkbox" ? (el.checked ? "☑" : "☐") : el.value || el.textContent; el.replaceWith(span); }
+      for (const el of clone.querySelectorAll("input,select,button")) {
+        const span = document.createElement("span"); span.style.cssText = el.style.cssText;
+        span.textContent = el.type === "checkbox" ? (el.checked ? "☑" : "☐") : el.tagName === "SELECT" ? el.selectedOptions[0]?.textContent || el.value : el.value || el.textContent;
+        el.replaceWith(span);
+      }
       const wrap = document.createElement("div"); wrap.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
       wrap.append(clone);
       const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + innerWidth + '" height="' + innerHeight + '"><foreignObject width="100%" height="100%">' + new XMLSerializer().serializeToString(wrap) + '</foreignObject></svg>';
