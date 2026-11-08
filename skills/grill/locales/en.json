@@ -345,7 +345,6 @@
   "Не удалось скопировать. Выделите текст и скопируйте вручную.": "Copy failed. Select the text and copy it manually.",
   "Объясни вопрос простыми словами и укажи, какие сведения нужны для ответа.": "Explain the question in simple terms and describe the information needed to answer it.",
   "Охват требует обновления": "Coverage needs refresh",
-  "Открыть чат с агентом": "Open chat with agent",
   "Вопрос": "Question",
   "Переоценка родителей не выполнена:": "Parent reassessment failed:",
   "Не удалось перечитать карту. Сервер не поддерживает эту команду. Перезапустите сервер карты и обновите страницу.": "Could not reread the map. The server does not support this command. Restart the map server and reload the page.",

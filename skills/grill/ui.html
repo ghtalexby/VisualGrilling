@@ -198,7 +198,6 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 #finishedNotice{font-size:12px;color:var(--muted)}
 .node.idea{border-style:double;border-width:3px}.node.idea .qtext{white-space:pre-wrap;max-height:160px;overflow:hidden}
 .root-main{display:block;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer}
-.root-chat{margin-top:12px}
 .node.unread{box-shadow:0 0 0 3px var(--accent)}
 .chip[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
 .zoom button{width:auto;min-width:32px;padding:0 9px}
@@ -478,7 +477,7 @@ function nodeHTML(n){
   if(n.kind==="preview")return `<span class="nhead"><span class="area">▧ Превью</span><span class="pill">${n.job?"В очереди":n.stale?`Устарело: ${n.stale}`:""}</span></span><span class="qtext">${esc(n.q)}</span>${n.error?`<span class="ans">${esc(friendlyError(n.error))}</span>`:""}`;
   if(n.kind==="root"){
     const q=qs().filter(n=>!n.obsolete),open=q.filter(x=>x.status==="open"&&!x.pending).length;
-    return `<button class="root-main"><span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто · ${coverageText()}</span>${chatBadge(n)}</button><button class="btn small root-chat" data-root-chat>Открыть чат с агентом</button>`;
+    return `<button class="root-main"><span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="rmeta">${q.length} вопр. · ${open} открыто · ${coverageText()}</span>${chatBadge(n)}</button>`;
   }
   if(n.kind==="idea")return `<span class="nhead"><span class="area">◇ Идея</span><span class="pill">${n.analysis?(n.analysis.stage==="thinking"?"Разбор":"В очереди"):ideaStatus(n)}</span></span><span class="qtext">${esc(n.text)}</span>${chatBadge(n)}`;
   const p=n.parentId==="root"?`<b>P${n.prio}</b> · `:"";
@@ -506,7 +505,7 @@ function render(){
     b.className="node "+(n.kind==="root"?"root":(n.kind==="idea"?"idea q s-":"q s-")+vis(n))+(panel&&panel.id===n.id?" sel":"")+(hasUnread(n)?" unread":"")+(fresh.has(n.id)?" fresh":"")+(flt&&n.kind!=="root"&&!hit.has(n.id)?" ctx":"");
     // Keep gesture targets and focus stable when polling redraws unchanged cards.
     const html=nodeHTML(n);if(b.contentHTML!==html){
-      const rootFocus=n.kind==="root"&&b.contains(document.activeElement)?(document.activeElement.matches("[data-root-chat]")?"[data-root-chat]":".root-main"):null;
+      const rootFocus=n.kind==="root"&&b.contains(document.activeElement)?".root-main":null;
       b.innerHTML=html;b.contentHTML=html;if(rootFocus)b.querySelector(rootFocus)?.focus({preventScroll:true});
     }
     b.dataset.id=n.id;if(!b.isConnected)stage.appendChild(b);els[n.id]=b;
@@ -847,12 +846,12 @@ async function poll(force){
 
 /* ---------- events ---------- */
 $("#stage").addEventListener("mousedown",e=>{if(e.button===0&&e.detail>1&&e.target.closest(".node"))clearTimeout(clickTimer)});
-$("#stage").addEventListener("click",e=>{if(e.target.closest("[data-root-chat]")){clearTimeout(clickTimer);openPanel({mode:"project",id:"root",tab:"discuss"});return}const b=e.target.closest(".node");if(!b)return;
+$("#stage").addEventListener("click",e=>{const b=e.target.closest(".node");if(!b)return;
   clearTimeout(clickTimer);if(e.detail>1)return;
   const id=b.dataset.id,open=()=>{if(get(id))openPanel(id==="root"?{mode:"summary",id:"root"}:{mode:"node",id})};
   if(e.detail===0)open();else clickTimer=setTimeout(open,PAGE_DOUBLE_CLICK_MS);
 });
-$("#stage").addEventListener("dblclick",e=>{if(e.target.closest("[data-root-chat]")){e.preventDefault();return}const b=e.target.closest(".node");if(!b)return;
+$("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if(!b)return;
   e.preventDefault();clearTimeout(clickTimer);const id=b.dataset.id;
   if(get(id)?.kind==="preview"){openPreview(id).catch(error=>{showError(error.message)});return}
   isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);

@@ -162,8 +162,8 @@ try {
   await click('#zBranch'); assert.equal(await js('flt===null&&isolated===null'), true);
   assert.equal(await js('document.querySelectorAll("#stage .node").length'), 203);
   await click('[data-act="close"]');
-  await click('[data-root-chat]'); assert.equal(await js('panel.mode'), 'project');
-  await js('document.querySelector("[data-root-chat]").dispatchEvent(new MouseEvent("dblclick",{bubbles:true,cancelable:true}))');
+  assert.equal(await js('document.querySelector("[data-root-chat]")'), null);
+  await click('#bChat'); assert.equal(await js('panel.mode'), 'project');
   assert.equal(await js('isolated'), null);
   await click('[data-act="close"]'); assert.equal(await js('document.querySelector("#zBranch").disabled'), true);
   // A removed merged source keeps its escaped, individually copyable verdict history.
