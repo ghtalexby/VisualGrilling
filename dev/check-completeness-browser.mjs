@@ -43,11 +43,19 @@ try {
   ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
-  // The resize grip must follow drawer visibility even with the error toast between them.
+  // Drawer and grip stay below the header and follow drawer visibility.
   await cdp("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
   assert.equal(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
   await js('openPanel({mode:"summary"})');
   assert.notEqual(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
+  for (const width of [1280, 700, 390]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width, height:800, deviceScaleFactor:1, mobile:false });
+    assert.ok(await js('(()=>{const h=document.querySelector("header").getBoundingClientRect(),p=document.querySelector("#panel").getBoundingClientRect();return Math.abs(p.top-h.bottom)<1&&Math.abs(p.bottom-innerHeight)<1})()'));
+    assert.equal(await js('(()=>{const b=document.querySelector("#bSummary"),r=b.getBoundingClientRect();return document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)===b})()'), true);
+    if(width>560)assert.equal(await js('document.querySelector("#panelGrip").getBoundingClientRect().top'), await js('document.querySelector("#panel").getBoundingClientRect().top'));
+  }
+  await cdp("Emulation.setDeviceMetricsOverride", { width:1280, height:800, deviceScaleFactor:1, mobile:false });
+
   await click('#panel [data-act="close"]');
   await js('showError("Grip visibility check")');
   assert.equal(await js('getComputedStyle(document.querySelector("#panelGrip")).display'), "none");
@@ -124,6 +132,21 @@ try {
   await js('panel=null;renderPanel()');
   await click('#bSpec');
   assert.equal(await js('panel'), null);
+  // Stop must preserve the drawer both on acceptance and on a later finished poll.
+  await js('window.finishState=structuredClone(S);window.finishComplete=false;api=async()=>({...finishState,finished:finishComplete,listening:true});poll=originalPoll');
+  for (const opened of [false,true]) {
+    await js('finishComplete=false;originalPoll(true)');
+    await js(`${opened?'openPanel({mode:"node",id:qid})':'panel=null;renderPanel()'}`);
+    await click('#bStop');
+    if(opened)assert.equal(await js('panel.id'), await js('qid'));
+    else {assert.equal(await js('panel'), null);assert.equal(await js('document.querySelector("#panel").hidden'), true);}
+    await js('finishComplete=true;originalPoll(true)');
+    if(opened)assert.equal(await js('panel.id'), await js('qid'));
+    else {assert.equal(await js('panel'), null);assert.equal(await js('document.querySelector("#panel").hidden'), true);}
+    if(opened)assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
+  }
+  await js('S=finishState;api=savedApi;poll=async()=>{};listening=false;render()');
+
   await js('openPanel({mode:"node",id:qid})');
 
   await click('#bReread'); await until(()=>js('!rereadSending'));
