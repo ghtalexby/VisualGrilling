@@ -191,6 +191,23 @@ try {
   await js('api=goodApi');
   // Block-level copy retains Unicode/newlines, and rejection gets visible feedback.
   await js('window.copied=[];Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async t=>copied.push(t)}})');
+  // Board menus copy full question/answer text without opening a drawer or submitting work.
+  await js('window.copyNodeBefore=structuredClone(get(qid));get(qid).prio=3;get(qid).q="Question ё猫\\nsecond line";get(qid).answer="Answer ё猫\\nsecond line";render()');
+  await menu(await js('qid'));
+  assert.equal(await js('document.querySelector("[data-ctx=copyquestion]").textContent'), "Copy question");
+  await click('[data-ctx="copyquestion"]');
+  assert.equal(await js('copied.at(-1)'), "P-3\nQuestion ё猫\nsecond line");
+  await menu(await js('qid')); await click('[data-ctx="copyanswer"]');
+  assert.equal(await js('copied.at(-1)'), "Answer ё猫\nsecond line");
+  await js('get(qid).pending={answer:"Pending ё猫\\nanswer",stage:"queued"};render()');
+  await menu(await js('qid')); await click('[data-ctx="copyanswer"]');
+  assert.equal(await js('copied.at(-1)'), "Pending ё猫\nanswer");
+  await js('get(qid).pending=null;get(qid).answer="";render()');
+  await menu(await js('qid'));
+  assert.equal(await js('document.querySelector("[data-ctx=copyanswer]").disabled'), true);
+  await js('document.querySelector("[data-ctx=copyquestion]").focus();document.dispatchEvent(new KeyboardEvent("keydown",{key:"ArrowDown",bubbles:true}))');
+  assert.equal(await js('document.activeElement.dataset.ctx'), "create");
+  await js('closeCtx();Object.assign(get(qid),copyNodeBefore);copied=[];render();renderPanel()');
   await click('[data-copy="Existing question"]'); await until(()=>js('copied.length'));
   assert.equal(await js('copied[0]'), 'Existing question');
   await js('navigator.clipboard.writeText=async()=>{throw new Error("denied")}');

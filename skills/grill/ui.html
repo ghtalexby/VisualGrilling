@@ -977,6 +977,8 @@ $("#stage").addEventListener("contextmenu",e=>{
   el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="project">Общий чат</button><button role="menuitem" data-ctx="reread">Перечитать</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
   if(get(id)?.kind!=="preview")el.innerHTML+=`<button role="menuitem" data-ctx="preview">Создать превью</button>`;
   else el.innerHTML=`<button role="menuitem" data-ctx="previewopen">Открыть превью</button>`;
+  const n=get(id);
+  if(n?.kind==="q")el.innerHTML+=`<button role="menuitem" data-ctx="copyquestion">Скопировать вопрос</button><button role="menuitem" data-ctx="copyanswer" ${n.pending?.answer||n.answer?"":"disabled"}>Скопировать ответ</button>`;
   document.body.appendChild(el);const r=target.getBoundingClientRect();
   el.style.left=Math.max(8,Math.min(e.clientX||r.left,innerWidth-el.offsetWidth-8))+"px";el.style.top=Math.max(8,Math.min(e.clientY||r.bottom,innerHeight-el.offsetHeight-8))+"px";
   ctx={el,target,id,card:true};el.querySelector("button").focus();
@@ -984,6 +986,13 @@ $("#stage").addEventListener("contextmenu",e=>{
 });
 document.addEventListener("click",e=>{
   if(!ctx)return;const b=e.target.closest("#ctxmenu [data-ctx]");const c=ctx;closeCtx();
+  if(c.card&&b&&["copyquestion","copyanswer"].includes(b.dataset.ctx)){
+    const n=get(c.id);if(!n||n.kind!=="q"||b.disabled)return;
+    const text=b.dataset.ctx==="copyquestion"?(n.parentId==="root"?`P-${n.prio}\n`:"")+n.q:(n.pending?.answer||n.answer);
+    if(!text)return;clearError();
+    try{Promise.resolve(navigator.clipboard.writeText(text)).catch(()=>showError("Не удалось скопировать. Выделите текст и скопируйте вручную."))}catch{showError("Не удалось скопировать. Выделите текст и скопируйте вручную.")}
+    return;
+  }
   if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="reread")requestReread();else if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
   if(!b||!panel||panel.id!==c.id)return;
   if(b.dataset.ctx==="discuss"||b.dataset.ctx==="explain"){
@@ -1005,7 +1014,7 @@ document.addEventListener("pointerdown",e=>{if(!e.target.closest("#stage .node")
 window.addEventListener("scroll",e=>{if(ctx&&!ctx.el.contains(e.target)&&performance.now()>quietScroll)closeCtx()},true);window.addEventListener("resize",()=>closeCtx());window.addEventListener("blur",e=>{if(e.target===window)closeCtx()});
 document.addEventListener("keydown",e=>{
   if(ctx&&e.key==="Escape"){e.stopImmediatePropagation();closeCtx(true);return}
-  if(ctx&&(e.key==="ArrowDown"||e.key==="ArrowUp")){e.preventDefault();const bs=[...ctx.el.querySelectorAll("button")],i=bs.indexOf(document.activeElement);bs[(i+(e.key==="ArrowDown"?1:bs.length-1))%bs.length].focus()}
+  if(ctx&&(e.key==="ArrowDown"||e.key==="ArrowUp")){e.preventDefault();const bs=[...ctx.el.querySelectorAll("button:not(:disabled)")],i=bs.indexOf(document.activeElement);bs[(i+(e.key==="ArrowDown"?1:bs.length-1))%bs.length]?.focus()}
 },true);
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){clearTimeout(clickTimer);if(panel){panel=null;render();renderPanel()}}});
 const vp=$("#viewport");
