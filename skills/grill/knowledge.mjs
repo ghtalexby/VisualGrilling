@@ -74,6 +74,13 @@ export function knowledge(project, maps) {
     if (text.length > limit) fail("Документ знаний слишком большой");
     return { path: relative, version: digest(text), text };
   }
+  function mapSource(relative) {
+    const local = path.relative(maps, path.resolve(project, relative)).replaceAll("\\", "/");
+    if (!/^(?:[a-z0-9][a-z0-9-]{0,39}\/)?state\.json$/.test(local)) fail("Недопустимый путь знаний");
+    const file = safe(maps, local);
+    if (fs.statSync(file).size > 8000000) fail("Документ знаний слишком большой");
+    return json(file);
+  }
   function parse(text) {
     const match = text.match(/^<!-- vgril:1 -->\r?\n```json\r?\n([\s\S]*?)\r?\n```\r?\n/);
     if (!match) fail("Не удалось разобрать документ знаний: исходный файл сохранён");
@@ -107,7 +114,26 @@ export function knowledge(project, maps) {
             });
             let record, error;
             if (item.text.startsWith("<!-- vgril:")) { try { record = parse(item.text); } catch (e) { error = e.message; } }
-            documents.push({ path: rel, version: item.version, headings, description, links, ...(record ? { id: record.id, type: record.type, scope: record.scope, status: record.status } : {}), ...(error ? { error } : {}) });
+            const sources = (record?.sources || []).map(s => {
+              let available = false, versionMatches = false;
+              try {
+                if (s.card) {
+                  const node = mapSource(s.path).nodes?.find(n => n.id === s.card);
+                  available = !!node;
+                  if (node) {
+                    const { discuss, discussToken, discussRevision, pending, analysis, ...normalized } = node;
+                    if (normalized.job) { const { stage, token, ...job } = normalized.job; normalized.job = job; }
+                    if (normalized.chat) normalized.chat = normalized.chat.map(({ readAt, ...m }) => m);
+                    if (pending) normalized.pending = { answer: pending.answer, at: pending.at };
+                    versionMatches = [digest(JSON.stringify(node)), digest(JSON.stringify(normalized))].includes(s.version);
+                  }
+                } else {
+                  const source = read(s.path); available = source.text !== null; versionMatches = source.version === s.version;
+                }
+              } catch {}
+              return { path: s.path, card: s.card || null, version: s.version, available, versionMatches, localOnly: !!s.card, snapshot: !!s.snapshot };
+            });
+            documents.push({ path: rel, version: item.version, headings, description, links, sources, ...(record ? { id: record.id, type: record.type, scope: record.scope, status: record.status } : {}), ...(error ? { error } : {}) });
           } catch (e) { warnings.push(`${rel}: ${e.message}`); }
         }
       }
@@ -150,17 +176,16 @@ export function knowledge(project, maps) {
     fs.renameSync(journalFile, path.join(runtime, `${job.id}.done.json`));
   }
   function index() { return locked(() => {
-    let error;
-    try { recover(); } catch (e) { error = e.message; }
     const result = scan();
-    if (error) result.warnings.push(error);
+    if (fs.existsSync(path.join(runtime, "pending.json"))) result.warnings.push("Незавершённая запись знаний: повторите сохранение в исходной карте");
     return result;
   }); }
-  function reconcile() {
+  function reconcile(operation) {
     return locked(() => {
       const file = path.join(runtime, "pending.json");
       if (!fs.existsSync(file)) return;
       const job = json(file);
+      if (operation && job.id !== operation) fail("Незавершённая запись знаний принадлежит другой карте");
       // Preserve partial results and every backup; the next delivery reads and reconciles them.
       for (let i = 0; i < job.files.length; i++) {
         const op = job.files[i], target = safe(project, op.path, true), backup = path.join(runtime, `${job.id}-${i}.before`);
@@ -169,10 +194,12 @@ export function knowledge(project, maps) {
       fs.renameSync(file, path.join(runtime, `${job.id}.conflict.json`));
     });
   }
-  function commit(files, validatedSources = []) {
+  function commit(files, validatedSources = [], expectedRevision, operation = randomUUID()) {
     if (!Array.isArray(files) || files.length > 30) fail("Не более 30 документов знаний за операцию");
     return locked(() => {
-      recover();
+      if (fs.existsSync(path.join(runtime, "pending.json"))) fail("Незавершённая запись знаний: повторите сохранение в исходной карте");
+      const navigation = scan();
+      if (expectedRevision && digest(JSON.stringify(navigation.documents)) !== expectedRevision) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
       const seen = new Set();
       for (const op of files) {
         if (!op || !/^docs\/vgril\/(?!specs\/)[a-z0-9][a-z0-9/-]*\.md$/.test(op.path) || seen.has(op.path) || !bounded(op.text, limit)) fail("Некорректный документ знаний");
@@ -187,7 +214,7 @@ export function knowledge(project, maps) {
           if (source.card) {
             // The server validates current-map snapshots; archived maps use their raw saved nodes.
             if (validatedSources.includes(JSON.stringify(source))) continue;
-            const state = json(safe(project, source.path));
+            const state = mapSource(source.path);
             const node = state.nodes?.find(n => n.id === source.card);
             if (!node || JSON.stringify(node) !== source.snapshot || digest(source.snapshot) !== source.version) fail("Архивный источник изменился");
           } else {
@@ -196,10 +223,10 @@ export function knowledge(project, maps) {
           }
         }
       }
-      const existing = scan().documents.filter(d => d.id && !seen.has(d.path));
+      const existing = navigation.documents.filter(d => d.id && !seen.has(d.path));
       const ids = files.map(o => parse(o.text).id);
       if (new Set(ids).size !== ids.length || existing.some(d => ids.includes(d.id))) fail("Идентификатор знаний уже существует");
-      const id = randomUUID();
+      const id = operation;
       atomic(path.join(runtime, "pending.json"), JSON.stringify({ id, files }, null, 2));
       recover();
       return { operation: id, paths: files.map(f => f.path) };

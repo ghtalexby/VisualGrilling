@@ -96,11 +96,15 @@ async function serve() {
   S.notes = clean(S.notes, 3000);
   S.locale = has("lang") || has("locale") ? requestedLocale() : locale(S.locale, true);
   const t = text => translate(S.locale, text);
+  const knowledgeError = error => {
+    const message = clean(error?.message || error, 1000), separator = message.indexOf(": ");
+    return separator < 0 ? t(message) : t(message.slice(0, separator)) + message.slice(separator);
+  };
   S.specOwner ||= randomUUID();
   S.specFile ||= `docs/vgril/specs/grill-${NAME || "legacy"}.md`;
   S.knowledgeSession ||= randomUUID();
   const memory = knowledge(process.cwd(), BASE);
-  try { memory.index(); } catch (e) { S.knowledgeResult = { status: "error", error: e.message }; }
+  try { memory.index(); } catch (e) { S.knowledgeResult = { status: "error", error: knowledgeError(e) }; }
   S.queue = Array.isArray(S.queue) ? S.queue : [];
   S.reserve ??= null;
   if (S.reevaluation) S.reevaluation = { ids: [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])] };
@@ -168,6 +172,7 @@ ${S.notes || "—"}
   };
   recoverReread();
   function recoverKnowledge() {
+    if (S.knowledgeJob) S.knowledgeJob.operation ||= randomUUID();
     if (S.knowledgeJob?.stage === "thinking") { S.knowledgeJob.stage = "queued"; delete S.knowledgeJob.token; }
     if (S.knowledgeJob?.stage === "queued" && !S.queue.some(e => e.type === "knowledge")) S.queue.push({ type: "knowledge" });
     if (S.finishPending && !S.queue.some(e => e.type === "finish")) S.queue.push({ type: "finish" });
@@ -242,7 +247,7 @@ ${S.notes || "—"}
   const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
   const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.arch, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
   function requestKnowledge(reason) {
-    if (!S.knowledgeJob) S.knowledgeJob = { stage: "queued", reason, requestedAt: Date.now() };
+    if (!S.knowledgeJob) S.knowledgeJob = { stage: "queued", operation: randomUUID(), reason, requestedAt: Date.now() };
     if (reason === "finish") S.knowledgeJob.reason = reason;
     if (S.knowledgeJob.stage === "queued" && !S.queue.some(e => e.type === "knowledge")) S.queue.push({ type: "knowledge" });
   }
@@ -259,7 +264,7 @@ ${S.notes || "—"}
     const error = clean(b.error, 1000);
     if (error || b.questions?.length) {
       if (b.questions !== undefined && (!Array.isArray(b.questions) || b.questions.length > 3)) throw [400, "Не более трёх вопросов о знаниях"];
-      const questions = (b.questions || []).map(o => mkQ(o, "root", { prio: Math.max(0, ...qs().map(n => n.prio || 0)) + 1 })).filter(Boolean);
+      const questions = (b.questions || []).map((o, i) => mkQ(o, "root", { prio: Math.max(0, ...qs().map(n => n.prio || 0)) + i + 1 })).filter(Boolean);
       if (b.questions?.length && questions.length !== b.questions.length) throw [400, "Некорректный вопрос о знаниях"];
       S.nodes.push(...questions);
       j.stage = "blocked"; delete j.token;
@@ -285,12 +290,12 @@ ${S.notes || "—"}
         }
         if (!previous.text && record.type === "term" && record.sources.some(s => s.session === S.knowledgeSession) && !(record.author?.name?.trim() && record.author.name.length <= 200 && record.author.session === S.knowledgeSession && /^\d{4}-\d{2}-\d{2}/.test(record.author.date))) throw new Error("Нужно уточнить имя автора термина на карте");
       }
-      const result = memory.commit(b.files, validatedSources);
+      const result = memory.commit(b.files, validatedSources, j.documentsRevision, j.operation);
       S.knowledgeResult = { status: "saved", at: Date.now(), revision: j.revision, ...result };
       S.knowledgeJob = null; save(); return { ok: true, ...result };
     } catch (e) {
       j.stage = "blocked"; delete j.token;
-      S.knowledgeResult = { status: "error", error: clean(e.message, 1000), at: Date.now() };
+      S.knowledgeResult = { status: "error", error: knowledgeError(e), at: Date.now() };
       save(); return { ok: false, error: S.knowledgeResult.error };
     }
   }
@@ -586,7 +591,7 @@ ${S.notes || "—"}
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) {
-        if (e.type === "knowledge") { S.knowledgeJob.stage = "blocked"; S.knowledgeResult = { status: "error", error: error[1] || String(error) }; save(); }
+        if (e.type === "knowledge") { S.knowledgeJob.stage = "blocked"; S.knowledgeResult = { status: "error", error: knowledgeError(error[1] || String(error)) }; save(); }
         else if (e.type === "reread" && error[2] === "context-limit") {
           // Failed full-map context must not retain an answer lock or retry automatically.
           S.rereadJob = null; S.rereadResult = { at: Date.now(), error: t(error[1] || String(error)) };
@@ -1196,12 +1201,14 @@ ${S.notes || "—"}
       }
       if (p === "/api/knowledge-retry") {
         if (!S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
-        memory.reconcile(); S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save(); pump(); return send(res, 200, { ok: true });
+        memory.reconcile(S.knowledgeJob.operation); S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save(); pump(); return send(res, 200, { ok: true });
       }
       if (p === "/api/knowledge-skip") {
         if (!S.finishPending || !S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
+        let recoveryWarning;
+        try { memory.reconcile(S.knowledgeJob.operation); } catch (error) { recoveryWarning = knowledgeError(error); }
         S.knowledgeJob = null; S.queue = S.queue.filter(e => e.type !== "knowledge");
-        S.knowledgeResult = { status: "skipped", at: Date.now() }; save(); pump(); return send(res, 200, { ok: true });
+        S.knowledgeResult = { status: "skipped", at: Date.now(), ...(recoveryWarning ? { error: recoveryWarning } : {}) }; save(); pump(); return send(res, 200, { ok: true });
       }
       if (p === "/api/spec-migrate") {
         const result = memory.migrateSpec(S, NAME); S.specFile = result.path; S.specDigest = result.version || S.specDigest; save(); return send(res, 200, { ok: true, ...result });

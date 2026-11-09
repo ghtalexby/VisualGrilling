@@ -18,7 +18,7 @@ const record = (extra = {}, prose = sourceText) => `<!-- vgril:1 -->\n\x60\x60\x
 const target = "docs/vgril/settings/profile.md";
 let server, url;
 async function start() {
-  server = spawn(process.execPath, [cli, "serve", "--name", "check", "--port", "0", "--lang", "en"], { cwd, windowsHide: true, stdio: "ignore" });
+  server = spawn(process.execPath, [cli, "serve", "--name", "check", "--port", "0", "--lang", "en"], { cwd, windowsHide: true, stdio: "ignore", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: path.join(cwd, "no-global-git-config") } });
   for (let i = 0; i < 100; i++) {
     try { const info = JSON.parse(fs.readFileSync(path.join(map, "server.json"))); if (info.pid === server.pid) { url = info.url; return; } } catch {}
     await new Promise(r => setTimeout(r, 50));
@@ -58,14 +58,21 @@ try {
   const op = "00000000-0000-4000-8000-000000000001", ops = path.join(maps, "knowledge-ops");
   fs.writeFileSync(path.join(ops, "pending.json"), JSON.stringify({ id: op, files: [{ path: target, expected: before.version, text: before.text + "Recovered\n" }] }));
   fs.renameSync(path.join(cwd, target), path.join(ops, op + "-0.before"));
-  store.index(); assert.match(store.read(target).text, /Recovered/);
-  assert.ok(fs.existsSync(path.join(ops, op + ".done.json")));
+  assert.ok(store.index().warnings.length); assert.equal(store.read(target).text, null);
+  store.reconcile(op); // Restore the original before a fresh extraction proposes the update again.
+  store.commit([{ path: target, expected: before.version, text: before.text + "Recovered\n" }]);
+  assert.match(store.read(target).text, /Recovered/);
+  assert.ok(fs.existsSync(path.join(ops, op + ".conflict.json")));
   // Competing editor publication is preserved and retry reconciles, never overwrites.
   before = store.read(target);
   fs.writeFileSync(path.join(ops, "pending.json"), JSON.stringify({ id: "conflict", files: [{ path: target, expected: before.version, text: before.text + "Agent update\n" }] }));
   fs.appendFileSync(path.join(cwd, target), "Editor update\n");
-  assert.ok(store.index().warnings.some(w => w.includes("Конфликт")));
+  assert.ok(store.index().warnings.some(w => w.includes("Незавершённая")));
   store.reconcile(); assert.match(store.read(target).text, /Editor update/);
+
+  const navigation = store.index();
+  fs.writeFileSync(path.join(cwd, "docs/vgril/moved.md"), "Changed while another map was preparing an update");
+  assert.throws(() => store.commit([], [], digest(JSON.stringify(navigation.documents))), /Документы изменились/);
 
   // Several maps racing to reclaim the same dead owner must never enter together.
   fs.writeFileSync(path.join(ops, "lock.json"), JSON.stringify({ pid: 2147483647, id: "dead" }));
@@ -97,6 +104,7 @@ try {
   await api("apply", { type: "knowledge", token: event.token, files: [] }, 409);
   await api("finish", {}); event = await wait(); assert.equal(event.type, "knowledge");
   await api("apply", { type: "finish", summary: "Bypass" }, 409);
+  assert.equal(event.author, null);
   const stale = event.token; await stop(); await start();
   await api("apply", { type: "knowledge", token: stale, files: [] }, 409);
   event = await wait(); assert.equal(event.type, "knowledge");
@@ -128,16 +136,30 @@ try {
   await api("apply", { type: "knowledge", token: event.token, error: "Disk unavailable" });
   await stop(); await start(); assert.equal((await api("state")).knowledgePending.stage, "blocked");
   await api("knowledge-retry", {}); event = await wait(); assert.equal(event.type, "knowledge");
-  await api("apply", { type: "knowledge", token: event.token, error: "Need identity", questions: [{ q: "How should your name be recorded?" }] });
-  const authorCard = (await api("state")).nodes.find(n => n.q === "How should your name be recorded?");
+  await api("apply", { type: "knowledge", token: event.token, error: "Need identity", questions: [{ q: "How should your name be recorded?" }, { q: "Which scope?" }] });
+  const clarificationState = await api("state");
+  const authorCard = clarificationState.nodes.find(n => n.q === "How should your name be recorded?");
+  const scopeCard = clarificationState.nodes.find(n => n.q === "Which scope?");
+  assert.equal(scopeCard.prio, authorCard.prio + 1);
   await api("answer", { id: authorCard.id, answer: "Ada" }); event = await wait(); assert.equal(event.type, "answer");
   await api("apply", { type: "answer", id: event.id, token: event.token, status: "ok", verdict: "Explicit identity" });
+  await api("answer", { id: scopeCard.id, answer: "Settings" }); event = await wait(); assert.equal(event.type, "answer");
+  await api("apply", { type: "answer", id: event.id, token: event.token, status: "ok", verdict: "Explicit scope" });
   event = await wait(); assert.equal(event.type, "knowledge");
   await api("apply", { type: "knowledge", token: event.token, error: "Explicit conflict remains" });
+  const operation = JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation;
+  fs.writeFileSync(path.join(ops, "pending.json"), JSON.stringify({ id: operation, files: [{ path: "docs/vgril/skipped.md", expected: null, text: record({ id: "skipped" }) }] }));
   await api("knowledge-skip", {}); event = await wait(); assert.equal(event.type, "finish");
   await api("apply", { type: "finish", token: event.token, summary: "Skipped" });
   assert.equal((await api("state")).knowledgeResult.status, "skipped");
+  await api("knowledge"); assert.equal(store.read("docs/vgril/skipped.md").text, null);
+  assert.equal(fs.existsSync(path.join(ops, "pending.json")), false);
   await stop();
+  const savedState = JSON.parse(fs.readFileSync(path.join(map, "state.json")));
+  savedState.nodes = savedState.nodes.filter(n => n.id !== id);
+  fs.writeFileSync(path.join(map, "state.json"), JSON.stringify(savedState));
+  const deletedSources = store.index().documents.find(d => d.path === "docs/vgril/new-profile.md").sources;
+  assert.ok(deletedSources.every(s => !s.available && s.snapshot));
   // Migration preserves exact authored content and rebases outgoing references, and is repeatable.
   fs.mkdirSync(path.join(cwd, "docs/specs"));
   const old = "docs/specs/grill-check.md", owner = "test-owner";

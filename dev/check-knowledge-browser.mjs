@@ -44,8 +44,8 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
   fs.writeFileSync(path.join(cwd, "docs/vgril/manual.md"), "# Snapshot\n<script>window.injected=true</script>\n[Missing](absent.md)\n[Local](http://localhost:4777)");
   for (const language of ["en", "ru"]) {
-    await api("locale", { language }); await cdp("Page.reload");
-    await until(() => js(`typeof loaded!=="undefined"&&loaded&&document.documentElement.lang==="${language}"`));
+    await api("locale", { language }); await js("globalThis.__beforeKnowledgeReload=1"); await cdp("Page.reload");
+    await until(() => js(`typeof __beforeKnowledgeReload==="undefined"&&typeof loaded!=="undefined"&&loaded&&typeof renderPanel==="function"&&document.documentElement.lang==="${language}"`));
     await js('panel={mode:"summary"};renderPanel()');
     await click('[data-act="knowledge-open"]'); await until(() => js('!!document.querySelector("[data-document]")'));
     await click('[data-document="docs/vgril/manual.md"]'); await until(() => js('!!document.querySelector("#panel pre")'));
