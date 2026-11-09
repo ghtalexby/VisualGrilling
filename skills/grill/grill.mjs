@@ -1201,7 +1201,7 @@ ${S.notes || "—"}
       }
       if (p === "/api/knowledge-retry") {
         if (!S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
-        memory.reconcile(S.knowledgeJob.operation); S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save(); pump(); return send(res, 200, { ok: true });
+        memory.reconcile(S.knowledgeJob.operation); S.knowledgeJob.operation = randomUUID(); S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save(); pump(); return send(res, 200, { ok: true });
       }
       if (p === "/api/knowledge-skip") {
         if (!S.finishPending || !S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
@@ -1216,7 +1216,7 @@ ${S.notes || "—"}
       if (p === "/api/knowledge-import") {
         requestKnowledge("import"); save(); pump(); return send(res, 200, { ok: true });
       }
-      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; S.knowledgeResult = null; requestKnowledge("finish"); cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
+      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; if (!S.knowledgeJob) S.knowledgeResult = null; requestKnowledge("finish"); cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
       if (p === "/api/spec") {
         // A snapshot taken now would freeze the map from before the rebuild.
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Создать спеку можно будет после перечитывания" });

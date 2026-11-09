@@ -154,6 +154,29 @@ try {
   assert.equal((await api("state")).knowledgeResult.status, "skipped");
   await api("knowledge"); assert.equal(store.read("docs/vgril/skipped.md").text, null);
   assert.equal(fs.existsSync(path.join(ops, "pending.json")), false);
+
+  // A blocked reread/import keeps its clarification IDs when Finish promotes the same job.
+  await api("knowledge-import", {}); event = await wait();
+  await api("apply", { type: "knowledge", token: event.token, error: "Clarify before finishing", questions: [{ q: "Confirm scope before finish?" }] });
+  await api("finish", {});
+  const blocked = await api("state");
+  assert.equal(blocked.knowledgeResult.error, "Clarify before finishing");
+  const clarification = blocked.knowledgeResult.questions[0];
+  await api("answer", { id: clarification, answer: "Confirmed settings scope" }); event = await wait();
+  await api("apply", { type: "answer", id: event.id, token: event.token, status: "ok", verdict: "Confirmed" });
+  event = await wait(); assert.equal(event.type, "knowledge");
+  await api("apply", { type: "knowledge", token: event.token, error: "Interrupted replacement" });
+  const interrupted = JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation;
+  const original = store.read("docs/vgril/new-profile.md");
+  fs.writeFileSync(path.join(ops, "pending.json"), JSON.stringify({ id: interrupted, files: [{ path: original.path, expected: original.version, text: original.text + "Interrupted\n" }] }));
+  fs.renameSync(path.join(cwd, original.path), path.join(ops, interrupted + "-0.before"));
+  await api("knowledge-retry", {});
+  assert.notEqual(JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation, interrupted);
+  event = await wait(); assert.equal(event.type, "knowledge");
+  result = await api("apply", { type: "knowledge", token: event.token, files: [{ path: original.path, expected: original.version, text: original.text + "Fresh reconciled update\n" }] });
+  assert.equal(result.ok, true, result.error);
+  assert.ok(fs.existsSync(path.join(ops, interrupted + "-0.before")));
+  event = await wait(); await api("apply", { type: "finish", token: event.token, summary: "Recovered" });
   await stop();
   const savedState = JSON.parse(fs.readFileSync(path.join(map, "state.json")));
   savedState.nodes = savedState.nodes.filter(n => n.id !== id);

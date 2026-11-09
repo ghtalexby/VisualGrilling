@@ -39,10 +39,9 @@ export function knowledge(project, maps) {
     }
     return current;
   }
-  safe(project, ".grill/knowledge-ops/placeholder", true);
-  safe(project, "docs/vgril/placeholder", true);
   const lockFile = path.join(runtime, "lock.json");
   function locked(fn) {
+    safe(project, ".grill/knowledge-ops/placeholder", true);
     const owner = { pid: process.pid, id: randomUUID() };
     try { fs.writeFileSync(lockFile, JSON.stringify(owner), { flag: "wx" }); }
     catch (e) {
@@ -176,6 +175,7 @@ export function knowledge(project, maps) {
     fs.renameSync(journalFile, path.join(runtime, `${job.id}.done.json`));
   }
   function index() { return locked(() => {
+    safe(project, "docs/vgril/placeholder", true);
     const result = scan();
     if (fs.existsSync(path.join(runtime, "pending.json"))) result.warnings.push("Незавершённая запись знаний: повторите сохранение в исходной карте");
     return result;
