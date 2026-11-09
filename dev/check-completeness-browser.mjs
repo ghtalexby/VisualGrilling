@@ -102,6 +102,7 @@ try {
   await click('#bReread'); await until(()=>js('!rereadSending'));
   assert.equal(await js('panel.id'), await js('qid'));
   assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
+  await js('listening=true;renderHeader()');
   for(const selector of ['#bSpec','#bStop','[data-act="answer"]']){
     await click(selector);
     await until(()=>js('!sending&&!document.querySelector("#errorToast").hidden'));
@@ -110,6 +111,21 @@ try {
     assert.equal(await js('document.querySelector("#panel .err")'), null);
   }
   await js('api=savedApi');
+  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id)'), ["conn", "bPlay", "bStop"]);
+  await js('listening=false;renderHeader()');
+  assert.equal(await js('document.querySelector("#bStop").disabled'), true);
+  assert.equal(await js('document.querySelector("#bPlay").disabled'), false);
+  await click('#bPlay'); await until(()=>js('!resumeSending'));
+  assert.equal(await js('writes.at(-1).path'), '/api/resume');
+  assert.equal(await js('listening'), false);
+  assert.equal(await js('panel.id'), await js('qid'));
+  assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
+  assert.match(await js('document.querySelector("#resumeNotice").textContent'), /Request sent/);
+  await js('panel=null;renderPanel()');
+  await click('#bSpec');
+  assert.equal(await js('panel'), null);
+  await js('openPanel({mode:"node",id:qid})');
+
   await click('#bReread'); await until(()=>js('!rereadSending'));
   assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
   await js('S.rereadPending=null;renderHeader()');
@@ -244,6 +260,11 @@ try {
   await js('window.originalFetch=fetch;fetch=async()=>new Response(JSON.stringify({error:"not found"}),{status:404})');
   assert.match(await js('originalApi("/api/reread",{}).catch(e=>e.message)'), /Could not reread the map.*Restart the map server/);
   assert.match(await js('originalApi("/api/spec",{}).catch(e=>e.message)'), /could not find this command/);
+  await js('fetch=async()=>new Response(JSON.stringify({error:"The Claude Code channel is offline. Open the session with the grill channel and try again."}),{status:409});api=originalApi;poll=async()=>{};listening=false;renderHeader()');
+  await click('#bPlay'); await until(()=>js('!resumeSending'));
+  assert.match(await js('document.querySelector("#errorToastText").textContent'), /Claude Code channel is offline.*Open the session/);
+  assert.equal(await js('listening'), false);
+  assert.equal(await js('document.querySelector("#resumeNotice").hidden'), true);
   await js('fetch=async()=>new Response(JSON.stringify({error:"Question missing"}),{status:404})');
   assert.equal(await js('originalApi("/api/question",{}).catch(e=>e.message)'), "Question missing");
   await js('fetch=async()=>{throw new TypeError("Failed to fetch")}');

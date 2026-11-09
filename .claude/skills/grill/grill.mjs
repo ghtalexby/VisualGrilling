@@ -24,6 +24,7 @@ import { promisify } from "node:util";
 import { randomUUID, createHash } from "node:crypto";
 import { locale, revision, translate, page } from "./i18n.mjs";
 import { previews } from "./preview.mjs";
+import { bindSession, requestResume, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1089,10 +1090,15 @@ ${S.notes || "—"}
         S.nodes.push(...retainedPreviews);
         lastActivity = Date.now(); save(); writeSession(); pruneImages(); return send(res, 200, { ok: true, questions: S.nodes.length - 1 });
       }
+      if (p === "/api/resume") {
+        if (S.finishPending) return send(res, 409, { error: "Дождитесь завершения грилинга и повторите попытку." });
+        return send(res, 200, await requestResume(BASE, NAME));
+      }
       if (p === "/api/apply") { const result = apply(b); pump(); return send(res, 200, result); }
       if (p === "/api/stop") { send(res, 200, { ok: true }); setTimeout(() => { try { fs.unlinkSync(INFO); } catch {} process.exit(0); }, 100); return; }
       return send(res, 404, { error: "not found" });
     } catch (e) {
+      if (e instanceof ResumeError) return send(res, 409, { error: e.message });
       if (Array.isArray(e)) return send(res, e[0], { error: e[1] });
       return send(res, 500, { error: String(e && e.message || e) });
     }
@@ -1158,6 +1164,7 @@ function openBrowser(url) {
   try { const ch = spawn(c, a, { detached: true, stdio: "ignore" }); ch.on("error", () => {}); ch.unref(); } catch {}
 }
 async function start() {
+  bindSession(BASE);
   const selectedLocale = has("lang") || has("locale") ? requestedLocale() : null;
   let info = await alive();
   if (!info) {

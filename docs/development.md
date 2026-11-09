@@ -169,3 +169,22 @@ In RU/EN browsers check unread replies across active/background tabs and restart
 Real-agent acceptance must verify initial concrete reserve discovery and semantic removal of solved, repeated and outdated candidates, useful follow-ups, substantive ancestor reassessment without treating answered descendants as proof, and preservation of untested assumptions. Deterministic checks cannot establish those judgments.
 
 `check-completeness.mjs` also checks finish with queued answer edits, invalidation of an already delivered automatic reread, restart without resurrection, edits after finish, manual rereads after finish, and queued/delivered automatic jobs upgraded to manual before finish. Submitted answers and ancestor reviews must still drain.
+
+## Play and host session connection
+
+Run `node dev/check-connection.mjs` for session binding, Codex argument transport using a fake CLI, Claude MCP initialization/notification transport, deduplication, stale channels, restart and protected HTTP routes. These checks never send prompts to a real model. Run browser checks for the status → Play → Stop order and preservation of drawers/drafts.
+
+For Codex, run the usual `grill.mjs start` from the intended session. The installed Codex must support `codex --no-daemon queue --thread <id> --message <text> --resume`. Play queues to that exact thread and attempts host resume; a host warning or unavailable daemon may require returning to the terminal. No fallback starts a second agent.
+
+For Claude Code, register the channel once in the target project (replace paths):
+
+```sh
+claude mcp add --scope local grill -- node /absolute/path/to/skills/grill/connection.mjs --dir /absolute/project/.grill
+claude --dangerously-load-development-channels server:grill
+```
+
+The custom-channel flag is Claude's research-preview opt-in, not a tool-permission bypass; accept Claude's own channel/MCP prompts interactively. Organization policy can prohibit channels. Plain MCP initialization is insufficient for event delivery, and notifications have no host acknowledgement. The UI therefore says the request was sent, not that the agent is connected. Follow [Claude's channel reference](https://code.claude.com/docs/en/channels-reference) if the installed release changes its opt-in.
+
+Start or explicitly continue grilling in that session with the same `--dir`. The channel is scoped to this maps root. Do not operate independent sessions against the same root: the most recent explicit start selects the Play destination. Switching the browser to a sibling map preserves this destination. Stop retains the existing finish-and-summary behavior and leaves map servers readable. Play during a pending finish is rejected.
+
+Real-host acceptance is required separately for both apps: stop a map, switch to a sibling, press Play, verify the request appears in the intended existing session, wait for actual listening and submit an answer. Confirm no second model process or duplicate waiter, then continue the finished map without losing its summary. Repeat with the host closed and with Claude's channel disabled; submission must not falsely indicate connectivity. Restart map servers after upgrading `connection.mjs` or `grill.mjs`.

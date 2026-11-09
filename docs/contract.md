@@ -62,6 +62,7 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`.
 | `POST /api/question` | UI | `{id,parentId,q}`; persisted custom question preparation, see below |
 | `POST /api/more` | Compatibility clients | Enqueues deduplicated legacy more event; current UI uses Reread |
 | `POST /api/reread` | UI | Enqueues deduplicated manual reread; 400 on a map with no questions |
+| `POST /api/resume` | Play | `{}`; submits a fixed continuation request to the bound session; `{ok:true,queued:true,resumeWarning?:boolean}`. Coalesces requests within ten seconds; 409 during finish or for a missing/unavailable host connection, with a localized recovery message. Does not set listening or reset state. |
 | `POST /api/finish` | UI | Enqueues deduplicated finish event |
 | `POST /api/spec` | UI, CLI | Captures map snapshot; deduplicates; returns `{ok,path}`; 409 while a reread is running |
 | `POST /api/init` | CLI | **Resets the whole map**; see below |

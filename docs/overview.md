@@ -17,7 +17,7 @@ The interaction takes place on a browser map:
 3. The agent reads the README, code, and configuration, then sends `init`: title, brief, MVP architecture, and the first five main questions (P1–P5, most critical first) and the remaining concrete candidates as a persistent hidden reserve.
 4. Answer on the map with multiple options and a free-text comment in one answer. Answers are queued; you can submit several without waiting.
 5. The agent repeats `wait → grade → apply`, assigning Closed / Weak / Gap / Verify, explaining the verdict, and adding follow-up questions. Code claims are checked against files. The discussion tab lets you clarify or dispute a verdict without grading or changing status.
-6. Summary lets you reread the map or prepare your own main question. Stop in the header (visible only while the agent is connected) and Finish and get the summary in the summary panel both send `finish`; the agent supplies a verdict, three risks, three checks for the week, and saves `.grill/<name>/report.md`.
+6. Summary lets you reread the map or prepare your own main question. The square Stop beside the agent status (enabled while the agent is connected) and Finish and get the summary in the summary panel both send `finish`; the agent supplies a verdict, three risks, three checks for the week, and saves `.grill/<name>/report.md`.
 7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues the same review.
 8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
@@ -31,7 +31,7 @@ English and Russian UI dictionaries are built in. Other languages use a complete
 
 ## Question statuses
 
-At any stage, Create spec generates an implementation plan from graded answers at `docs/specs/grill-<name>.md`. Update spec rebuilds the entire file; manual edits are replaced and unrelated documents are protected. Grilling continues. Without an agent, the request waits in the saved queue.
+At any stage, Create spec generates an implementation plan from graded answers at `docs/specs/grill-<name>.md`. Update spec rebuilds the entire file; manual edits are replaced and unrelated documents are protected. The header spec button submits the request without opening or switching the drawer; it displays its pending state while work is queued or running. Summary opens the overview panel separately. Grilling continues. Without an agent, the request waits in the saved queue.
 
 | Code | English label | Meaning |
 |---|---|---|
@@ -85,3 +85,5 @@ Root and Reread show one global coverage value: displayed current questions divi
 Clarifying answers trigger substantive parent reassessment, preserving original answers and prior verdicts. A parent closes only when branch evidence resolves the weakness. New agent discussion replies highlight their cards until the corresponding discussion is open in an active tab; read state is shared across browsers. Message badges count both participants. Project chat is available from the header and the root context menu. I do not understand requests an explanation of the question without sending the existing discussion draft. Separate copy controls copy each question, answer, verdict or chat message.
 
 Status filters include ideas and allow zero matches, showing only root when empty. Ancestors provide context but do not inflate match counts. A hidden selected card closes its panel while preserving drafts. Double-clicking empty canvas (outside cards and connection strokes) performs the same fit as Show all. The Show all icon fits the currently visible cards while preserving the status filter, branch isolation and open drawer. Automatic fits can go below 10%; manual zoom has a 10% minimum and accounts for the open drawer.
+
+The connection row orders status, Play, then Stop. Play asks the bound host session to resume the selected map without opening a drawer; it does not mark the agent connected or reset the map. See [development.md](development.md#play-and-host-session-connection) for Codex and Claude Code setup.

@@ -380,5 +380,14 @@
   "Не удалось выполнить действие на сервере. Повторите попытку; если ошибка повторится, попросите агента проверить журнал сервера.": "The server could not perform this action. Try again; if the error persists, ask the agent to check the server log.",
   "Сервер не смог открыть или сохранить файл. Попросите агента проверить наличие файла, права доступа и свободное место на диске.": "The server could not open or save a file. Ask the agent to check the file, access permissions and available disk space.",
   "Запрос слишком большой. Сократите текст или уменьшите число и размер изображений.": "The request is too large. Shorten the text or reduce the number and size of images.",
-  "Сервер отклонил запрос. Обновите страницу карты и повторите действие.": "The server rejected the request. Reload the map and try again."
+  "Сервер отклонил запрос. Обновите страницу карты и повторите действие.": "The server rejected the request. Reload the map and try again.",
+  "Продолжить грилинг": "Resume grilling",
+  "Продолжить грилинг в текущей сессии агента": "Resume grilling in the current agent session",
+  "Отправляем запрос на продолжение…": "Sending a resume request…",
+  "Запрос отправлен в сессию. Если агент не подключится, продолжите грилинг в терминале.": "Request sent to the session. If the agent does not reconnect, resume grilling in the terminal.",
+  "Связь с сессией не настроена. Продолжите грилинг из Codex или подключите канал grill в Claude Code.": "No session connection configured. Resume grilling from Codex or connect the grill channel in Claude Code.",
+  "Канал Claude Code не на связи. Откройте сессию с каналом grill и повторите попытку.": "The Claude Code channel is offline. Open the session with the grill channel and try again.",
+  "Не удалось подтвердить отправку запроса в Codex. Проверьте сессию и поддержку команды codex queue.": "Could not confirm the request was sent to Codex. Check the session and support for codex queue.",
+  "Дождитесь завершения грилинга и повторите попытку.": "Wait for grilling to finish and try again.",
+  "Некорректное имя карты": "Invalid map name"
 }

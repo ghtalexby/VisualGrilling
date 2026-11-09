@@ -47,16 +47,16 @@ try {
   // A continued map retains finished:true; its connected header must allow another finish.
   const controls = {}, headerState = { finished: true, nodes: [{ kind: "q" }] };
   const headerContext = vm.createContext({
-    S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false,
+    S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false, resumeSending: false,
     coverageText: () => "", qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
-    $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute() {} }
+    $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute(key, value) { this[key] = value; } }
   });
   const headerCode = ui.match(/function renderHeader\(\)\{[\s\S]*?\n\}/)[0] + "\nrenderHeader();";
   vm.runInContext(headerCode, headerContext);
-  assert.equal(controls["#bStop"].disabled, false); assert.equal(controls["#bStop"].hidden, false);
-  const stopLabel = controls["#bStop"].textContent;
+  assert.equal(controls["#bStop"].disabled, false); assert.notEqual(controls["#bStop"].hidden, true);
+  const stopLabel = controls["#bStop"]["aria-label"];
   headerState.finishPending = true; vm.runInContext(headerCode, headerContext);
-  assert.equal(controls["#bStop"].disabled, true); assert.notEqual(controls["#bStop"].textContent, stopLabel);
+  assert.equal(controls["#bStop"].disabled, true); assert.notEqual(controls["#bStop"]["aria-label"], stopLabel);
 
   // Historical cards retain readable answers but are not answerable or selected as active work.
   const oldCard = { id: "old", parentId: "root", kind: "q", prio: 1, area: "Lifecycle", q: "Old status?", status: "open", answer: "Old answer", obsolete: { reason: "Removed <script>status</script>", sources: [{ id: "new", q: "Decision" }] } };
