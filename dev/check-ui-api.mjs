@@ -241,8 +241,8 @@ try {
   assert.ok(!JSON.stringify(e.nodes).includes("Answer after capture"));
   await request("apply", { type: "spec", token: e.token, markdown: "# Captured implementation" });
   await request("apply", { type: "spec", token: e.token, markdown: "# Repeated" }, 409);
-  e = await wait(); assert.equal(e.type, "discuss"); await discuss(e);
   e = await wait(); assert.equal(e.answer, "Answer after capture"); await grade(e);
+  e = await wait(); assert.equal(e.type, "discuss"); assert.equal(e.pendingAnswer, null); await discuss(e);
 
   // Client request IDs and node IDs occupy separate queue namespaces.
   await request("answer", { id: main.id, answer: "Remove a descendant" });

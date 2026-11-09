@@ -6,6 +6,9 @@
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
 //   node grill.mjs wait   [--timeout 280]                            block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] wait across timeouts for one event
+//   node grill.mjs reread                 request a whole-map review
+//   node grill.mjs discuss < {"id":"...","message":"..."}  send a chat command
+//   node grill.mjs state                  inspect cards to identify a chat-command target
 //   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"idea"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
 //   node grill.mjs config                                       print merged griller model config
 //   node grill.mjs spec                                         request an implementation plan
@@ -497,7 +500,7 @@ ${S.notes || "—"}
       const p = ideaPayload(S.specJob.ideaWaiting[0], true); save(); return { ...p, language: S.locale.language };
     }
     for (;;) {
-      const i = S.queue.findIndex(e => e.type === "reread" ? rereadReady() : e.type === "idea" ? settled() && !rereadThinking() : e.type === "spec" ? S.specJob?.stage !== "refresh" && !S.specJob?.waiting.length && !S.specJob?.ideaWaiting?.length : true);
+      const i = S.queue.findIndex(e => e.type === "discuss" ? !get(e.id)?.pending : e.type === "reread" ? rereadReady() : e.type === "idea" ? settled() && !rereadThinking() : e.type === "spec" ? S.specJob?.stage !== "refresh" && !S.specJob?.waiting.length && !S.specJob?.ideaWaiting?.length : true);
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) {
@@ -661,9 +664,19 @@ ${S.notes || "—"}
       const reply = clean(b.reply, 2000); if (!reply) throw [400, "Пустой reply"];
       // a reply taken before a server restart is stale: the thread was re-queued and may hold newer messages
       if (n.discuss !== "thinking" || b.token !== n.discussToken) throw [409, "Обсуждение не ждёт этого ответа: его сбросили или сообщения снова в очереди, возьмите их через wait"];
+      if (b.reread !== undefined && typeof b.reread !== "boolean") throw [400, "reread должен быть boolean"];
+      if (b.reread && !qs().length) throw [400, "На карте пока нет вопросов"];
+      let forwarded = null;
+      if (b.forward !== undefined) {
+        const target = get(b.forward?.id), message = clean(b.forward?.message, 2000);
+        if (!target || target.kind !== "q" || target.id === n.id || !message) throw [400, "Нужен другой вопрос и текст просьбы"];
+        if (target.discuss === "thinking" || rereadThinking()) throw [409, "Дождитесь обработки вопроса"];
+        if ((target.chat || []).length >= 100) throw [400, "Обсуждение слишком длинное"];
+        forwarded = { target, message };
+      }
       if (b.assessment !== undefined) {
         const a = b.assessment;
-        if (n.kind !== "q" || n.obsolete || n.pending || !a || !["ok", "weak", "gap", "verify"].includes(a.status) || !clean(a.verdict, 400) || !n.answer && !clean(a.answer, 2000)) throw [400, "Нужны оценка, вердикт и решение для актуального вопроса"];
+        if (n.kind !== "q" || n.obsolete || !a || !["ok", "weak", "gap", "verify"].includes(a.status) || !clean(a.verdict, 400) || !n.answer && !clean(a.answer, 2000)) throw [400, "Нужны оценка, вердикт и решение для актуального вопроса"];
         if (n.discussRevision !== branchRevision(n.id)) {
           n.discuss = "queued"; delete n.discussToken; delete n.discussRevision;
           if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id });
@@ -677,6 +690,12 @@ ${S.notes || "—"}
       }
       n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, at: Date.now() }]; n.discuss = null;
       delete n.discussRevision;
+      if (forwarded) {
+        const { target, message } = forwarded;
+        target.chat = [...(target.chat || []), { id: randomUUID(), from: "user", text: message, at: Date.now() }];
+        if (!target.discuss) { target.discuss = "queued"; S.queue.push({ type: "discuss", id: target.id }); }
+      }
+      if (b.reread) requestReread(true);
       save(); return { ok: true };
     }
     if (b.type === "question") {
@@ -1241,6 +1260,9 @@ const commands = {
   init: async () => console.log(await api("POST", "/api/init", await stdinJSON())),
   apply: async () => console.log(await api("POST", "/api/apply", await stdinJSON())),
   spec: async () => console.log(await api("POST", "/api/spec", {})),
+  reread: async () => console.log(await api("POST", "/api/reread", {})),
+  discuss: async () => console.log(await api("POST", "/api/discuss", await stdinJSON())),
+  state: async () => console.log(await api("GET", "/api/state")),
   wait: async () => console.log(await api("GET", `/api/wait?timeout=${Number(opt("timeout", 280))}`)),
   watch: async () => {
     const seconds = (name, fallback) => {
@@ -1289,5 +1311,5 @@ const commands = {
     if (await alive()) { await api("POST", "/api/stop", {}); for (let i = 0; i < 20 && await alive(); i++) await new Promise(r => setTimeout(r, 150)); }
     console.log("Сервер карты остановлен. Карта сохранена в " + STATE); },
 };
-if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | apply | spec | status | report | stop | list | config | serve"); process.exit(1); }
+if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | apply | spec | reread | discuss | state | status | report | stop | list | config | serve"); process.exit(1); }
 commands[cmd]().catch(e => { console.error(e && e.message || e); process.exit(1); });

@@ -162,7 +162,7 @@
   "Добавить свой вопрос": "Add your question",
   "Рекомендация агента:": "Agent recommendation:",
   "Новый ответ заменит текущий. Агент пересмотрит связи ветки, сохранит актуальные вопросы и может удалить устаревшие решения. Затем он перечитает всю карту: другие ветки тоже могут измениться, а отвечать на это время будет нельзя.": "The new answer replaces the current answer. The agent will review branch relationships, keep relevant questions and may remove obsolete decisions. It will then reread the whole map: other branches may change too, and you cannot answer during that time.",
-  "Задайте общий вопрос агенту о проекте. Сама переписка не меняет ответы и карту, но агент учитывает её при перечитывании.": "Ask the agent about the project. The conversation itself does not change answers or the map, but the agent considers it during a reread.",
+  "Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.": "Ask about the project, or ask the agent to reread the map or change the grade of a specific question.",
   "Агент готовит варианты ответа…": "Agent is preparing answer options…",
   "Открыть вопрос": "Open question",
   "Текст вопроса": "Question text",

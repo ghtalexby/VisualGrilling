@@ -29,7 +29,7 @@ Run commands from the repository root. No dependency installation is required. A
 - `думаю` (I think), `наверное` (probably), `предполага` (assume stem), `интересно` (interesting), `скорее` (likely) → `verify`; two children.
 - Otherwise → `weak`; two children. At level 4 or deeper, at most one child.
 
-The simulator acknowledges discussions with the message and history length. A question discussion beginning with `[resolve] ` simulates an accepted decision and automatically applies an ok assessment when no answer is pending. Generated questions are marked `[sim …]`.
+The simulator acknowledges discussions with the message and history length. `[reread]` requests a whole-map review; `[forward:<question-id>] <message>` forwards a request to another question (use `[resolve] <decision>` as the message to exercise grading). A question discussion beginning with `[resolve] ` simulates an accepted decision and automatically applies an ok assessment when no answer is pending. Generated questions are marked `[sim …]`.
 
 Options: `--inbox` (implies `--watch`, reads the event file from the short line), `--watch` (use `watch` instead of `wait`), `--keep`, `--no-open`, `--delay <ms>` (default 1500 before apply), `--port`, `--name <name>`, `--lang en|ru`, `--locale <file.json>`. Two simulators with different names exercise parallel maps. Ctrl+C stops only the simulator; use `npm run stop` to stop servers.
 
