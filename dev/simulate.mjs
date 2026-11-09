@@ -82,7 +82,7 @@ const handlers = {
       audit: branch.map(n => ({ id: n.id, action: "keep", reason: "[sim] Preserve history; no semantic review." })),
       children: branch.length ? [] : [{ q: "[sim] What evidence supports this idea?", options: ["Measured evidence", "Needs checking"] }] };
   },
-  discuss: e => ({ type: "discuss", id: e.id, token: e.token, reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${e.history.length}. Картинок: ${e.images.length}. Сам ответ отправьте во вкладке «Ответить».` }),
+  discuss: e => ({ type: "discuss", id: e.id, token: e.token, ...(e.scope === "question" && !e.obsolete && e.pendingAnswer === null && e.message.startsWith("[resolve] ") ? { assessment: { status: "ok", verdict: "[sim] Решение принято в обсуждении.", answer: e.message.slice(10) } } : {}), reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${e.history.length}. Картинок: ${e.images.length}. Уточнение сохранено.` }),
   question: e => ({ type: "question", id: e.id, token: e.token, question: { why: "[sim] User question", area: "Project", options: ["Есть данные", "Нужно проверить", "Не знаю"], recommendation: { option: "Нужно проверить", reason: "[sim] Сначала проверить допущение." } } }),
   more: e => ({ type: "more", questions: [1, 2, 3].map(i => ({
     area: ["Рост", "Команда", "Юридическое"][i - 1],

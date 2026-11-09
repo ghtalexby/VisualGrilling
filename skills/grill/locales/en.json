@@ -62,7 +62,7 @@
   "Отправить": "Send",
   "Агент": "Agent",
   "Вы": "You",
-  "Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Обсуждение не меняет статус: оценивается только ответ на вкладке «Ответить».": "Ask the agent here to clarify the question, challenge the verdict, or think aloud. Discussion does not change the grade; only the Answer tab submits an answer for grading.",
+  "Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.": "Ask the agent here to clarify the question, challenge the verdict, or think aloud. When a decision is reached in discussion, the agent automatically updates the question grade.",
   "Агент пишет ответ…": "The agent is writing a reply…",
   "Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.": "Message queued. You can add more; the agent will reply to everything together.",
   "Агент сейчас не слушает карту. Сообщение встанет в очередь и будет разобрано, когда вы напишете в терминале": "The agent is not listening. Your message will be queued and reviewed when you write in chat",

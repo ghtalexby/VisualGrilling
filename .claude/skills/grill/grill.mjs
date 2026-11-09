@@ -171,7 +171,7 @@ ${S.notes || "—"}
   const qs = () => S.nodes.filter(n => n.kind === "q");
   const specNode = n => {
     if (n.kind === "preview") { const snap = n.snapshot ? n : preview.snapshot(n); return { ...snap, link: snap.snapshot ? `http://127.0.0.1:${port}/#preview=${snap.snapshot}` : null }; }
-    const { chat, discuss, discussToken, options, pending, analysis, ...rest } = n;
+    const { chat, discuss, discussToken, discussRevision, options, pending, analysis, ...rest } = n;
     return { ...rest, ...(n.kind === "idea" ? { chat: chat || [] } : {}), ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) };
   };
   const specLocked = id => S.specJob?.waiting.includes(id);
@@ -182,7 +182,7 @@ ${S.notes || "—"}
   };
   // Processing stages and delivery credentials do not change a question's meaning.
   const contextNode = n => {
-    const { discuss, discussToken, pending, analysis, ...rest } = n;
+    const { discuss, discussToken, discussRevision, pending, analysis, ...rest } = n;
     if (rest.job) { const { stage, token, ...job } = rest.job; rest.job = job; }
     if (rest.chat) rest.chat = rest.chat.map(({ readAt, ...m }) => m);
     return { ...rest, ...(pending ? { pending: { answer: pending.answer, at: pending.at } } : {}) };
@@ -439,10 +439,14 @@ ${S.notes || "—"}
     }
     if (e.type === "discuss") {
       const n = get(e.id); if (!n || !n.discuss) return null;
+      const branchSnapshot = n.kind === "q" ? subtree(S.nodes, n.id).map(contextNode) : [];
+      boundBranch(branchSnapshot);
       n.discuss = "thinking"; n.discussToken = randomUUID();
+      n.discussRevision = branchRevision(n.id);
       const chat = n.chat || []; let i = chat.length; while (i && chat[i - 1].from === "user") i--;
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : n.kind === "idea" ? "idea" : "question", question: n.kind === "root" ? S.title : n.text || n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
         status: n.status, obsolete: n.obsolete || null, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
+        options: n.options || [], branchSnapshot,
         branch: anc(n).map(a => ({ q: a.q, ...(a.kind === "idea" ? { kind: "idea", text: a.text } : {}), answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
         message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : m.about === "question" ? "вопрос" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
         images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
@@ -657,7 +661,22 @@ ${S.notes || "—"}
       const reply = clean(b.reply, 2000); if (!reply) throw [400, "Пустой reply"];
       // a reply taken before a server restart is stale: the thread was re-queued and may hold newer messages
       if (n.discuss !== "thinking" || b.token !== n.discussToken) throw [409, "Обсуждение не ждёт этого ответа: его сбросили или сообщения снова в очереди, возьмите их через wait"];
+      if (b.assessment !== undefined) {
+        const a = b.assessment;
+        if (n.kind !== "q" || n.obsolete || n.pending || !a || !["ok", "weak", "gap", "verify"].includes(a.status) || !clean(a.verdict, 400) || !n.answer && !clean(a.answer, 2000)) throw [400, "Нужны оценка, вердикт и решение для актуального вопроса"];
+        if (n.discussRevision !== branchRevision(n.id)) {
+          n.discuss = "queued"; delete n.discussToken; delete n.discussRevision;
+          if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id });
+          save(); throw [409, "Ветка изменилась, получите событие через wait"];
+        }
+        // Preserve submitted answers and frozen specifications; this evaluates live discussion evidence.
+        recordVerdict(n, a.status, clean(a.verdict, 400));
+        if (!n.answer) n.answer = clean(a.answer, 2000);
+        queueReview(S.nodes, n.id);
+        queueIdea(ideaOf(S.nodes, n.id));
+      }
       n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, at: Date.now() }]; n.discuss = null;
+      delete n.discussRevision;
       save(); return { ok: true };
     }
     if (b.type === "question") {

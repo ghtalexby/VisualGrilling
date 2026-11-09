@@ -108,7 +108,7 @@ Every work event below also includes `language`.
  "history":[{"from":"user|claude","text":"...","quote":"Only when present","about":"option|verdict","images":["Absolute paths, only when present"]}]}
 ```
 
-`history` precedes the new messages. `message` is empty when the new messages contain only images. Chat entries inside `branchSnapshot`, `parent` and `branch` of other events hold file names relative to `<map directory>/images/`. Quoted messages retain the exact protocol prefix `[Про вариант ответа «…»]` (about an answer option) or `[Про вердикт «…»]` (about a verdict), independent of page language. Discussion changes neither status nor tree.
+`options` contains the current answer choices; `branchSnapshot` contains the complete question subtree (empty for root/idea discussions), bounded to 500 nodes / 600000 serialized characters. Workers inspect descendant evidence before grading. `history` precedes the new messages. `message` is empty when the new messages contain only images. Chat entries inside `branchSnapshot`, `parent` and `branch` of other events hold file names relative to `<map directory>/images/`. Quoted messages retain the exact protocol prefix `[Про вариант ответа «…»]` (about an answer option) or `[Про вердикт «…»]` (about a verdict), independent of page language. Reply-only discussion preserves status and tree; a substantive decision can also assess the current question as described below.
 
 **more**
 
@@ -135,7 +135,7 @@ Every work event below also includes `language`.
 {"type":"discuss","id":"n…","token":"delivery token","reply":"Agent reply"}
 ```
 
-`apply discuss` requires a thinking thread; otherwise 409 means reset chat or requeued messages after restart. Return to `wait`.
+`apply discuss` requires the current token and a thinking thread; otherwise 409 means reset chat or requeued messages after restart. Return to `wait`. Optional `assessment:{status,verdict,answer}` automatically grades an active question when discussion establishes a user decision or corrects a verdict, without a separate Answer-tab submission. Status must be `ok|weak|gap|verify`; verdict is required (cleaned to 400 characters) and must capture the current decision and remaining risks. If the node has no answer, a nonempty decision summary in answer (cleaned to 2000 characters) is required and saved. Existing answers are preserved; verdict history records corrections. Invalid assessments, root/idea/obsolete targets or targets with pending answers return 400 atomically. Assessments require the delivery-time branch revision; a mismatch requeues discussion and returns 409 without a reply or grade. Children and pending work on descendants survive. Live ancestor and idea reassessment are queued; existing spec snapshots are never modified. Explanations, unaccepted suggestions and unresolved deliberation use reply-only apply. Omit assessment when pendingAnswer is non-null; the queued submission is graded separately.
 
 ```json
 {"type":"more","questions":[{"area":"...","q":"...","why":"...","options":["..."]}]}

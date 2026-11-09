@@ -97,11 +97,11 @@ A question (`kind: "q"`):
 
 ## Discussion
 
-The discussion tab sends messages without grading an answer. The root also has chat, opened through its project-question context menu; it never becomes a graded question:
+The discussion tab sends messages and can settle a question directly. The root also has chat, opened through its project-question context menu; it never becomes a graded question:
 
 1. `/api/discuss {id, message}` appends to `node.chat`, sets `discuss:"queued"`, and queues an event. Further queued messages append without a new event; thinking returns 409.
 2. `wait` returns messages since the last agent reply in `message`, earlier messages in `history`, and sets `discuss:"thinking"`.
-3. `apply {type:"discuss", id, token, reply}` appends an agent reply and clears `discuss`; status, verdict, and children stay unchanged. If the thread is no longer thinking, return 409 so stale replies cannot consume newer messages.
+3. `apply {type:"discuss", id, token, reply, assessment?}` appends an agent reply and clears `discuss`. An optional question assessment records status/verdict and seeds a missing answer from the accepted decision; existing answers and children survive. It validates the delivered branch revision, queues ancestor/idea reassessment, and leaves frozen spec snapshots unchanged. Reply-only results preserve grades. If the thread is no longer thinking, return 409 so stale replies cannot consume newer messages.
 
 Right-click an answer option to discuss or select it. Right-click a verdict (`[data-verdict]`) to discuss it. Existing text selection keeps the browser's copy menu; selection is captured on `pointerdown` because macOS may select a word on right-click. Discussion attaches `panel.quote = {about, text}` as `quote` and `about`.
 

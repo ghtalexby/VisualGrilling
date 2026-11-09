@@ -8,7 +8,7 @@ A Codex and Claude Code skill for visual project grilling in your browser. The a
 
 1. The agent studies the code and project description and creates a map with five main questions.
 2. You choose an answer option or write your own. The agent assigns a status — Closed, Weak, Gap, or Verify — explains its verdict, and adds follow-up questions.
-3. Use the discussion tab to clarify a question or challenge a verdict. Discussion alone does not change an answer's grade.
+3. Use the discussion tab to clarify a question or challenge a verdict. When discussion establishes a decision, the agent automatically updates the question grade without another submission.
 4. The add-questions button expands the review with three main questions. The Stop button in the header (visible only while the agent is connected) and the finish button in the summary panel end the grilling and request a verdict, key risks, and checks for the coming week.
 
 At any stage, **Create spec** generates an implementation plan at `docs/specs/grill-<name>.md` inside the project being reviewed. **Update spec** rebuilds the entire file, including any manual edits. Unnamed maps use `grill-legacy.md`. The simulator produces only a demonstration document marked `[sim]`.
