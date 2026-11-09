@@ -192,6 +192,31 @@ try {
   assert.equal(await js('document.querySelector("#fAns").value'), 'Fit preserves draft');
   assert.equal(await js('document.querySelectorAll("#stage .node").length'), 2);
   assert.ok(await js('(()=>{const v=vp.getBoundingClientRect();return [...document.querySelectorAll("#stage .node")].every(n=>{const r=n.getBoundingClientRect();return r.left>=v.left&&r.right<=v.left+viewWidth()&&r.top>=v.top&&r.bottom<=v.bottom})})()'));
+  // Native pointer hit testing distinguishes empty canvas from connection strokes.
+  const doubleClickAt = async ({x,y}) => {
+    for (const clickCount of [1,2]) {
+      await cdp("Input.dispatchMouseEvent", {type:"mousePressed",x,y,button:"left",clickCount});
+      await cdp("Input.dispatchMouseEvent", {type:"mouseReleased",x,y,button:"left",clickCount});
+    }
+  };
+  const fittedCamera = await js('[zoom,px,py]');
+  assert.match(await js('document.querySelector("#zAll").title'), /double-click an empty area/);
+  for (const target of ["viewport", "stage"]) {
+    await js('stopGlide();zoom=.5;px=20;py=80;applyView()');
+    const point = await js(`(()=>{const v=vp.getBoundingClientRect();for(let y=v.top+5;y<v.bottom-5;y+=5)for(let x=v.left+5;x<v.left+viewWidth()-5;x+=5)if(document.elementFromPoint(x,y)?.id==="${target}")return {x,y};return null})()`);
+    assert.ok(point, `Empty ${target} point exists`);
+    await doubleClickAt(point);
+    assert.deepEqual(await js('[zoom,px,py]'), fittedCamera);
+    assert.deepEqual(await js('isolated'), {id:await js('qid'),filter:"weak"});
+    assert.equal(await js('document.querySelector("#fAns").value'), 'Fit preserves draft');
+  }
+  await js('stopGlide();zoom=.5;px=20;py=80;applyView()');
+  const edgePoint = await js('(()=>{const e=document.querySelector("#edges path"),p=e.getPointAtLength(e.getTotalLength()/2),q=new DOMPoint(p.x,p.y).matrixTransform(e.getScreenCTM());return {x:q.x,y:q.y,hit:document.elementFromPoint(q.x,q.y)?.tagName}})()');
+  assert.equal(edgePoint.hit, "path");
+  const beforeEdge = await js('[zoom,px,py]');
+  await doubleClickAt(edgePoint);
+  assert.deepEqual(await js('[zoom,px,py]'), beforeEdge);
+  await click('#zAll');
   await js('isolated=null;render()');
   await click('[data-act="close"]');
   assert.equal(await js('document.querySelector("[data-root-chat]")'), null);
