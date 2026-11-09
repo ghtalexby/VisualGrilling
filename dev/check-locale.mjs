@@ -100,7 +100,7 @@ try {
   assert.equal((await request(server, "wait?timeout=5")).language, "en");
   const job = JSON.parse(fs.readFileSync(path.join(dir, "main/state.json"))).specJob;
   await request(server, "apply", { type: "spec", token: job.token, markdown: "# Implementation plan" });
-  assert.ok(fs.readFileSync(path.join(cwd, "docs/specs/grill-main.md"), "utf8").includes("Generated from a grilling map"));
+  assert.ok(fs.readFileSync(path.join(cwd, "docs/vgril/specs/grill-main.md"), "utf8").includes("Generated from a grilling map"));
   await request(server, "locale", custom);
   assert.equal((await request(server, "state")).locale.language, "de");
   const customPage = await (await fetch(server.url)).text();

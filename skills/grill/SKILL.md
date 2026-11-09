@@ -41,6 +41,10 @@ Before resuming, if `listening:true` and this map is not in your served-map tabl
 
 When opening a map, name it in a short localized message, for example: Map “arch” is open: <URL>. Levels 1/2 can serve several maps under the dispatcher rules below. At level 0, parallel maps require separate agent sessions; one session listens to one map.
 
+## Shared project knowledge
+
+Read [knowledge.md](knowledge.md). After start, run `G knowledge`, read its index and select relevant documents and primary sources for the launch topic. Every event refreshes this navigation. Grilling also authorizes managed knowledge writes through `apply knowledge`; it does not authorize implementation or Git publication. Handle the separate knowledge event after rereads and before finish. Do not stop serving a blocked knowledge job: users can answer its clarification cards, retry or explicitly skip saving during finish. Historical import is explicit via `G knowledge-import`; generated spec migration uses `G spec-migrate`.
+
 ## 2. Gather context and initial questions
 
 1. Use a brief supplied in the user's message.
@@ -126,7 +130,7 @@ Loop:
 1. Arm `G watch --inbox --max-wait <N>` in the background using the level 1 host limits and remember its task identifier. End the turn with a one-line localized status.
 2. On a work-event line, start one fresh foreground worker with the prompt below, without inherited conversation history. Use the configured model: `inherit` means omit the model argument. On Kimi pass a model only when the user has a subagent model pool. Wait for the worker to finish; never arm watch or call wait for that map during grading, as a new waiter takes back thinking work.
 3. On `expired:true`, re-arm silently. On exit 2, run `G start` with the map's selected language option and re-arm. Diagnose other transport errors. Do not open inbox JSON in the main context on the normal path.
-4. After the worker returns, optionally relay its one-line status and follow section 4.5 before re-arming that map. A 409/404 means stale work: just re-arm. A reported "reread refused" is a completed result: relay it and re-arm. If it failed, returned nothing, or reported another error, handle that same inbox event yourself using `worker.md` before re-arming. Check current state first when success is uncertain: `more` and `finish` have no delivery token, so do not blindly replay an already successful apply; complete only missing work (e.g. notes or report). Do not call wait to inspect state. Diagnose unresolved failures instead of silently dropping the event.
+4. After the worker returns, optionally relay its one-line status and follow section 4.5 before re-arming that map. A 409/404 means stale work: just re-arm. A reported "reread refused" is a completed result: relay it and re-arm. If it failed, returned nothing, or reported another error, handle that same inbox event yourself using `worker.md` before re-arming. Check current state first when success is uncertain: `more` has no delivery token, so do not blindly replay an already successful apply; complete only missing work (e.g. notes or report). Do not call wait to inspect state. Diagnose unresolved failures instead of silently dropping the event.
 5. All level 1 rules apply: one watch per map, never wait alongside it for that map, normal chat while armed, no idle pause. To stop, finish or interrupt the worker before stopping the map; do not re-arm.
 
 Worker prompt (fill in absolute paths and exact map options; omit `--name` for legacy maps):

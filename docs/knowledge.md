@@ -1,0 +1,33 @@
+# Shared project knowledge
+
+The semantic workflow and editable format are specified in [knowledge.md](../skills/grill/knowledge.md). `knowledge.mjs` handles deterministic file operations; `grill.mjs` owns event tokens and map state. No new dependency, model service or background extraction is required.
+
+## Storage and navigation
+
+`docs/vgril/` holds editable topical knowledge, with generated specs in `specs/`. `.grill/knowledge-index.json` is a generated project-wide navigation index, independent of the selected map name and `--dir`. `.grill/knowledge-ops/` contains a project-wide writer lock, pending transaction, completed/conflicted journals and retained original backups. These are runtime data, not authored knowledge. Neither init nor resetting one map deletes shared knowledge.
+
+The index lists maps under the selected maps root and project Markdown/MDX/RST/text documents with content hashes, fresh headings/excerpts and relative-link availability. It skips symlinks, `.git`, `.grill`, dependencies and Examples. Budgets are 1000 documents, 10000 visited directory entries, depth 12 and 200000 characters per document; limits/errors are surfaced, never silently interpreted as an empty base. Links to local servers are explicitly local-only; web links are not claimed verified. Missing local targets are marked unavailable. No source code content is indexed.
+
+## Writes and recovery
+
+Agent writes are serialized per project by an exclusive PID lock. A dead owner can be reclaimed under a separate exclusive reclamation guard; live owners cause an explicit retryable error. If a process dies during reclamation itself, a retained `reclaim/` guard blocks further reclamation safely; inspect the lock owner and remove only that empty guard after confirming no reclaimer remains. Each target must have a matching SHA-256 expected version and valid managed metadata. New targets require `expected:null`; user documents without the marker cannot be replaced. Paths, record identity, sources and limits are validated before a journal is published.
+
+The journal contains the full intended files. The writer renames originals to retained operation-specific backups, verifies their content hash again, then exclusively creates replacements. It never replaces an editor-created target. Restart rolls pending operations forward when content versions still match. A conflicting operation is visible, blocks saving, and keeps originals and partial outputs. Retry archives that journal, restores a missing target from its backup with exclusive creation, and delivers fresh context for reconciliation. Completed operations retain their backups. Administrators may archive old journals/backups after checking them; there is no automatic destructive retention policy.
+
+This is recoverability, not filesystem-wide atomicity for arbitrary editors. Files may be temporarily absent/partially published during a multi-file operation; the index is rebuilt after publication. External editors do not participate in the lock. Changes before or during the rename are detected, while a process holding an old file descriptor can write the retained backup later. Such late writes remain recoverable there; no portable Node filesystem primitive guarantees a compare-and-swap against a noncooperating editor. Atomic-save editors creating a competing target cause exclusive creation to fail. No old backup is discarded.
+
+Sources and their text snapshots are embedded in each Markdown record, so a repository clone without `.grill` retains provenance. Existing historical sources survive updates even if their original is gone. New sources must match the delivered current-map snapshot, archived raw node, or document hash/excerpt. Semantic truth, user acceptance and author authenticity remain agent/user responsibilities; Git name is provenance, not authentication.
+
+## Queue and protocol
+
+Each event gains `knowledge:{index,revision,documents,maps,warnings}` or `{error}`. Read the actual index and selected documents, not just the counters. `GET /api/knowledge` refreshes navigation; `GET /api/knowledge-document?path=…` reads a bounded project document for the source viewer. Both are protected by the normal Host and `x-grill:1` checks.
+
+Successful reread queues a separate `knowledge` event. Finish cancels automatic reread as before, but queues its own mandatory knowledge stage and waits for submitted work, explicit rereads and specifications. Knowledge delivery includes `token,reason,title,brief,arch,session,author,date,sourcePath,map,nodes,sources`. Apply checks the delivery token and semantic map revision. A stale result is rejected and requeued. It never changes spec snapshots. `knowledgeJob` persists queued/thinking/blocked status; public `knowledgePending` omits tokens and source snapshots. `knowledgeResult` exposes saved/error/skipped status, paths, operation ID or error.
+
+`apply knowledge` accepts `files` or `error` with optional `questions`. Retry and explicit user skip use protected POST `/api/knowledge-retry` and `/api/knowledge-skip`. Skip is allowed only for blocked saving during finish. Clarification questions remain answerable during finish; answers re-arm extraction. `apply finish` must echo the token and is rejected before the memory stage completes. Restart recovers knowledge and finish delivery. `POST /api/knowledge-import` requests a separate historical semantic review; it does not mechanically promote historical answers to current decisions.
+
+CLI commands: `knowledge`, `knowledge-import`, `knowledge-retry`, `knowledge-skip`, `spec-migrate`, with the usual map options. `spec-migrate` and automatic migration on the next spec request operate only on the selected map's owned `docs/specs/grill-<name>.md`. The destination is `docs/vgril/specs/`; collisions fail, outgoing relative links are rebased, the original is retained, and the canonical `specFile` changes only after verification. Retained originals keep old incoming links usable; agents must report and update those references during a requested project migration. This deliberately preserves manual edits and makes interrupted copies repeatable.
+
+## Verification
+
+Run `node dev/check-knowledge.mjs`, `node dev/check-knowledge-browser.mjs`, existing API checks, workers/maps, locale and the simulator. Existing suites use `knowledge-fixture.mjs` to acknowledge no-op extraction explicitly; the knowledge suite covers the new stage directly. Real-agent acceptance remains separate: cross-session term reuse with provenance, rejected unaccepted suggestions, incompatible definitions and focused resolution, topical document selection after manual edits, and unknown historical authors. Deterministic file/API checks do not establish semantic quality.

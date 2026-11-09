@@ -188,3 +188,7 @@ The custom-channel flag is Claude's research-preview opt-in, not a tool-permissi
 Start or explicitly continue grilling in that session with the same `--dir`. The channel is scoped to this maps root. Do not operate independent sessions against the same root: the most recent explicit start selects the Play destination. Switching the browser to a sibling map preserves this destination. Stop retains the existing finish-and-summary behavior and leaves map servers readable. Play during a pending finish is rejected.
 
 Real-host acceptance is required separately for both apps: stop a map, switch to a sibling, press Play, verify the request appears in the intended existing session, wait for actual listening and submit an answer. Confirm no second model process or duplicate waiter, then continue the finished map without losing its summary. Repeat with the host closed and with Claude's channel disabled; submission must not falsely indicate connectivity. Restart map servers after upgrading `connection.mjs` or `grill.mjs`.
+
+## Project knowledge
+
+See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.

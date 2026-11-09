@@ -1,3 +1,4 @@
+import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Exercise the whole-map reread against a real server in a disposable project.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -18,7 +19,8 @@ async function start() {
   }
   throw new Error("Server did not start");
 }
-async function request(route, body, expected = 200) {
+const request = knowledgeFixture(rawRequest);
+async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   assert.equal(r.status, expected, await r.clone().text());
   return r.json();
@@ -164,7 +166,7 @@ try {
   await request("answer", { id: other, answer: "Changed my mind" });
   assert.equal((await state()).rereadPending.stage, "queued");
   await request("cancel", { id: other });
-  s = await state(); assert.equal(s.rereadPending, null); assert.equal(s.queueLength, 0);
+  s = await state(); assert.equal(s.rereadPending, null); assert.equal(s.queueLength, s.knowledgePending ? 1 : 0);
 
   await request("answer", { id: other, answer: "Changed my mind" });
   await request("answer", { id: other, answer: "Three green buttons" });
@@ -197,7 +199,7 @@ try {
   await request("answer", { id: other, answer: "Edited once" });
   s = await state(); assert.equal(s.rereadPending.locked, false);
   await request("answer", { id: count, answer: "Edited twice" });
-  assert.equal((await state()).queueLength, 3);
+  assert.equal((await state()).queueLength, 4);
   e = await wait(); assert.equal(e.type, "answer");
   await request("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked" });
   e = await wait(); assert.equal(e.type, "answer");

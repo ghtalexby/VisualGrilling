@@ -117,7 +117,7 @@ try {
   const line = await event(watch("--inbox"), "answer");
   assert.deepEqual(line, { type: "answer", id, token: line.token, name: "check", language: "en", inbox: path.join(map, "inbox.json") });
   assert.notEqual(inbox().token, full.token);
-  assert.deepEqual({ ...inbox(), token: full.token }, full);
+  assert.deepEqual({ ...inbox(), token: full.token, knowledge: full.knowledge }, full);
   await request("answer", { id: secondId, answer: "Queued answer" });
   const before = JSON.parse(read("state.json"));
   assert.deepEqual(await request("apply", { type: "notes", text: "First facts" }), { ok: true });
@@ -150,7 +150,7 @@ try {
   const discussionLine = await event(watch("--inbox"), "discuss");
   assert.deepEqual(discussionLine, { type: "discuss", id: discussionId, token: discussionLine.token, name: "check", language: "en", inbox: path.join(map, "inbox.json") });
   assert.notEqual(inbox().token, fullDiscussion.token);
-  assert.deepEqual({ ...inbox(), token: fullDiscussion.token }, fullDiscussion);
+  assert.deepEqual({ ...inbox(), token: fullDiscussion.token, knowledge: fullDiscussion.knowledge }, fullDiscussion);
   assert.match(inbox().message, /Explain this option/);
   assert.ok(Array.isArray(inbox().options));
   assert.equal(inbox().branchSnapshot[0].id, discussionId);
@@ -257,6 +257,8 @@ try {
     audit: cliReview.nodes.map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
   assert.equal((await request("state")).nodes.find(n => n.id === source.id).status, "open");
   await request("more", {});
+  const memory = await event(watch(), "knowledge");
+  await request("apply", { type: "knowledge", token: memory.token, files: [] });
   const more = await event(watch("--inbox"), "more");
   assert.deepEqual(Object.keys(more).sort(), ["inbox", "language", "name", "type"]);
   assert.equal(inbox().type, "more");

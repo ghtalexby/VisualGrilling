@@ -391,5 +391,17 @@
   "Канал Claude Code не на связи. Откройте сессию с каналом grill и повторите попытку.": "The Claude Code channel is offline. Open the session with the grill channel and try again.",
   "Не удалось подтвердить отправку запроса в Codex. Проверьте сессию и поддержку команды codex queue.": "Could not confirm the request was sent to Codex. Check the session and support for codex queue.",
   "Дождитесь завершения грилинга и повторите попытку.": "Wait for grilling to finish and try again.",
-  "Некорректное имя карты": "Invalid map name"
+  "Некорректное имя карты": "Invalid map name",
+  "Знания проекта": "Project knowledge",
+  "Сохраняем знания проекта…": "Saving project knowledge…",
+  "Знания сохранены": "Knowledge saved",
+  "Сохранение знаний пропущено пользователем": "Knowledge saving skipped by the user",
+  "Повторить сохранение знаний": "Retry knowledge saving",
+  "Завершить без сохранения знаний": "Finish without saving knowledge",
+  "Нужно уточнение знаний на карте": "Knowledge needs clarification on the map",
+  "Документы и источники знаний": "Knowledge documents and sources",
+  "Локальный источник": "Local source",
+  "Источник недоступен": "Source unavailable",
+  "Источник доступен": "Source available",
+  "Внешний источник": "External source"
 }

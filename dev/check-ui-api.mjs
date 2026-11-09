@@ -1,3 +1,4 @@
+import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Exercise UI protocol extensions against a real server in a disposable project.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -20,7 +21,8 @@ async function start() {
   }
   throw new Error("Server did not start");
 }
-async function request(route, body, expected = 200) {
+const request = knowledgeFixture(rawRequest);
+async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   assert.equal(r.status, expected, await r.clone().text());
   return r.json();
@@ -257,7 +259,7 @@ try {
   await request("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Nothing to change" });
 
   await request("more", {}); await request("more", {});
-  assert.equal((await state()).queueLength, 1); await wait();
+  assert.equal((await state()).queueLength, 2); await wait();
   await request("apply", { type: "more", questions: [{ q: "More", options, recommendation }] });
   assert.deepEqual((await state()).nodes.find(n => n.q === "More").recommendation, recommendation);
   await request("finish", {}); assert.equal((await wait()).type, "finish");

@@ -1,3 +1,4 @@
+import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Exercise attached ideas, frozen evaluations and editing races in a disposable project.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -19,7 +20,8 @@ async function start() {
   }
   throw new Error("Server did not start");
 }
-async function api(route, body, expected = 200) {
+const api = knowledgeFixture(rawRequest);
+async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   assert.equal(r.status, expected, await r.clone().text());
   return route === "report" ? r.text() : r.json();
@@ -56,7 +58,7 @@ try {
   assert.equal((await node(id)).analysis.stage, "queued", "A changed reread reassesses the automatically analyzed attachment");
   const afterReread = await wait(); assert.equal(afterReread.type, "idea");
   await result(afterReread, { status: "open" });
-  assert.equal((await state()).queueLength, 0);
+  assert.equal((await state()).queueLength, 1);
   await api("answer", { id, answer: "Cannot grade an idea as a question" }, 404);
   await api("discuss", { id, message: "Keep this chat" });
   let e = await wait(); assert.equal(e.scope, "idea"); assert.equal(e.question, (await node(id)).text);

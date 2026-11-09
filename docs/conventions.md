@@ -53,3 +53,7 @@ Inbox and session paths are fixed within the selected map directory and never ta
 Changes to preview files, reducers, message protocol or versions must synchronize `preview.mjs`, `preview-view.mjs`, `ui.html`, agent instructions, [preview.md](preview.md), simulator fixtures and preview checks. Never run generated project code in the map window or grant iframe same-origin privileges. Preserve per-version state, token/base/epoch checks, immutable snapshots, explicit deletion choices and independent Git copies. Do not count previews as questions.
 
 Completeness changes must keep reserve transactions, automatic issuance and frozen ancestor evaluations synchronized with worker instructions, simulator and completeness checks. Preserve original answers and verdict history; never derive parent closure merely from descendant statuses. UI filter counts include ideas while coverage counts only current questions. Keep both export implementations aligned with verdict history and unread indicators distinct from total chat counts.
+
+## Project knowledge
+
+See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.

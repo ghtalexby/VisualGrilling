@@ -1,3 +1,4 @@
+import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Verify reserve accounting, automatic dispatch, semantic ancestor review and exact read receipts.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -17,7 +18,8 @@ async function start() {
   }
   throw new Error("Server did not start");
 }
-async function api(route, body, expected = 200) {
+const api = knowledgeFixture(rawRequest);
+async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   assert.equal(r.status, expected, await r.clone().text());
   return route === "report" ? r.text() : r.json();
@@ -71,7 +73,7 @@ try {
   assert.equal((await api("idea", { id: "create-once", text: "Automatic idea" })).id, idea.id);
   await stop(); await start(); e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.id, idea.id);
   await api("apply", { type: "idea", id: e.id, token: e.token, status: "ok", verdict: "Supported" });
-  assert.equal((await state()).queueLength, 0);
+  assert.equal((await state()).queueLength, 1); // Knowledge from the preceding reread still needs extraction.
   // A weak parent is reviewed semantically after its child; its own answer stays verbatim.
   await api("init", { title: "Parents", questions: [question("Parent?"), question("Keep map open?")], reserve: [] });
   const parent = (await state()).nodes.find(n => n.q === "Parent?");
@@ -171,11 +173,12 @@ try {
   await grade(drainParent.id, "Parent answer", { children: [question("Child")] });
   const drainChild = (await state()).nodes.find(n => n.parentId === drainParent.id);
   await api("finish", {}); await api("answer", { id: drainChild.id, answer: "Evidence" });
+  e = await wait(); assert.equal(e.type, "answer"); await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Child grade" });
+  assert.equal((await state()).queueLength, 3); // Review, knowledge and finish.
+  assert.equal((await api("maps")).maps[0].queue, 3);
+  e = await wait(); await assess(e, "Unique prior parent verdict");
   e = await wait(); assert.equal(e.type, "finish"); await api("apply", { type: "finish", summary: "Done" });
-  e = await wait(); await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Child grade" });
-  assert.equal((await state()).queueLength, 1);
-  assert.equal((await api("maps")).maps[0].queue, 1);
-  e = await wait(); await assess(e, "Unique prior parent verdict"); assert.equal((await state()).queueLength, 0);
+  assert.equal((await state()).queueLength, 0);
   // Merging removes the source card but preserves every historical verdict in the report.
   await api("reread", {}); e = await wait();
   await reread(e, { audit: e.nodes.map(n => ({ id: n.id, action: "merge", reason: "Same evidence" })),
@@ -200,6 +203,9 @@ try {
   e = await wait(); assert.deepEqual(e.ids, ["other"]); await assess(e);
   await api("reread", {}); await api("finish", {}); await api("wait?timeout=5", undefined, 400);
   assert.equal((await state()).rereadPending, null); assert.ok((await state()).rereadResult.error);
+  await api("wait?timeout=5", undefined, 400); // Oversized knowledge also blocks finish explicitly.
+  assert.equal((await state()).knowledgePending.stage, "blocked");
+  await api("knowledge-skip", {});
   e = await wait(); assert.equal(e.type, "finish"); await api("apply", { type: "finish", summary: "Done" });
   assert.equal((await wait()).type, "timeout");
   // Frozen batches survive redelivery and never mutate live grades.

@@ -2,6 +2,10 @@
 
 These are the single event-handling rules for all levels. At levels 0/1 the main session reads these rules and handles its delivered event directly; only a delegated level 2 worker reads an inbox and validates its identity.
 
+## Shared knowledge
+
+Read [knowledge.md](knowledge.md) and follow it for context selection before every event and for `knowledge` extraction events. The index is shared across maps; per-map notes do not replace it. Finish waits for saved knowledge or explicit user skip, and requires its delivery token.
+
 ## Procedure
 
 1. A delegated worker always reads `<map directory>/session.md`; the main session at levels 0/1 reads it for context only when resuming a map, retaining that context across events. For a delegated worker (or inbox fallback), read the inbox path supplied in the prompt and compare `type`, `id` (when present), and `token` (when present) with the prompt. On mismatch stop without applying anything and report the mismatch. Use the event's `language` for all generated content.
@@ -143,7 +147,7 @@ Write Markdown in the event's language with six localized sections: Goal, Requir
 
 Send `{"type":"spec","token":"<event token>","markdown":"<complete document>"}` through `G apply` using UTF-8 stdin. Limit Markdown to 100000 characters. If generation is impossible, supply `error` (up to 1000 characters) instead. Check `{ok,path,error?}`: if `ok:false`, report the error and do not claim the file was saved. A 409 means a stale result; return the stale error to the dispatcher.
 
-The server saves `docs/specs/grill-<name>.md` relative to the project's working directory, or `grill-legacy.md` for an unnamed map. One file per map; an unrelated-file collision is an error. Rebuilding replaces the whole file, including manual edits, and excludes deleted branches. Do not bypass ownership checks or delete another document. Briefly report the saved path in your one-line result.
+The server saves `docs/vgril/specs/grill-<name>.md` relative to the project's working directory, or `grill-legacy.md` for an unnamed map. One file per map; an unrelated-file collision is an error. Rebuilding replaces the whole file, including manual edits, and excludes deleted branches. Do not bypass ownership checks or delete another document. Briefly report the saved path in your one-line result.
 
 Captured ungraded answers cannot be changed or withdrawn until graded (409). Later answers belong to the next update. The request and snapshot survive restart; redelivery via `wait` uses a new token. Never retrieve another event yourself.
 
@@ -174,7 +178,7 @@ On `finish`, use `counts` and `problems` to write plain text in `summary` with `
 
 ```bash
 G apply <<'EOF'
-{"type":"finish","summary":"Verdict: ...\n\nRisks:\n1. ...\n\nChecks for the week:\n1. ..."}
+{"type":"finish","token":"<event token>","summary":"Verdict: ...\n\nRisks:\n1. ...\n\nChecks for the week:\n1. ..."}
 EOF
 G report
 ```

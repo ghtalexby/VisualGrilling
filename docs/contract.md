@@ -122,7 +122,7 @@ Every work event below also includes `language`.
 **finish**
 
 ```json
-{"type":"finish","counts":{"open":0,"ok":0,"weak":0,"gap":0,"verify":0},
+{"type":"finish","token":"delivery token","counts":{"open":0,"ok":0,"weak":0,"gap":0,"verify":0},
  "problems":[{"status":"gap","area":"...","q":"...","answer":"...","verdict":"..."}]}
 ```
 
@@ -145,7 +145,7 @@ Every work event below also includes `language`.
 ```
 
 ```json
-{"type":"finish","summary":"Verdict: ...\n\nRisks:\n1. ...\n\nChecks for the week:\n1. ..."}
+{"type":"finish","token":"delivery token","summary":"Verdict: ...\n\nRisks:\n1. ...\n\nChecks for the week:\n1. ..."}
 ```
 
 `apply answer` requires a thinking answer taken by `wait`; otherwise 409 means withdrawn or requeued. A 404 means the question was deleted with a subtree. In either case, return to `wait`.
@@ -195,7 +195,7 @@ Return `{type:"spec",token,markdown}` or `{type:"spec",token,error}`. Trimmed Ma
 
 `/api/state` exposes `specFile`, `specUpdatedAt` (last successful write), `specError`, and `specPending:null|{stage:"queued"|"thinking",waiting:N}`. It does not expose the snapshot or token. `init` cancels the job but preserves file ownership and last-write metadata. `finish` does not prevent generation.
 
-Files live at `docs/specs/grill-<name>.md` or `grill-legacy.md` relative to the server's working directory; `--dir` only changes map storage. The server checks the first-line ownership marker, forbids directory/file symlinks, creates missing directories, and replaces the file through a temporary file. API-supplied destination paths are not accepted. Rebuilding replaces manual edits; unrelated documents are protected.
+Files live at `docs/vgril/specs/grill-<name>.md` or `grill-legacy.md` relative to the server's working directory; `--dir` only changes map storage. The server checks the first-line ownership marker, forbids directory/file symlinks, creates missing directories, and replaces the file through a temporary file. API-supplied destination paths are not accepted. Rebuilding replaces manual edits; unrelated documents are protected.
 
 The request and snapshot persist on disk. Restart and abandoned waits recover delivery with a new token; captured pending grades go first. Repeating an applied token returns 409.
 
@@ -340,3 +340,7 @@ Multi-select options and the comment are composed into the existing bounded answ
 Parent reassessments deliver complete affected ancestor branches in separate batches when necessary, bounded to 500 nodes per affected subtree and 600000 serialized characters including its ancestor context; unrelated map branches are not included. Context-only ancestor nodes preserve premises (including attached idea text) and are not assessment IDs. All pending batches survive restart, and frozen batches remain isolated from live state. `queueLength`, CLI `status.queue` and map-list `queue` include pending internal ancestor reassessments (including frozen ones); only drain when this authoritative count is zero. A whole-map reread exceeding these limits returns HTTP 400, records `rereadResult.error`, releases its job and answer lock, and suppresses automatic retries for the unchanged revision. Other queued events remain deliverable; a manual reread can retry after addressing the size. Context is never silently truncated. Merged-source answers, current verdicts and verdict histories remain visible in the drawer and both Markdown exports.
 
 If a complete affected branch itself exceeds the limit, live reassessment returns HTTP 400, records `reevaluationError:{ids,error,at}` visible in the summary, and releases only that failed batch; independent batches and queued work remain deliverable. The grades stay unchanged. A new descendant answer retries those ancestors after the branch/context size is addressed. Frozen oversized reassessment cancels the specification with `specError` and releases snapshot locks; it never generates a specification from incomplete evidence. These are explicit failed operations, not successful assessments.
+
+## Project knowledge
+
+See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.

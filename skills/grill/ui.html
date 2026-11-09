@@ -235,6 +235,7 @@ const ORDER=["gap","weak","verify","open","ok"];
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+let knowledgeIndex=null,knowledgeDocument=null;
 let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, resumeSending=false;
 let rereadSending=false;
@@ -310,6 +311,7 @@ function showError(message){
 }
 function stateErrors(state){
   return new Map([
+    ["knowledge",state.knowledgeResult?.error],
     ["spec",state.specError],
     ["reread",state.rereadResult?.error],
     ["reevaluation",state.reevaluationError?.error],
@@ -713,6 +715,16 @@ function summaryPanel(){
   if(S.specFile)b+=`<p class="why mono">${esc(S.specFile)}</p>`;
   if(S.specUpdatedAt)b+=`<p class="why">Последняя запись: ${esc(new Date(S.specUpdatedAt).toLocaleString(S.locale?.language||"ru"))}</p>`;
   if(S.specError)b+=`<div class="err">${esc(friendlyError(S.specError))}. Исправьте причину и повторите запрос.</div>`;
+  b+=`<h3>Знания проекта</h3><p class="why mono">docs/vgril/</p>`;
+  if(S.knowledgePending && S.knowledgePending.stage!=="blocked")b+=working("Сохраняем знания проекта…");
+  if(S.knowledgeResult?.status==="saved")b+=`<p class="final">Знания сохранены</p>`;
+  if(S.knowledgeResult?.status==="skipped")b+=`<p class="warn">Сохранение знаний пропущено пользователем</p>`;
+  if(S.knowledgeResult?.error)b+=`<div class="err">${esc(S.knowledgeResult.error)}</div>`;
+  if(S.knowledgePending?.stage==="blocked")b+=`<div class="row"><button class="btn" data-act="knowledge-retry">Повторить сохранение знаний</button>${S.finishPending?`<button class="btn" data-act="knowledge-skip">Завершить без сохранения знаний</button>`:""}</div>`;
+  b+=`<button class="btn" data-act="knowledge-open">Документы и источники знаний</button>`;
+  if(knowledgeIndex)b+=knowledgeIndex.documents.filter(d=>d.path.startsWith("docs/vgril/")).map(d=>`<p><button class="btn small" data-document="${esc(d.path)}">${esc(d.path)}</button>${d.error?`<span class="err">${esc(d.error)}</span>`:""}${d.links.map(l=>`<br><span class="why">${esc(l.target)} · ${l.localOnly?"Локальный источник":l.available===false?"Источник недоступен":l.available===true?"Источник доступен":"Внешний источник"}</span>`).join("")}</p>`).join("");
+  if(knowledgeDocument)b+=`<details open><summary>${esc(knowledgeDocument.path)}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(knowledgeDocument.text||"Источник недоступен")}</pre></details>`;
+  if(S.knowledgeResult?.paths)b+=S.knowledgeResult.paths.map(p=>`<p class="why mono">${esc(p)}</p>`).join("");
   b+=`<h3>Дальше</h3>`+waitNote();
   b+=`<div class="row"><button class="btn" data-act="addquestion">${S.questionRequests?.some(j=>j.parentId==="root")?"Агент готовит варианты ответа…":"Добавить свой вопрос"}</button></div>`;
   b+=S.finishPending?working("Агент готовит итог…"):`<div class="row"><button class="btn primary" data-act="finish">${S.finished?"Обновить итог":"Завершить и получить итог"}</button></div>`;
@@ -722,7 +734,7 @@ function summaryPanel(){
 }
 function panelSig(){
   if(!panel)return"";
-  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,S.coverage,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,S.reevaluationError,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
+  if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,knowledgeIndex?.revision,knowledgeDocument,S.knowledgePending,S.knowledgeResult,S.coverage,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,S.reevaluationError,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
@@ -917,6 +929,7 @@ $("#panel").addEventListener("click",e=>{
   const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;clearError();confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
   const cb=e.target.closest("[data-copy]");if(cb){clearError();Promise.resolve().then(()=>navigator.clipboard.writeText(cb.dataset.copy)).then(()=>{if(cb.isConnected)cb.textContent="Скопировано"},()=>{showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");renderPanel()});return}
   const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
+  const kd=e.target.closest("[data-document]");if(kd){api("/api/knowledge-document?path="+encodeURIComponent(kd.dataset.document)).then(d=>{knowledgeDocument=d;renderPanel()},err=>showError(err.message));return}
   const a=e.target.closest("[data-act]");if(!a)return;
   switch(a.dataset.act){
     case "close":panel=null;render();renderPanel();break;
@@ -938,6 +951,9 @@ $("#panel").addEventListener("click",e=>{
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":act("/api/cancel",{id:panel.id});break;
     case "reread":requestReread();break;
+    case "knowledge-open":api("/api/knowledge").then(d=>{knowledgeIndex=d;renderPanel()},err=>showError(err.message));break;
+    case "knowledge-retry":act("/api/knowledge-retry");break;
+    case "knowledge-skip":act("/api/knowledge-skip");break;
     case "finish":act("/api/finish");break;
     case "spec":act("/api/spec");break;
     case "reset":confirmReset=true;renderPanel();break;

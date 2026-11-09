@@ -31,7 +31,7 @@ English and Russian UI dictionaries are built in. Other languages use a complete
 
 ## Question statuses
 
-At any stage, Create spec generates an implementation plan from graded answers at `docs/specs/grill-<name>.md`. Update spec rebuilds the entire file; manual edits are replaced and unrelated documents are protected. The header spec button submits the request without opening or switching the drawer; it displays its pending state while work is queued or running. Summary opens the overview panel separately. Grilling continues. Without an agent, the request waits in the saved queue.
+At any stage, Create spec generates an implementation plan from graded answers at `docs/vgril/specs/grill-<name>.md`. Update spec rebuilds the entire file; manual edits are replaced and unrelated documents are protected. The header spec button submits the request without opening or switching the drawer; it displays its pending state while work is queued or running. Summary opens the overview panel separately. Grilling continues. Without an agent, the request waits in the saved queue.
 
 | Code | English label | Meaning |
 |---|---|---|

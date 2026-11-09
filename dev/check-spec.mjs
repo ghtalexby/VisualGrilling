@@ -1,3 +1,4 @@
+import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Run checks in a temporary project without touching user maps.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -24,7 +25,8 @@ async function start() {
   }
   throw new Error("Сервер не запустился");
 }
-async function request(route, body, expected = 200) {
+const request = knowledgeFixture(rawRequest);
+async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST",
     headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   assert.equal(r.status, expected, await r.clone().text());
@@ -55,7 +57,7 @@ try {
   assert.equal(e.type, "spec");
   assert.equal(e.nodes.filter(n => n.answer).length, 0);
   assert.equal((await applySpec(e)).ok, true);
-  const file = path.join(cwd, "docs/specs/grill-check.md");
+  const file = path.join(cwd, "docs/vgril/specs/grill-check.md");
   assert.ok(fs.readFileSync(file, "utf8").includes(markdown));
   fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/\r?\n/g, "\r\n"));
   await request("apply", { type: "spec", token: e.token, markdown }, 409);
@@ -146,7 +148,7 @@ try {
   assert.ok(!e.nodes.some(n => n.chat || n.discuss));
   assert.equal((await applySpec(e)).ok, true);
   assert.ok((await state()).finished);
-  const specsDir = path.join(cwd, "docs/specs");
+  const specsDir = path.join(cwd, "docs/vgril/specs");
   const preserved = path.join(cwd, "saved-specs");
   const elsewhere = path.join(cwd, "elsewhere");
   fs.renameSync(specsDir, preserved);

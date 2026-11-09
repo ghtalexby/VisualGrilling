@@ -65,6 +65,7 @@ function grade(e) {
 
 let moreRound = 0;
 const handlers = {
+  knowledge: e => ({ type: "knowledge", token: e.token, files: [] }),
   preview: e => ({ type: "preview", id: e.id, projectId: e.projectId, base: e.base, token: e.token,
     ...(e.phase === "prepare" ? { question: "[sim] Which visual explanation?", options: ["Circle size wireframe", "Relationship diagram"] } : { purpose: "[sim] Interactive circle size", files: circlePreview }) }),
   spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer || n.kind === "idea" || n.kind === "preview").map(n => n.kind === "preview" ? n.link ? "- [" + n.q + "](" + n.link + ") · " + n.commit : "- " + n.q + ": [sim] Not published at capture." : "- [" + n.status + "] " + (n.text || n.q) + ": " + (n.answer || n.verdict)).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
@@ -100,7 +101,7 @@ const handlers = {
     if (!target) return { type: "reread", token: e.token, audit, reserve, add, summary: "[sim] Схема в балансе, изменений нет." };
     return { type: "reread", token: e.token, audit, reserve, add, summary: `[sim] Закрыт вопрос «${target.q.slice(0, 60)}».`, close: [{ id: target.id, source: source.id, verdict: `[sim] Закрыто ответом на вопрос «${source.q.slice(0, 80)}».` }] };
   },
-  finish: e => ({ type: "finish", summary: `Вердикт: Жив при условии… (симуляция)\n\nСчётчики: ${JSON.stringify(e.counts)}\n\nРиски:\n${e.problems.slice(0, 3).map((p, i) => `${i + 1}. ${p.q}`).join("\n") || "—"}\n\nПроверки на неделю:\n1. Проверка из симулятора. Успех — карта отрисовала итог.` }),
+  finish: e => ({ type: "finish", token: e.token, summary: `Вердикт: Жив при условии… (симуляция)\n\nСчётчики: ${JSON.stringify(e.counts)}\n\nРиски:\n${e.problems.slice(0, 3).map((p, i) => `${i + 1}. ${p.q}`).join("\n") || "—"}\n\nПроверки на неделю:\n1. Проверка из симулятора. Успех — карта отрисовала итог.` }),
 };
 
 async function main() {

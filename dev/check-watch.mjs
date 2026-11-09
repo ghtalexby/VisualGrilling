@@ -86,6 +86,8 @@ try {
   assert.equal(discussed.chat.at(-1).text, "The answer was checked.");
   const automatic = await event(watch(), "reread");
   await request("apply", { type: "reread", token: automatic.token, reserve: [], audit: automatic.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture" })) });
+  const knowledge = await event(watch(), "knowledge");
+  await request("apply", { type: "knowledge", token: knowledge.token, files: [] });
   const began = performance.now();
   w = run(["watch", "--timeout", "5", "--max-wait", "8"]);
   const expired = await event(w, "timeout");

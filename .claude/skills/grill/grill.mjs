@@ -10,6 +10,7 @@
 //   node grill.mjs discuss < {"id":"...","message":"..."}  send a chat command
 //   node grill.mjs state                  inspect cards to identify a chat-command target
 //   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"idea"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
+//   node grill.mjs knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate
 //   node grill.mjs config                                       print merged griller model config
 //   node grill.mjs spec                                         request an implementation plan
 //   node grill.mjs status | report | stop
@@ -29,6 +30,7 @@ import { locale, revision, translate, page } from "./i18n.mjs";
 import { previews } from "./preview.mjs";
 import { bindSession, requestResume, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
+import { knowledge, digest } from "./knowledge.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -95,7 +97,10 @@ async function serve() {
   S.locale = has("lang") || has("locale") ? requestedLocale() : locale(S.locale, true);
   const t = text => translate(S.locale, text);
   S.specOwner ||= randomUUID();
-  S.specFile ||= `docs/specs/grill-${NAME || "legacy"}.md`;
+  S.specFile ||= `docs/vgril/specs/grill-${NAME || "legacy"}.md`;
+  S.knowledgeSession ||= randomUUID();
+  const memory = knowledge(process.cwd(), BASE);
+  try { memory.index(); } catch (e) { S.knowledgeResult = { status: "error", error: e.message }; }
   S.queue = Array.isArray(S.queue) ? S.queue : [];
   S.reserve ??= null;
   if (S.reevaluation) S.reevaluation = { ids: [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])] };
@@ -162,6 +167,13 @@ ${S.notes || "—"}
     if (!S.queue.some(e => e.type === "reread")) S.queue.push({ type: "reread" });
   };
   recoverReread();
+  function recoverKnowledge() {
+    if (S.knowledgeJob?.stage === "thinking") { S.knowledgeJob.stage = "queued"; delete S.knowledgeJob.token; }
+    if (S.knowledgeJob?.stage === "queued" && !S.queue.some(e => e.type === "knowledge")) S.queue.push({ type: "knowledge" });
+    if (S.finishPending && !S.queue.some(e => e.type === "finish")) S.queue.push({ type: "finish" });
+    delete S.finishToken;
+  }
+  recoverKnowledge();
   save();
   writeSession();
   pruneImages();
@@ -200,7 +212,7 @@ ${S.notes || "—"}
   function writeSpec(markdown) {
     // Only fixed project-local paths; never follow links into another directory/file.
     let dir = process.cwd();
-    for (const part of ["docs", "specs"]) {
+    for (const part of S.specFile.split("/").slice(0, -1)) {
       dir = path.join(dir, part);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir);
       const stat = fs.lstatSync(dir);
@@ -229,6 +241,59 @@ ${S.notes || "—"}
   // The rebuild reads a settled map: submitted work goes first and a running specification finishes.
   const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
   const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.arch, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
+  function requestKnowledge(reason) {
+    if (!S.knowledgeJob) S.knowledgeJob = { stage: "queued", reason, requestedAt: Date.now() };
+    if (reason === "finish") S.knowledgeJob.reason = reason;
+    if (S.knowledgeJob.stage === "queued" && !S.queue.some(e => e.type === "knowledge")) S.queue.push({ type: "knowledge" });
+  }
+  function knowledgeContext() {
+    try {
+      const index = memory.index();
+      return { index: path.join(process.cwd(), ".grill/knowledge-index.json"), revision: index.revision, documents: index.documents.length, maps: index.maps.length, warnings: index.warnings };
+    } catch (e) { return { error: e.message }; }
+  }
+  function applyKnowledge(b) {
+    const j = S.knowledgeJob;
+    if (!j || j.stage !== "thinking" || b.token !== j.token) throw [409, "Результат устарел, получите событие через wait"];
+    if (j.revision !== mapRevision()) { j.stage = "queued"; delete j.token; requestKnowledge(j.reason); save(); throw [409, "Карта изменилась, получите событие через wait"]; }
+    const error = clean(b.error, 1000);
+    if (error || b.questions?.length) {
+      if (b.questions !== undefined && (!Array.isArray(b.questions) || b.questions.length > 3)) throw [400, "Не более трёх вопросов о знаниях"];
+      const questions = (b.questions || []).map(o => mkQ(o, "root", { prio: Math.max(0, ...qs().map(n => n.prio || 0)) + 1 })).filter(Boolean);
+      if (b.questions?.length && questions.length !== b.questions.length) throw [400, "Некорректный вопрос о знаниях"];
+      S.nodes.push(...questions);
+      j.stage = "blocked"; delete j.token;
+      S.knowledgeResult = { status: "error", error: error || t("Нужно уточнение знаний на карте"), questions: questions.map(n => n.id), at: Date.now() };
+      save(); return { ok: false, error: S.knowledgeResult.error };
+    }
+    try {
+      if (!Array.isArray(b.files)) throw new Error("Нужен массив files, включая пустой после проверки");
+      const index = memory.index();
+      if (index.warnings.length || digest(JSON.stringify(index.documents)) !== j.documentsRevision) throw new Error("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
+      const validatedSources = [];
+      for (const file of b.files) {
+        const record = memory.parse(file.text);
+        const previous = memory.read(file.path);
+        const oldSources = previous.text ? memory.parse(previous.text).sources : [];
+        for (const source of record.sources) {
+          if (oldSources.some(old => JSON.stringify(old) === JSON.stringify(source))) continue;
+          if (source.path === path.relative(process.cwd(), STATE).replaceAll("\\", "/") && source.session === S.knowledgeSession) {
+            const node = j.nodes.find(n => n.id === source.card);
+            if (!node || source.version !== digest(JSON.stringify(node)) || source.snapshot !== JSON.stringify(node)) throw new Error("Снимок карточки не соответствует доставленному источнику");
+            validatedSources.push(JSON.stringify(source));
+          }
+        }
+        if (!previous.text && record.type === "term" && record.sources.some(s => s.session === S.knowledgeSession) && !(record.author?.name?.trim() && record.author.name.length <= 200 && record.author.session === S.knowledgeSession && /^\d{4}-\d{2}-\d{2}/.test(record.author.date))) throw new Error("Нужно уточнить имя автора термина на карте");
+      }
+      const result = memory.commit(b.files, validatedSources);
+      S.knowledgeResult = { status: "saved", at: Date.now(), revision: j.revision, ...result };
+      S.knowledgeJob = null; save(); return { ok: true, ...result };
+    } catch (e) {
+      j.stage = "blocked"; delete j.token;
+      S.knowledgeResult = { status: "error", error: clean(e.message, 1000), at: Date.now() };
+      save(); return { ok: false, error: S.knowledgeResult.error };
+    }
+  }
   const requestReread = (manual, edit) => {
     if (!manual && (S.finished || S.finishPending)) return;
     if (S.rereadJob) {
@@ -418,6 +483,16 @@ ${S.notes || "—"}
   }
 
   function payload(e) {
+    if (e.type === "knowledge") {
+      const j = S.knowledgeJob; if (!j || j.stage !== "queued") return null;
+      boundBranch(S.nodes);
+      const index = memory.index();
+      if (index.warnings.length) throw [400, index.warnings.join("; ").slice(0, 1000)];
+      j.documentsRevision = digest(JSON.stringify(index.documents));
+      j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision(); j.nodes = structuredClone(S.nodes.map(contextNode));
+      return { type: "knowledge", token: j.token, reason: j.reason, title: S.title, brief: S.brief, arch: S.arch, session: S.knowledgeSession, author: memory.author(), date: new Date().toISOString(),
+        sourcePath: path.relative(process.cwd(), STATE).replaceAll("\\", "/"), map: NAME, nodes: j.nodes, sources: j.nodes.map(n => ({ card: n.id, version: digest(JSON.stringify(n)), snapshot: JSON.stringify(n) })) };
+    }
     if (e.type === "preview") return preview.payload(e.id);
     if (e.type === "idea") return ideaPayload(e.id);
     if (e.type === "spec") {
@@ -475,16 +550,23 @@ ${S.notes || "—"}
     }
     if (e.type === "more") return { type: "more", mainQuestions: kids("root").filter(n => n.kind === "q").sort((a, b) => a.prio - b.prio).map(r => ({ priority: r.prio, area: r.area, q: r.q, status: r.status, answer: r.answer || null, obsolete: r.obsolete || null })) };
     if (e.type === "finish") {
+      if (!S.finishPending) return null;
+      S.finishToken = randomUUID(); S.finishRevision = mapRevision();
       const c = counts();
-      return { type: "finish", counts: c, ideas: S.nodes.filter(n => n.kind === "idea").map(specNode), problems: qs().filter(n => !n.obsolete && ["gap", "weak", "verify"].includes(n.status)).map(n => ({ status: n.status, area: n.area, q: n.q, answer: n.answer, verdict: n.verdict })) };
+      return { type: "finish", token: S.finishToken, counts: c, ideas: S.nodes.filter(n => n.kind === "idea").map(specNode), problems: qs().filter(n => !n.obsolete && ["gap", "weak", "verify"].includes(n.status)).map(n => ({ status: n.status, area: n.area, q: n.q, answer: n.answer, verdict: n.verdict })) };
     }
     return null;
   }
   const counts = () => countQ(S.nodes);
   function takeEvent() {
+    const context = knowledgeContext();
+    if (S.knowledgeJob?.stage === "blocked" && S.knowledgeResult?.questions?.length && S.knowledgeResult.questions.every(id => get(id)?.answer && !get(id)?.pending && !get(id)?.discuss)) {
+      S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save();
+    }
+    if (S.finishPending && !S.knowledgeJob && S.knowledgeResult?.status !== "skipped" && S.knowledgeResult?.revision !== mapRevision()) { requestKnowledge("finish"); save(); }
     if (cancelStoppedReread()) save();
-    if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) { const p = reviewPayload(true); save(); return { ...p, language: S.locale.language }; }
-    if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) { const p = reviewPayload(); save(); return { ...p, language: S.locale.language }; }
+    if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) { const p = reviewPayload(true); save(); return { ...p, knowledge: context, language: S.locale.language }; }
+    if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) { const p = reviewPayload(); save(); return { ...p, knowledge: context, language: S.locale.language }; }
     if (!S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
       S.autoRereadRevision = mapRevision();
       S.rereadJob = { stage: "queued", manual: false, edits: [], settled: true, requestedAt: Date.now() };
@@ -497,21 +579,22 @@ ${S.notes || "—"}
       if (i > 0) S.queue.unshift(...S.queue.splice(i, 1));
     }
     if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.ideaWaiting?.length) {
-      const p = ideaPayload(S.specJob.ideaWaiting[0], true); save(); return { ...p, language: S.locale.language };
+      const p = ideaPayload(S.specJob.ideaWaiting[0], true); save(); return { ...p, knowledge: context, language: S.locale.language };
     }
     for (;;) {
-      const i = S.queue.findIndex(e => e.type === "discuss" ? !get(e.id)?.pending : e.type === "reread" ? rereadReady() : e.type === "idea" ? settled() && !rereadThinking() : e.type === "spec" ? S.specJob?.stage !== "refresh" && !S.specJob?.waiting.length && !S.specJob?.ideaWaiting?.length : true);
+      const i = S.queue.findIndex(e => e.type === "knowledge" ? rereadReady() && !S.rereadJob && S.knowledgeJob?.stage === "queued" : e.type === "finish" ? !S.knowledgeJob && rereadReady() && !S.rereadJob && !S.queue.some(x => !["finish", "knowledge"].includes(x.type)) : e.type === "discuss" ? !get(e.id)?.pending : e.type === "reread" ? rereadReady() : e.type === "idea" ? settled() && !rereadThinking() : e.type === "spec" ? S.specJob?.stage !== "refresh" && !S.specJob?.waiting.length && !S.specJob?.ideaWaiting?.length : true);
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) {
-        if (e.type === "reread" && error[2] === "context-limit") {
+        if (e.type === "knowledge") { S.knowledgeJob.stage = "blocked"; S.knowledgeResult = { status: "error", error: error[1] || String(error) }; save(); }
+        else if (e.type === "reread" && error[2] === "context-limit") {
           // Failed full-map context must not retain an answer lock or retry automatically.
           S.rereadJob = null; S.rereadResult = { at: Date.now(), error: t(error[1] || String(error)) };
           S.autoRereadRevision = mapRevision(); save();
         } else S.queue.splice(i, 0, e);
         throw error;
       }
-      if (p) { save(); return { ...p, language: S.locale.language }; }
+      if (p) { save(); return { ...p, knowledge: context, language: S.locale.language }; }
     }
   }
   function requeue(ev) {
@@ -563,6 +646,7 @@ ${S.notes || "—"}
 
   function apply(b) {
     lastActivity = Date.now();
+    if (b.type === "knowledge") return applyKnowledge(b);
     if (b.type === "preview") return preview.apply(b);
     if (b.type === "idea") return applyIdea(b);
     if (b.type === "reevaluate") return applyReview(b);
@@ -721,6 +805,8 @@ ${S.notes || "—"}
     }
     if (b.type === "reread") return applyReread(b);
     if (b.type === "finish") {
+      if (!S.finishPending || !S.finishToken || b.token !== S.finishToken || S.finishRevision !== mapRevision() || !rereadReady() || S.rereadJob || S.knowledgeJob || !["saved", "skipped"].includes(S.knowledgeResult?.status)) throw [409, "Сначала сохраните знания и получите новый итог через wait"];
+      delete S.finishToken;
       S.summary = clean(b.summary, 8000) || null; S.finished = true; S.finishPending = false; cancelStoppedReread(); save(); return { ok: true };
     }
     throw [400, "type должен быть answer, discuss, question, more, reread, finish, spec или notes"];
@@ -881,6 +967,7 @@ ${S.notes || "—"}
     }
     S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
     finish({ changed, summary, audit: [...audit.values()] });
+    requestKnowledge("reread");
     save();
     if (changed) { writeSession(); pruneImages(); }
     return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length, moved: move.length, removed: remove.length };
@@ -921,10 +1008,12 @@ ${S.notes || "—"}
       }
 
       if (req.method === "GET" && p === "/api/ping") return send(res, 200, { ok: true, dir: DIR, port, pid: process.pid });
+      if (req.method === "GET" && p === "/api/knowledge") return send(res, 200, memory.index());
+      if (req.method === "GET" && p === "/api/knowledge-document") { const requested = url.searchParams.get("path"); if (!memory.index().documents.some(d => d.path === requested)) throw [404, "Документ не найден в индексе"]; return send(res, 200, memory.read(requested)); }
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
-        const { queue, specJob, specOwner, rereadJob, ...rest } = S;
-        return send(res, 200, { ...rest, coverage: coverage(), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening() });
+        const { queue, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
+        return send(res, 200, { ...rest, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening() });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/image") {
@@ -936,6 +1025,7 @@ ${S.notes || "—"}
       }
       if (req.method === "GET" && p === "/api/wait") {
         lastActivity = Date.now();
+        recoverKnowledge(); save();
         preview.recover();
         for (const job of S.questionRequests.filter(j => j.stage === "thinking")) {
           job.stage = "queued"; delete job.token;
@@ -1104,11 +1194,27 @@ ${S.notes || "—"}
         S.questionRequests.push({ id, parentId: parent.id, q, stage: "queued", at: Date.now() });
         enqueue({ type: "question", id }); return send(res, 200, { ok: true, id });
       }
-      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
+      if (p === "/api/knowledge-retry") {
+        if (!S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
+        memory.reconcile(); S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save(); pump(); return send(res, 200, { ok: true });
+      }
+      if (p === "/api/knowledge-skip") {
+        if (!S.finishPending || !S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
+        S.knowledgeJob = null; S.queue = S.queue.filter(e => e.type !== "knowledge");
+        S.knowledgeResult = { status: "skipped", at: Date.now() }; save(); pump(); return send(res, 200, { ok: true });
+      }
+      if (p === "/api/spec-migrate") {
+        const result = memory.migrateSpec(S, NAME); S.specFile = result.path; S.specDigest = result.version || S.specDigest; save(); return send(res, 200, { ok: true, ...result });
+      }
+      if (p === "/api/knowledge-import") {
+        requestKnowledge("import"); save(); pump(); return send(res, 200, { ok: true });
+      }
+      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; S.knowledgeResult = null; requestKnowledge("finish"); cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
       if (p === "/api/spec") {
         // A snapshot taken now would freeze the map from before the rebuild.
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Создать спеку можно будет после перечитывания" });
         if (!S.specJob) {
+          const migrated = memory.migrateSpec(S, NAME); S.specFile = migrated.path; S.specDigest = migrated.version || S.specDigest;
           S.specError = null;
           S.specJob = captureSpec();
           enqueue({ type: "spec" });
@@ -1122,7 +1228,7 @@ ${S.notes || "—"}
         const reserve = b.reserve === undefined ? null : reserveList(b.reserve, [{ id: "root", kind: "root" }, ...questions]);
         const v = S.version;
         const retainedPreviews = preview.reconcile(S.nodes, [{ id: "root", parentId: null, kind: "root" }]).filter(n => n.kind === "preview");
-        S = { ...freshState(), locale: S.locale, version: v, specOwner: S.specOwner, specFile: S.specFile, specUpdatedAt: S.specUpdatedAt,
+        S = { ...freshState(), locale: S.locale, version: v, specOwner: S.specOwner, specFile: S.specFile, specUpdatedAt: S.specUpdatedAt, knowledgeSession: randomUUID(),
           title: clean(b.title, 80) || t("Проект"), brief: clean(b.brief, 6000), arch: clean(b.arch, 6000) };
         S.nodes.push(...questions); S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
         S.nodes.push(...retainedPreviews);
@@ -1191,7 +1297,7 @@ async function listMaps() {
     const f = path.join(d, "state.json"), s = readJSON(f); if (!s || !Array.isArray(s.nodes)) continue;
     const info = await alive(d); let listening = false;
     if (info) try { listening = !!(await (await fetch(`http://127.0.0.1:${info.port}/api/state`, { headers: { "x-grill": "1" }, signal: AbortSignal.timeout(1500) })).json()).listening; } catch {}
-    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.queue || []).length + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
+    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
       updated: fs.statSync(f).mtime.toISOString(), url: info ? info.url : null, listening });
   }
   return out.sort((a, b) => b.updated.localeCompare(a.updated));
@@ -1262,6 +1368,11 @@ const commands = {
   spec: async () => console.log(await api("POST", "/api/spec", {})),
   reread: async () => console.log(await api("POST", "/api/reread", {})),
   discuss: async () => console.log(await api("POST", "/api/discuss", await stdinJSON())),
+  "spec-migrate": async () => console.log(await api("POST", "/api/spec-migrate", {})),
+  knowledge: async () => console.log(await api("GET", "/api/knowledge")),
+  "knowledge-import": async () => console.log(await api("POST", "/api/knowledge-import", {})),
+  "knowledge-retry": async () => console.log(await api("POST", "/api/knowledge-retry", {})),
+  "knowledge-skip": async () => console.log(await api("POST", "/api/knowledge-skip", {})),
   state: async () => console.log(await api("GET", "/api/state")),
   wait: async () => console.log(await api("GET", `/api/wait?timeout=${Number(opt("timeout", 280))}`)),
   watch: async () => {
@@ -1311,5 +1422,5 @@ const commands = {
     if (await alive()) { await api("POST", "/api/stop", {}); for (let i = 0; i < 20 && await alive(); i++) await new Promise(r => setTimeout(r, 150)); }
     console.log("Сервер карты остановлен. Карта сохранена в " + STATE); },
 };
-if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | apply | spec | reread | discuss | state | status | report | stop | list | config | serve"); process.exit(1); }
+if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | apply | spec | reread | discuss | state | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
 commands[cmd]().catch(e => { console.error(e && e.message || e); process.exit(1); });

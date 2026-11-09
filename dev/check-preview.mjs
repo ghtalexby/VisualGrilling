@@ -1,3 +1,4 @@
+import { knowledgeFixture } from "./knowledge-fixture.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -16,7 +17,8 @@ async function start() {
   for (let i = 0; i < 100; i++) { try { const info = JSON.parse(fs.readFileSync(path.join(dir, "server.json"))); if (info.pid === server.pid) { url = info.url; return; } } catch {} await sleep(50); }
   throw new Error("Server did not start");
 }
-async function api(route, body, expected = 200) {
+const api = knowledgeFixture(rawRequest);
+async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   assert.equal(r.status, expected, await r.clone().text()); return route === "report" ? r.text() : r.json();
 }
@@ -54,7 +56,7 @@ try {
   await api("apply", { type: "reread", token: reread.token, brief: "Updated premise", audit: reread.nodes.map(n => ({ id: n.id, action: "keep", reason: "Only the project premise changes" })) });
   assert.equal((await api("preview?id=" + id)).stale, 1);
   await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 180 } });
-  assert.equal((await api("state")).queueLength, 0);
+  assert.equal((await api("state")).queueLength, 1);
   await api("spec", {}); const spec = await wait(), snapshot = spec.nodes.find(n => n.id === id);
   assert.match(snapshot.snapshot, /^[a-f0-9]{64}$/);
   await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 200 } });
