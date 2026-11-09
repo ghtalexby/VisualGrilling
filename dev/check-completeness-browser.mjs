@@ -133,7 +133,7 @@ try {
   await click('#ledger [data-flt="weak"]');
   assert.equal(await js('counts().weak'), 1);
   assert.deepEqual(await js('[...document.querySelectorAll("#stage .node")].map(n=>n.dataset.id).sort()'), ["idea", "root"]);
-  await click('#zAll'); await js('openPanel({mode:"node",id:qid})');
+  await click('#ledger [data-flt="weak"]'); await js('openPanel({mode:"node",id:qid})');
   assert.equal(await js('document.querySelector("#fAns").value'), "Draft persists");
   await click('[data-tab="discuss"]'); await input('#fMsg', '  Original draft\nwith whitespace  ');
   await js('draftQuotes[qid]={about:"option",text:"No"};panel.quote=draftQuotes[qid]');
@@ -167,19 +167,37 @@ try {
   assert.equal(await js('writes.filter(w=>w.path==="/api/discuss/read").length'), 0);
   await js('Object.defineProperty(document,"visibilityState",{configurable:true,value:"visible"});ackVisibleMessages()');
   assert.deepEqual(await js('writes.filter(w=>w.path==="/api/discuss/read").at(-1).body'), {id:"root",messageId:"reply-a"});
-  // Fit uses every card even below the manual zoom minimum; branch fit retains other branches.
+  // Fit includes visible cards below the manual zoom minimum and preserves navigation state.
   await js(`for(let i=0;i<200;i++)S.nodes.push({id:"big"+i,parentId:qid,kind:"q",q:"Large tree "+i,status:"open",options:[],chat:[]});render();`);
   await click('#zAll'); assert.ok(await js('zoom<.1'));
   assert.ok(await js('(()=>{const r=document.querySelector("#stage").getBoundingClientRect(),v=vp.getBoundingClientRect();return r.left>=v.left-1&&r.right<=v.left+viewWidth()+1&&r.top>=v.top-1&&r.bottom<=v.bottom+1})()'));
   await click('#zOut'); assert.equal(await js('zoom'), .1);
-  await js('openPanel({mode:"node",id:qid});flt="weak";isolated={id:qid,filter:null}');
-  await click('#zBranch'); assert.equal(await js('flt===null&&isolated===null'), true);
-  assert.equal(await js('document.querySelectorAll("#stage .node").length'), 203);
+  assert.equal(await js('document.querySelector("#zBranch")'), null);
+  assert.equal(await js('document.querySelector("#zAll").textContent'), "");
+  assert.equal(await js('document.querySelector("#zAll").getAttribute("aria-label")'), "Show all");
+  for (const filter of ["weak", "verify"]) {
+    await click(`#ledger [data-flt="${filter}"]`);
+    const ids = await js('[...document.querySelectorAll("#stage .node")].map(n=>n.dataset.id)');
+    await click('#zAll');
+    assert.equal(await js('flt'), filter);
+    assert.deepEqual(await js('[...document.querySelectorAll("#stage .node")].map(n=>n.dataset.id)'), ids);
+    assert.ok(await js('(()=>{const v=vp.getBoundingClientRect();return [...document.querySelectorAll("#stage .node")].every(n=>{const r=n.getBoundingClientRect();return r.left>=v.left&&r.right<=v.left+viewWidth()&&r.top>=v.top&&r.bottom<=v.bottom})})()'));
+  }
+  await js('flt=null;isolated={id:qid,filter:"weak"};render();openPanel({mode:"node",id:qid})');
+  await input('#fAns', 'Fit preserves draft');
+  await click('#zAll');
+  assert.deepEqual(await js('isolated'), {id:await js('qid'),filter:"weak"});
+  assert.equal(await js('flt'), null);
+  assert.equal(await js('panel.id'), await js('qid'));
+  assert.equal(await js('document.querySelector("#fAns").value'), 'Fit preserves draft');
+  assert.equal(await js('document.querySelectorAll("#stage .node").length'), 2);
+  assert.ok(await js('(()=>{const v=vp.getBoundingClientRect();return [...document.querySelectorAll("#stage .node")].every(n=>{const r=n.getBoundingClientRect();return r.left>=v.left&&r.right<=v.left+viewWidth()&&r.top>=v.top&&r.bottom<=v.bottom})})()'));
+  await js('isolated=null;render()');
   await click('[data-act="close"]');
   assert.equal(await js('document.querySelector("[data-root-chat]")'), null);
   await click('#bChat'); assert.equal(await js('panel.mode'), 'project');
   assert.equal(await js('isolated'), null);
-  await click('[data-act="close"]'); assert.equal(await js('document.querySelector("#zBranch").disabled'), true);
+  await click('[data-act="close"]'); assert.equal(await js('document.querySelector("#zBranch")'), null);
   // A removed merged source keeps its escaped, individually copyable verdict history.
   await js(`get(qid).mergedFrom=[{q:"Removed source",answer:"Source answer",verdict:"Regraded source",verdictHistory:[{status:"weak",verdict:"Historical <unsafe>"},{status:"ok",verdict:"Regraded source"}]}];openPanel({mode:"node",id:qid});`);
   assert.ok(await js('document.querySelector("#panel").textContent.includes("Historical <unsafe>")'));
