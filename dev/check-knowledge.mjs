@@ -35,6 +35,40 @@ async function stop() {
   const done = new Promise(r => server.once("exit", r)); await api("stop", {}); await done;
 }
 try {
+  // Build outputs must not be opened, even when they contain Markdown or deny directory access.
+  for (const directory of ["target", "nested/target", "build", "dist", ".cache", "docs/target", "private-docs"]) {
+    fs.mkdirSync(path.join(cwd, directory), { recursive: true });
+    fs.writeFileSync(path.join(cwd, directory, "README.md"), "Documentation");
+  }
+  fs.mkdirSync(path.join(cwd, "private-empty"));
+  const readdir = fs.readdirSync;
+  let denied = "target", opened = [];
+  fs.readdirSync = (directory, ...args) => {
+    const relative = path.relative(cwd, directory).replaceAll("\\", "/");
+    opened.push(relative);
+    if (relative === denied || relative === "nested/target") throw Object.assign(new Error("Permission denied by test fixture"), { code: "EPERM" });
+    return readdir(directory, ...args);
+  };
+  try {
+    let index = store.index();
+    assert.equal(index.warnings.length, 0);
+    assert.ok(!opened.includes("target") && !opened.includes("nested/target"));
+    assert.ok(!index.documents.some(d => /^(target|build|dist|\.cache)\//.test(d.path)));
+    assert.ok(index.documents.some(d => d.path === "docs/target/README.md"));
+    const expectedRevision = digest(JSON.stringify(index.documents));
+    denied = "private-empty";
+    assert.equal(digest(JSON.stringify(store.index().documents)), expectedRevision);
+    assert.throws(() => store.commit([], [], expectedRevision), /Документы изменились или недоступны/);
+    assert.equal(fs.existsSync(path.join(maps, "knowledge-ops/pending.json")), false);
+    denied = "private-docs";
+    index = store.index();
+    assert.ok(index.warnings.some(w => w.includes("private-docs: EPERM")));
+    assert.ok(index.documents.some(d => d.path === "README.md"));
+    denied = "docs/target";
+    index = store.index();
+    assert.ok(index.warnings.some(w => w.includes("docs/target: EPERM")));
+    assert.ok(!index.documents.some(d => d.path === "docs/target/README.md"));
+  } finally { fs.readdirSync = readdir; }
   // Shared editable records, identity, changed content, invalid parse and unrelated files.
   store.commit([{ path: target, expected: null, text: record() }]);
   let before = store.read(target);

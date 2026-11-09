@@ -6,6 +6,8 @@ import { execFileSync } from "node:child_process";
 
 export const digest = text => createHash("sha256").update(text).digest("hex");
 const limit = 200000;
+const excludedDirectories = new Set([".git", ".grill", "node_modules", "examples"]);
+const generatedDirectories = new Set(["target", "build", "dist", "out", "coverage", ".next", ".nuxt", ".cache", ".venv", "venv", "__pycache__"]);
 const fail = message => { throw new Error(message); };
 const bounded = (s, n) => typeof s === "string" && s.trim() && s.length <= n;
 const json = file => JSON.parse(fs.readFileSync(file, "utf8"));
@@ -93,11 +95,16 @@ export function knowledge(project, maps) {
     function walk(relative, depth = 0) {
       if (depth > 12) { warnings.push(`Depth limit: ${relative}`); return; }
       const dir = relative ? path.join(project, relative) : project;
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-        if (++visited > 10000) fail("Индекс превышает 10000 объектов; сузьте документацию проекта");
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+      catch (e) { warnings.push(`${relative || "."}: ${e.code || "Error"}: ${e.message}`); return; }
+      for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
         if (entry.isSymbolicLink()) continue;
         const rel = relative ? `${relative}/${entry.name}` : entry.name;
-        if (entry.isDirectory() && path.resolve(dir, entry.name) !== maps && ![".git", ".grill", "node_modules", "Examples"].includes(entry.name)) walk(rel, depth + 1);
+        const inDocs = relative.toLowerCase() === "docs" || relative.toLowerCase().startsWith("docs/");
+        if (entry.isDirectory() && (path.resolve(dir, entry.name) === maps || excludedDirectories.has(entry.name.toLowerCase()) || !inDocs && generatedDirectories.has(entry.name.toLowerCase()))) continue;
+        if (++visited > 10000) fail("Индекс превышает 10000 объектов; сузьте документацию проекта");
+        if (entry.isDirectory()) walk(rel, depth + 1);
         else if (entry.isFile() && /\.(md|mdx|rst|txt)$/i.test(entry.name)) {
           if (documents.length >= 1000) fail("Индекс превышает 1000 документов");
           try {
@@ -171,7 +178,7 @@ export function knowledge(project, maps) {
       }
       fs.writeFileSync(file, op.text, { flag: "wx" });
     }
-    scan();
+    if (scan().warnings.length) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
     fs.renameSync(journalFile, path.join(runtime, `${job.id}.done.json`));
   }
   function index() { return locked(() => {
@@ -199,6 +206,7 @@ export function knowledge(project, maps) {
     return locked(() => {
       if (fs.existsSync(path.join(runtime, "pending.json"))) fail("Незавершённая запись знаний: повторите сохранение в исходной карте");
       const navigation = scan();
+      if (navigation.warnings.length) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
       if (expectedRevision && digest(JSON.stringify(navigation.documents)) !== expectedRevision) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
       const seen = new Set();
       for (const op of files) {
