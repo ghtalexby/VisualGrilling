@@ -101,7 +101,7 @@ async function channel(base) {
     if (message.method === "initialize") {
       send({ id: message.id, result: { protocolVersion: "2024-11-05", capabilities: { experimental: { "claude/channel": {} } }, serverInfo: { name: "grill", version: "1.0.0" }, instructions: "Play events are explicit user requests to continue the named existing grilling map in this session. Follow the grill skill. Do not reset maps or create duplicate watchers. No channel reply is needed; listening to the map acknowledges reconnection." } });
     } else if (message.method === "notifications/initialized" && !initialized) {
-      initialized = true; write(path.join(base, "claude-connection.json"), binding()); write(bindingFile(base), binding()); timer = setInterval(tick, 500);
+      initialized = true; write(path.join(base, "claude-connection.json"), binding()); timer = setInterval(tick, 500);
     } else if (message.method === "ping") send({ id: message.id, result: {} });
     else if (message.id !== undefined) send({ id: message.id, error: { code: -32601, message: "Unknown method" } });
   });

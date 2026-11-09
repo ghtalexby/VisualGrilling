@@ -72,8 +72,9 @@ try {
   await until(() => output.includes('"result"'));
   assert.deepEqual(JSON.parse(output.trim()).result.capabilities.experimental["claude/channel"], {});
   rpc({ method: "notifications/initialized" });
-  await until(() => read(binding).provider === "claude");
-  const channelId = read(binding).id;
+  await until(() => fs.existsSync(path.join(base, "claude-connection.json")));
+  assert.equal(read(binding).provider, "codex", "Loading a channel must not change the selected session");
+  const channelId = read(path.join(base, "claude-connection.json")).id;
   process.env.CLAUDECODE = "1"; bindSession(base); assert.equal(read(binding).id, channelId);
   await api("resume", {});
   await until(() => output.includes('"notifications/claude/channel"'));
