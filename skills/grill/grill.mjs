@@ -918,7 +918,7 @@ ${S.notes || "—"}
       if (chat.length > 100) throw bad("Обсуждение слишком длинное");
       if (chat.length) keep.chat = chat;
       combined.set(keepId, answer);
-      recordVerdict(keep, o.status, verdict); keep.answer = answer;
+      recordVerdict(keep, o.status, verdict); keep.answer = answer; delete keep.answerSource;
       for (const n of cards) if (n !== keep) { merged.set(n.id, keep.id); byId.delete(n.id); }
       for (const n of byId.values()) if (merged.has(n.parentId)) n.parentId = merged.get(n.parentId);
     }

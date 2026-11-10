@@ -390,5 +390,15 @@ try {
   await request("init", { title: "Fresh", questions: [{ q: "New?", options }] });
   await reread(e, {}, 409);
   s = await state(); assert.equal(s.rereadPending, null); assert.equal(s.rereadResult, null);
+  // Synthesized merge text must not inherit the exact-user-message label of the kept card.
+  await request("init", { title: "Provenance", questions: ["Source A?", "Source B?", "Still open?"].map(q => ({ q, options })) });
+  const provenanceIds = (await state()).nodes.filter(n => n.kind === "q").slice(0, 2).map(n => n.id);
+  await request("discuss", { id: "root", message: "Original user wording" }); e = await wait();
+  await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Saved to both cards", answers: provenanceIds.map(id => ({ id, messageIds: [e.messages.at(-1).id], status: "ok", verdict: "Confirmed" })) });
+  await request("reread", {}); e = await wait();
+  await reread(e, { merge: [{ ids: provenanceIds, keep: provenanceIds[0], answer: "Combined synthesis", status: "ok", verdict: "Combined evidence" }] });
+  const combined = (await state()).nodes.find(n => n.id === provenanceIds[0]);
+  assert.equal(combined.answer, "Combined synthesis"); assert.equal(combined.answerSource, undefined);
+  assert.ok(combined.mergedFrom.every(n => n.answer === "Original user wording" && n.answerSource.id === "root"));
   console.log("Reread checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }
