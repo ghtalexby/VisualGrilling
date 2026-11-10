@@ -584,12 +584,14 @@ function nodePanel(n){
   if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
   if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
   b+=`<h2>${esc(n.q)}</h2><div class="row">${copyButton(n.q)}<button class="btn small" data-act="explainquestion">Не понял</button></div>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
-  if(n.answerSource)b+=`<div class="note">Ответ из обсуждения: ${esc(n.answerSource.id)}${(n.answerSource.messageIds||[]).map(esc).join(", ")}</div>`;
-  if(n.answerHistory?.length)b+=`<details><summary>История ответов</summary>${n.answerHistory.map(h=>`<p>${esc(h.answer)}</p>`).join("")}</details>`;
+  const sourceLabel=s=>s?(s.id==="root"?S.title:get(s.id)?.text||get(s.id)?.q||s.q||s.id):"";
+  const answerHistory=history=>(history||[]).map(h=>`<div class="note"><p>${esc(h.answer)}</p>${h.source?`<p>Ответ из обсуждения: ${esc(sourceLabel(h.source))}</p>`:""}</div>`).join("");
+  if(n.answerSource)b+=`<div class="note">Ответ из обсуждения: ${esc(sourceLabel(n.answerSource))}</div>`;
+  if(n.answerHistory?.length)b+=`<details><summary>История ответов</summary>${answerHistory(n.answerHistory)}</details>`;
   if(n.obsolete)b+=`<div class="note"><b>Устарело</b>: ${esc(n.obsolete.reason)}<br>История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.</div>`;
   const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
-  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note"><b>${esc(m.q)}</b>${copyButton(m.q)}<p>Ваш ответ: ${esc(m.answer)}</p>${m.answer?copyButton(m.answer):""}${m.verdict?`<p>Вердикт: ${esc(m.verdict)}</p>${copyButton(m.verdict)}`:""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>${copyButton(v.verdict)}`).join("")}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
+  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note"><b>${esc(m.q)}</b>${copyButton(m.q)}<p>Ваш ответ: ${esc(m.answer)}</p>${m.answer?copyButton(m.answer):""}${m.verdict?`<p>Вердикт: ${esc(m.verdict)}</p>${copyButton(m.verdict)}`:""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>${copyButton(v.verdict)}`).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
   if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${mergedHistory(n.mergedFrom)}`;
   const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
@@ -680,7 +682,8 @@ function questionPanel(){
 }
 function openQuestion(id){openPanel({mode:"question",id,requestId:crypto.randomUUID()})}
 function toMarkdown(){
-  const merged=(sources,ind="")=>(sources||[]).map(m=>`${ind}- Сведено из: ${m.q}: ${m.answer}\n`+(m.verdict?`${ind}  - Вердикт: ${m.verdict}\n`:"")+(m.verdictHistory||[]).map(v=>`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`).join("")+merged(m.mergedFrom,ind+"  ")).join("");
+  const answerHistory=(n,ind="")=>(n.answerHistory||[]).map(h=>`${ind}- История ответов: ${h.answer}\n${h.source?`${ind}  - Ответ из обсуждения: ${h.source.q||h.source.id}\n`:""}`).join("");
+  const merged=(sources,ind="")=>(sources||[]).map(m=>`${ind}- Сведено из: ${m.q}: ${m.answer}\n`+(m.verdict?`${ind}  - Вердикт: ${m.verdict}\n`:"")+(m.verdictHistory||[]).map(v=>`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`).join("")+answerHistory(m,ind+"  ")+(m.answerSource?`${ind}  - Ответ из обсуждения: ${m.answerSource.q||m.answerSource.id}\n`:"")+merged(m.mergedFrom,ind+"  ")).join("");
   let md=`# ${S.title}\n\n**Бриф:** ${S.brief||""}\n\n**MVP-архитектура:** ${S.arch||"—"}\n\n`;
   const c=counts();md+=`Итого: ${ORDER.map(s=>`${STATUS[s]} ${c[s]}`).join(" · ")}\n\n`;
   if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
@@ -688,9 +691,9 @@ function toMarkdown(){
     if(r.kind==="preview"){md+=`## Превью · ${r.q}\n${r.commit||""}\n`;return}
     md+=r.kind==="idea"?`## Идея · [${ideaStatus(r)}]\n${r.text}\n`:`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
-    for(const h of r.answerHistory||[])md+=`- История ответов: ${h.answer}\n`;if(r.answerSource)md+=`- Ответ из обсуждения: ${r.answerSource.id}\n`;if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
+    md+=answerHistory(r);if(r.answerSource)md+=`- Ответ из обсуждения: ${r.answerSource.id}\n`;if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;for(const h of k.answerHistory||[])md+=`${ind}  - История ответов: ${h.answer}\n`;if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;md+=answerHistory(k,ind+"  ");if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;

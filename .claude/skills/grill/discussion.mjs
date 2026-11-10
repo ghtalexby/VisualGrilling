@@ -47,7 +47,7 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
     if (messages.some(m => !m || !m.text)) bad("Исходное сообщение пользователя не найдено");
     const answer = text(messages.map(m => m.text).join("\n\n"), 2000), verdict = text(a.verdict, 400);
     if (!verdict || !["ok", "weak", "gap", "verify"].includes(a.status)) bad("Нужны отдельная оценка и вердикт для каждого ответа");
-    const at = Date.now(), provenance = { id: sourceId, messageIds: [...a.messageIds], at };
+    const at = Date.now(), provenance = { id: sourceId, q: source.text || source.q || "", messageIds: [...a.messageIds], at };
     if (n.answer) n.answerHistory = [...(n.answerHistory || []), { answer: n.answer, status: n.status, verdict: n.verdict, source: n.answerSource || null, at }];
     n.answer = answer; n.answerSource = provenance;
     recordVerdict(n, a.status, verdict); targets.add(n.id); touched.add(n.id);

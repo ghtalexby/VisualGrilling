@@ -75,6 +75,11 @@ try {
   await click('[data-flt="ok"]'); assert.equal(await js("panel"), null);
   await click('[data-flt="open"]'); await js('openPanel({mode:"node",id:"live"})');
   assert.equal(await js('document.querySelector("#fAns").value'), "Unsent answer draft");
+  await js(`get("live").answerHistory=[{answer:"Earlier user answer",source:{id:"old1",q:"Original source"}}];get("live").mergedFrom=[{q:"Merged card",answer:"Latest merged answer",answerHistory:[{answer:"Earlier merged user answer",source:{id:"deleted-source",q:"Historical source title"}}]}];renderPanel()`);
+  assert.match(await js('document.querySelector("#panel").textContent'), /Earlier merged user answer/);
+  assert.match(await js('document.querySelector("#panel").textContent'), /Historical source title/);
+  assert.match(await js("toMarkdown()"), /Earlier merged user answer/);
+  assert.match(await js("toMarkdown()"), /Historical source title/);
   // Links are structured escaped text and reveal hidden cards through reversible isolation.
   await js(`S.nodes[0].chat=[{id:"reply",from:"claude",readAt:1,text:"<img src=x onerror=alert(1)>",links:[{id:"hidden",q:"<script>bad()</script>"},{id:"deleted",q:"Gone"}]}];openPanel({mode:"node",id:"root",tab:"chat"});`);
   assert.equal(await js('document.querySelectorAll("#panel .msg script,#panel .msg img").length'), 0);

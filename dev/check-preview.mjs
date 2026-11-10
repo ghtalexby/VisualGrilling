@@ -152,5 +152,18 @@ try {
   await api("idea/analyze", { id: idea.id }); e = await wait();
   await api("apply", { type: "idea", id: idea.id, token: e.token, status: "open", verdict: "Compare both branches", children: [{ q: "First branch", options: ["A", "B"] }, { q: "Second branch", options: ["A", "B"] }] });
   assert.equal((await api("state")).nodes.filter(n => n.forkOf === ideaProject.projectId).length, 2);
+  // Discussion can split an unanswered branch too; no parent reassessment repairs missing copies.
+  const unanswered = (await api("state")).nodes.find(n => n.kind === "q" && n.q === "Existing");
+  assert.equal(unanswered.answer, undefined);
+  const discussionPreview = await api("preview/prepare", { sourceId: unanswered.id });
+  e = await wait(); await apply(e, { question: "Discussion visual?", options: ["UI", "Diagram"] });
+  await api("preview/build", { id: discussionPreview.id, request: "Before discussion split" });
+  e = await wait(); await apply(e, { files: circlePreview, purpose: "Discussion visual" });
+  const discussionProject = await api("preview?id=" + discussionPreview.id);
+  await api("discuss", { id: "root", message: "Compare two paths" }); e = await wait();
+  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Two follow-ups", questions: [0, 1].map(i => ({ key: "$path" + i, parentId: unanswered.id, q: "Discussion path " + i, options: ["A", "B"] })), links: ["$path0", "$path1"] });
+  const discussionCopies = (await api("state")).nodes.filter(n => n.forkOf === discussionProject.projectId);
+  assert.equal(discussionCopies.length, 2);
+  assert.notEqual(discussionCopies[0].projectId, discussionCopies[1].projectId);
   console.log("Preview API checks passed: recovery, publication, save, fork, stale, restore, snapshots, rejection");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

@@ -625,9 +625,10 @@ ${S.notes || "—"}
   function report() {
     const LABEL = Object.fromEntries(Object.entries({ open: "Открыт", ok: "Закрыт", weak: "Слабо", gap: "Дыра", verify: "Проверить" }).map(([k, v]) => [k, t(v)]));
     let md = `# ${t("Грилинг:")} ${S.title || t("проект")}\n\n**${t("Бриф:")}** ${S.brief}\n\n**MVP-${t("архитектура:")}** ${S.arch || "—"}\n\n`;
+    const answerHistory = (n, ind = "") => (n.answerHistory || []).map(h => `${ind}- ${t("История ответов")}: ${h.answer}\n${h.source ? `${ind}  - ${t("Ответ из обсуждения:")} ${h.source.q || h.source.id}\n` : ""}`).join("");
     const merged = (sources, ind = "") => (sources || []).map(m => `${ind}- ${t("Сведено из:")} ${m.q}: ${m.answer}\n` +
       (m.verdict ? `${ind}  - ${t("Вердикт:")} ${m.verdict}\n` : "") +
-      (m.verdictHistory || []).map(h => `${ind}  - ${t("История вердиктов")}: [${LABEL[h.status]}] ${h.verdict}\n`).join("") + merged(m.mergedFrom, ind + "  ")).join("");
+      (m.verdictHistory || []).map(h => `${ind}  - ${t("История вердиктов")}: [${LABEL[h.status]}] ${h.verdict}\n`).join("") + answerHistory(m, ind + "  ") + (m.answerSource ? `${ind}  - ${t("Ответ из обсуждения:")} ${m.answerSource.q || m.answerSource.id}\n` : "") + merged(m.mergedFrom, ind + "  ")).join("");
     const c = counts(); md += `${t("Итого:")} ${ORDER.map(s => `${LABEL[s]} ${c[s]}`).join(" · ")}\n\n`;
     if (S.summary) md += `## ${t("Итог")}\n\n${S.summary}\n\n`;
     md += `## ${t("Карта вопросов")}\n\n`;
@@ -636,7 +637,7 @@ ${S.notes || "—"}
       md += r.kind === "idea" ? `### ${t("Идея")} · [${t(r.status === "open" ? "Открыта" : r.status === "ok" ? "Закрыта" : LABEL[r.status])}]\n${r.text}\n` : `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
       if (r.kind === "idea") for (const m of r.chat || []) md += `- ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
       if (r.answer) md += `- ${t("Ответ:")} ${r.answer}\n`; if (r.verdict) md += `- ${t("Вердикт:")} ${r.verdict}\n`;
-      for (const h of r.answerHistory || []) md += `- ${t("История ответов")}: ${h.answer}\n`;
+      md += answerHistory(r);
       if (r.answerSource) md += `- ${t("Ответ из обсуждения:")} ${r.answerSource.id}\n`;
       for (const h of r.verdictHistory || []) md += `- ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
       if (r.obsolete) md += `- ${t("Устарело:")} ${r.obsolete.reason}\n`;
@@ -644,7 +645,7 @@ ${S.notes || "—"}
       const walk = (id, ind) => kids(id).forEach(k => {
         md += `${ind}- [${k.kind === "preview" ? t("Превью") : LABEL[k.status]}] ${k.q}${k.commit ? " · " + k.commit : ""}\n`;
         if (k.answer) md += `${ind}  - ${t("Ответ:")} ${k.answer}\n`; if (k.verdict) md += `${ind}  - ${t("Вердикт:")} ${k.verdict}\n`;
-        for (const h of k.answerHistory || []) md += `${ind}  - ${t("История ответов")}: ${h.answer}\n`;
+        md += answerHistory(k, ind + "  ");
         if (k.answerSource) md += `${ind}  - ${t("Ответ из обсуждения:")} ${k.answerSource.id}\n`;
         for (const h of k.verdictHistory || []) md += `${ind}  - ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
         if (k.obsolete) md += `${ind}  - ${t("Устарело:")} ${k.obsolete.reason}\n`;
@@ -801,7 +802,7 @@ ${S.notes || "—"}
         recordVerdict(assessed, a.status, clean(a.verdict, 400));
         if (!assessed.answer) assessed.answer = clean(a.answer, 2000);
       }
-      S.nodes = result.nodes; n = get(b.id);
+      S.nodes = preview.branchCopies(result.nodes); n = get(b.id);
       if (b.assessment !== undefined) {
         // Preserve submitted answers and frozen specifications; this evaluates live discussion evidence.
         queueReview(S.nodes, n.id);
