@@ -209,4 +209,4 @@ Run `node dev/check-current-work.mjs` for delivery versus queued work, notes/sta
 
 ## Session usage validation
 
-Run `node dev/check-usage.mjs` for isolated rollout fixtures, partial writes, repeated totals, session rebinding, invalid data, missing providers, HTTP protection and restart. Run locale and current-work browser checks for the header. For real Codex acceptance, start from the intended session and compare the expanded counter with its cumulative usage after another model response; the internal rollout may be flushed with a delay. Counts include work before map launch.
+Run `node dev/check-usage.mjs` for isolated rollout fixtures, partial writes, repeated totals, session rebinding, invalid data, missing providers, HTTP protection and restart. Run locale and current-work browser checks for the header. For real Codex acceptance, start from the intended session and compare the tooltip counters with its cumulative usage after another model response; the internal rollout may be flushed with a delay. Counts include work before map launch.

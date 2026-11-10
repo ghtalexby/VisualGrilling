@@ -96,4 +96,4 @@ The independent Obsolete toggle adds historical cards to the selected status res
 
 The agent status line names the task currently delivered for this map (reviewing an answer, writing a reply, rereading, preparing a spec, and other task types). Its green dot breathes while that task remains unfinished, even after the connection grace period expires. The existing animated brand icon remains. Idle connected agents show the usual connection label; server outages keep their separate message. Reduced-motion preferences disable animation while retaining the task text.
 
-The header also shows cumulative tokens for the bound Codex session, including work outside the map. Expand it for input, cache, output and reasoning counts. Unsupported or unavailable statistics show no data.
+The header also shows cumulative tokens for the bound Codex session, including work outside the map. Hover over it or focus it with the keyboard for input, uncached input, cache, output and reasoning counts in a floating tooltip. Input includes repeated context across all requests, not just the current context. Unsupported or unavailable statistics show no data.
