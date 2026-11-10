@@ -526,7 +526,7 @@ ${S.notes || "—"}
       const branchSnapshot = n.kind === "q" ? subtree(S.nodes, n.id).map(contextNode) : [];
       boundBranch(branchSnapshot);
       const nodes = S.nodes.map(contextNode); boundBranch(nodes);
-      delete n.discussDraft;
+      delete n.discussDraft; delete n.discussError;
       n.discuss = "thinking"; n.discussToken = randomUUID();
       n.discussMapRevision = mapRevision();
       n.discussRevision = branchRevision(n.id);
@@ -596,6 +596,13 @@ ${S.notes || "—"}
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) {
         if (e.type === "knowledge") { S.knowledgeJob.stage = "blocked"; S.knowledgeResult = { status: "error", error: knowledgeError(error[1] || String(error)) }; save(); }
+        else if (e.type === "discuss" && error[2] === "context-limit") {
+          // Preserve the messages, but release this failed delivery so other work can drain.
+          const n = get(e.id);
+          n.discuss = null; n.discussError = t(error[1] || String(error));
+          delete n.discussToken; delete n.discussRevision; delete n.discussMapRevision; delete n.discussDraft;
+          save();
+        }
         else if (e.type === "reread" && error[2] === "context-limit") {
           // Failed full-map context must not retain an answer lock or retry automatically.
           S.rereadJob = null; S.rereadResult = { at: Date.now(), error: t(error[1] || String(error)) };
@@ -1190,6 +1197,7 @@ ${S.notes || "—"}
         if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (decoded.some(x => x.data.length > IMG_MAX)) return send(res, 400, { error: "Картинка больше 8 МБ" });
         const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
+        delete n.discussError;
         n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
         if (n.discuss) { save(); return send(res, 200, { ok: true }); }
         n.discuss = "queued"; enqueue({ type: "discuss", id: n.id }); return send(res, 200, { ok: true });
@@ -1199,7 +1207,7 @@ ${S.notes || "—"}
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент сейчас отвечает в обсуждении — сбросить можно после ответа" });
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Сбросить чат можно будет после перечитывания" });
-        delete n.chat; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
+        delete n.chat; delete n.discussError; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
         return send(res, 200, { ok: true });
       }
       if (p === "/api/cancel") {

@@ -144,6 +144,19 @@ try {
   e = await wait(); assert.equal(e.type, "discuss"); assert.equal(e.scope, "idea");
   await reply(e, { answers: [{ id: count, messageIds: [e.messages.at(-1).id], status: "weak", verdict: "Region missing" }], questions: [{ key: "$region", parentId: idea.id, q: "Which region?", options }], links: ["$region"] });
   assert.equal((await state()).nodes.find(n => n.id === idea.id).status, "open");
+  // Explicit context-limit errors must not starve independent queued answers.
+  await request("init", { title: "Large map", questions: [{ q: "Original leaf", options }] });
+  const leaf = (await state()).nodes.find(n => n.kind === "q").id;
+  e = await begin("root");
+  const many = Array.from({ length: 499 }, (_, i) => ({ key: "$large" + i, parentId: "root", q: "Large-map question " + i, options }));
+  await reply(e, { questions: many, links: many.map(q => q.key) });
+  await request("discuss", { id: "root", message: "Preserve this oversized request" });
+  await request("answer", { id: leaf, answer: "Independent answer" });
+  await request("wait?timeout=5", undefined, 400);
+  s = await state(); assert.ok(s.nodes[0].discussError); assert.equal(s.nodes[0].discuss, null);
+  assert.equal(s.nodes[0].chat.at(-1).text, "Preserve this oversized request");
+  e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.id, leaf);
+  await request("apply", { type: "answer", id: leaf, token: e.token, status: "ok", verdict: "Independent work completes" });
   console.log("Discussion questions checks passed");
 } finally {
   await stop();

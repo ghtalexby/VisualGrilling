@@ -317,6 +317,7 @@ function stateErrors(state){
     ["spec",state.specError],
     ["reread",state.rereadResult?.error],
     ["reevaluation",state.reevaluationError?.error],
+    ...state.nodes.map(n=>["discuss:"+n.id,n.discussError]),
     ...state.nodes.filter(n=>n.kind==="preview").map(n=>["preview:"+n.id,n.error])
   ].filter(([,error])=>error));
 }
@@ -623,6 +624,7 @@ function discussTab(n){
   const chat=n.chat||[];
   let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
+  if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
   const busy=n.discuss==="thinking";
   if(busy)b+=working("Агент пишет ответ…");
   else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
@@ -746,7 +748,7 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(){
   const p=$("#panel");
