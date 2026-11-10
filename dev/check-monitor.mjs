@@ -152,13 +152,22 @@ try {
   status = await pending(); e = await event(status.delivery); assert.equal(e.type, "discuss");
   const beforeReread = calls().length;
   await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Continued", reread: true });
-  assert.equal((await api("monitor")).delivery, status.delivery, "Nested enqueue inside apply must not re-arm");
+  assert.deepEqual(await api("monitor"), { phase: "ready", delivery: null, error: null }, "Nested enqueue inside apply must not re-arm or expose a completed delivery");
   assert.equal(calls().length, beforeReread);
   await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "reread");
   await api("apply", { type: "reread", token: e.token, reserve: [], audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport test" })) });
   await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "knowledge");
   await api("apply", { type: "knowledge", token: e.token, files: [] });
   await arm(); assert.equal((await api("monitor")).phase, "armed");
+  // A save-only browser mutation must also replace a now-stale finish delivery.
+  await api("finish", {}); status = await pending(); e = await event(status.delivery);
+  if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [] }); await arm(); status = await pending(); e = await event(status.delivery); }
+  assert.equal(e.type, "finish");
+  const resetDelivery = status.delivery;
+  await api("chatreset", { id: "root" });
+  await until(async () => (await api("monitor")).delivery !== resetDelivery);
+  status = await pending(); await api("monitor?delivery=" + resetDelivery, undefined, 409);
+  assert.equal((await event(status.delivery)).type, "knowledge");
   // Finish cancels an automatic reread that was already sent to the host.
   await stop(); await api("init", { title: "Cancel reread", questions: [{ q: "Question?" }] });
   const q = (await api("state")).nodes.find(n => n.kind === "q");
