@@ -48,6 +48,8 @@ Use the same method for all `apply` payloads. Do not interpolate JSON into execu
 
 ## Event handling
 
+When the current Codex session fetches an event through `monitor --event`, use these same event/apply rules. Do not start wait/watch, re-arm monitor during apply, or create a worker session. The caller re-arms after the complete result, and saves report/drains/stops after a new finish.
+
 Across answer/discussion/question ancestor context, `more.mainQuestions`, reread and spec snapshots, `obsolete` marks historical decisions. Do not use those answers as current requirements or treat those questions as unresolved blockers. Non-obsolete descendants can still be relevant. Discussion of an obsolete card may establish evidence for restoration, but only a subsequent reread applies `restore`; do not suggest submitting an answer while it remains obsolete.
 
 - `{"type":"answer", ...}`: grade the answer using the rules below, send the result, then return:

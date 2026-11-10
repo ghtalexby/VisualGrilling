@@ -1,0 +1,171 @@
+// Real map server and CLI, with a fake Codex transport: never calls a model.
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import http from "node:http";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-monitor-"));
+const base = path.join(cwd, "maps"), map = path.join(base, "check");
+const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
+const owner = "11111111-1111-1111-1111-111111111111";
+const log = path.join(cwd, "calls.jsonl"), mode = path.join(cwd, "mode.txt"), fake = path.join(cwd, "codex.cjs");
+const bindingFile = path.join(base, "agent-connection.json");
+const binding = { provider: "codex", id: owner, command: process.execPath, args: [fake] };
+const children = new Set();
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+let server, url;
+const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
+const calls = () => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse) : [];
+function run(args) {
+  const child = spawn(process.execPath, [cli, ...args, "--dir", base, "--name", "check"], { cwd, windowsHide: true, env: { ...process.env, CODEX_THREAD_ID: owner }, stdio: ["ignore", "pipe", "pipe"] });
+  children.add(child);
+  let stdout = "", stderr = "";
+  child.stdout.on("data", data => stdout += data); child.stderr.on("data", data => stderr += data);
+  const done = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", code => { children.delete(child); resolve({ code, stdout, stderr }); });
+  });
+  return { child, done };
+}
+async function until(check) { for (let i = 0; i < 150; i++) { if (await check()) return; await sleep(50); } throw Error("Timed out"); }
+async function start() {
+  server = run(["serve", "--port", "0"]);
+  await until(() => { try { const info = read(path.join(map, "server.json")); if (info.pid !== server.child.pid) return false; url = info.url; return true; } catch { return false; } });
+}
+async function api(route, body, expected = 200, headers = { "x-grill": "1" }) {
+  const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { ...headers, "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+  assert.equal(r.status, expected, await r.clone().text()); return r.json();
+}
+const arm = () => api("monitor", { action: "arm", owner });
+const stop = () => api("monitor", { action: "stop" });
+async function pending(phase = "pending") { await until(async () => (await api("monitor")).phase === phase); return api("monitor"); }
+const event = delivery => api("monitor?delivery=" + delivery);
+const grade = e => api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked", children: [] });
+const watchdog = setTimeout(() => { for (const child of children) child.kill(); }, 90000);
+try {
+  fs.mkdirSync(map, { recursive: true });
+  fs.writeFileSync(fake, `const fs=require("node:fs");fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(process.argv.slice(2))+"\\n");const mode=fs.existsSync(${JSON.stringify(mode)})?fs.readFileSync(${JSON.stringify(mode)},"utf8"):"";if(mode==="warning")console.error("Cannot resume");if(mode==="fail")process.exit(1);`);
+  await start();
+  await api("init", { title: "Monitor", questions: [{ q: "First?" }, { q: "Second?" }, { q: "Leave open?" }] });
+  await api("monitor", { action: "arm", owner }, 409);
+  fs.writeFileSync(bindingFile, JSON.stringify(binding));
+  await api("monitor", { action: "arm", owner: "other" }, 409);
+  await api("monitor", { action: "bogus", owner }, 400);
+  await api("monitor", { action: "arm", owner }, 403, {});
+  await api("monitor", undefined, 403, {});
+  const forbidden = await new Promise((resolve, reject) => {
+    const req = http.request(url + "api/monitor", { headers: { "x-grill": "1", Host: "evil.example" } }, res => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+    req.on("error", reject); req.end();
+  });
+  assert.equal(forbidden, 403);
+  assert.equal((await arm()).phase, "armed");
+  await sleep(350); assert.equal(calls().length, 0, "Idle must not invoke Codex");
+  assert.equal((await api("state")).listening, true);
+  assert.equal((await arm()).phase, "armed");
+  await api("wait?timeout=5", undefined, 409);
+  await api("init", { title: "Reset" }, 409);
+  const ids = (await api("state")).nodes.filter(n => n.kind === "q").map(n => n.id);
+  await api("answer", { id: ids[0], answer: "Do not put this user text into the wake prompt" });
+  await api("answer", { id: ids[1], answer: "Second queued answer" });
+  let status = await pending(), e = await event(status.delivery);
+  assert.equal(e.id, ids[0]); assert.equal(calls().length, 1);
+  assert.deepEqual(calls()[0].slice(0, 3), ["queue", "--thread", owner]);
+  assert.equal(calls()[0].at(-1), "--resume");
+  assert.ok(calls()[0][4].includes(status.delivery));
+  assert.ok(!calls()[0][4].includes(e.answer));
+  assert.equal((await arm()).delivery, status.delivery);
+  await api("apply", { type: "notes", text: "Still processing" });
+  assert.equal((await api("monitor")).delivery, status.delivery);
+  await grade(e); await api("monitor?delivery=" + status.delivery, undefined, 409);
+  assert.equal(calls().length, 1, "Apply must not re-arm implicitly");
+  await arm(); status = await pending(); e = await event(status.delivery);
+  assert.equal(e.id, ids[1]); await grade(e);
+  assert.equal((await run(["monitor"]).done).code, 0);
+  assert.equal(JSON.parse((await run(["monitor", "--status"]).done).stdout).phase, "armed");
+  assert.equal((await run(["monitor", "--event", "bad"]).done).code, 1);
+  assert.equal((await run(["monitor", "--status", "--stop"]).done).code, 1);
+  await stop();
+  const waiter = run(["wait", "--timeout", "5"]);
+  await sleep(500); await api("monitor", { action: "arm", owner }, 409);
+  await api("answer", { id: ids[2], answer: "Manual delivery" });
+  e = JSON.parse((await waiter.done).stdout);
+  await api("monitor", { action: "arm", owner }, 409);
+  // Leave a manual delivery unfinished, then restart: it must be recoverable by monitor.
+  await api("stop", {}); await server.done; await start();
+  assert.equal((await api("monitor")).phase, "off");
+  await arm(); status = await pending();
+  const recovered = await event(status.delivery); assert.equal(recovered.id, e.id); assert.notEqual(recovered.token, e.token);
+  await stop(); await api("monitor?delivery=" + status.delivery, undefined, 409);
+  const manual = await api("wait?timeout=5"); assert.notEqual(manual.token, recovered.token); await grade(manual);
+  // Use discussions for transport failures without triggering answer-edit rereads.
+  fs.writeFileSync(mode, "warning"); await arm();
+  // Automatic reread may be the next event after all answers close; any event tests delivery.
+  status = await pending("failed"); assert.ok(status.error); assert.ok(await event(status.delivery));
+  const count = calls().length; await arm(); await sleep(200); assert.equal(calls().length, count, "Warnings must not retry or duplicate");
+  // Restart while a monitored event is unfinished: stale notification rejected, work retained.
+  const stale = status.delivery;
+  await api("stop", {}); await server.done; await start();
+  await api("monitor?delivery=" + stale, undefined, 409);
+  fs.writeFileSync(mode, "fail"); await arm(); status = await pending("failed"); assert.ok(status.error); assert.ok(await event(status.delivery));
+  await stop();
+  // Rebinding cannot silently route a subscription into another session.
+  await api("stop", {}); await server.done; await start();
+  await api("init", { title: "Binding", questions: [{ q: "Question?" }] });
+  await arm(); fs.writeFileSync(bindingFile, JSON.stringify({ ...binding, id: "22222222-2222-2222-2222-222222222222" }));
+  const id = (await api("state")).nodes.find(n => n.kind === "q").id;
+  await api("answer", { id, answer: "Keep queued" });
+  status = await pending("failed"); assert.equal(status.delivery, null);
+  assert.equal((await api("state")).nodes.find(n => n.id === id).pending.stage, "queued");
+  await stop(); fs.writeFileSync(bindingFile, JSON.stringify(binding)); fs.writeFileSync(mode, "");
+  await api("init", { title: "Invalidation", questions: [{ q: "Leave open?" }] });
+  await arm();
+  const idea = await api("idea", { id: "monitor-idea", text: "Initial idea" });
+  status = await pending(); const ideaDelivery = status.delivery;
+  await api("idea/edit", { id: idea.id, revision: 1, text: "Changed idea" });
+  await until(async () => (await api("monitor")).delivery !== ideaDelivery);
+  status = await pending(); assert.notEqual(status.delivery, ideaDelivery);
+  await api("monitor?delivery=" + ideaDelivery, undefined, 409);
+  assert.equal((await event(status.delivery)).type, "idea");
+  // New answers invalidate a delivered finish without blocking the queue.
+  await stop(); await api("init", { title: "Finish recovery", questions: [{ q: "Question?" }] });
+  await api("finish", {}); await arm(); status = await pending(); e = await event(status.delivery);
+  assert.equal(e.type, "knowledge"); await api("apply", { type: "knowledge", token: e.token, files: [] }); await arm();
+  status = await pending(); const finish = await event(status.delivery); assert.equal(finish.type, "finish");
+  const finishDelivery = status.delivery;
+  const question = (await api("state")).nodes.find(n => n.kind === "q");
+  await api("answer", { id: question.id, answer: "Arrived during finish" });
+  await api("apply", { type: "finish", token: finish.token, summary: "Stale" }, 409);
+  status = await pending(); assert.notEqual(status.delivery, finishDelivery);
+  e = await event(status.delivery); assert.equal(e.type, "answer"); await grade(e);
+  await arm(); status = await pending(); e = await event(status.delivery);
+  assert.equal(e.type, "knowledge");
+  await api("apply", { type: "knowledge", token: e.token, files: [] });
+  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "finish");
+  await api("apply", { type: "finish", token: e.token, summary: "Finished" });
+  assert.equal((await api("state")).finished, true);
+  await stop();
+  // Explicit continuation retains finished/summary but serves new discussions.
+  await arm(); await api("discuss", { id: "root", message: "Continue this map" });
+  status = await pending(); e = await event(status.delivery); assert.equal(e.type, "discuss");
+  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Continued" });
+  await arm(); assert.equal((await api("monitor")).phase, "armed");
+  // Finish cancels an automatic reread that was already sent to the host.
+  await stop(); await api("init", { title: "Cancel reread", questions: [{ q: "Question?" }] });
+  const q = (await api("state")).nodes.find(n => n.kind === "q");
+  await api("answer", { id: q.id, answer: "Closed" }); await grade(await api("wait?timeout=5"));
+  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "reread");
+  const rereadDelivery = status.delivery;
+  await api("finish", {}); status = await pending();
+  assert.notEqual(status.delivery, rereadDelivery); await api("monitor?delivery=" + rereadDelivery, undefined, 409);
+  assert.equal((await event(status.delivery)).type, "knowledge");
+  console.log("Monitor checks passed: idle, wake, serial delivery, CLI, conflicts, stale events, restart, errors, rebinding and API protection");
+} finally {
+  clearTimeout(watchdog);
+  for (const child of children) child.kill();
+  await Promise.allSettled([...children].map(child => new Promise(resolve => child.once("close", resolve))));
+  // cwd is the unique mkdtemp directory owned by this check.
+  fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+}

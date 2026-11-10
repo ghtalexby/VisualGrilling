@@ -12,6 +12,7 @@ Common options: `--dir <directory>` selects the maps root (default `.grill` unde
 | `init` | JSON on stdin | `{"ok":true,"questions":N}` |
 | `wait [--timeout 280]` | — | One event or `{"type":"timeout","waitingAnswers":N,"waitingDiscussions":M}` |
 | `watch [--timeout 280] [--max-wait 1800] [--inbox]` | — | Swallows timeouts; prints one event, or a timeout body with `expired:true`; exits 0 |
+| `monitor [--status \| --stop \| --event <delivery>]` | Bound `CODEX_THREAD_ID` for arming | Arms a Codex subscription, inspects/stops it, or fetches an exact delivery; returns immediately |
 | `apply` | JSON on stdin | `{"ok":true,"added":N}`, `{"ok":true}`, or spec and reread results below |
 | `config` | Optional `<--dir>/config.json` | Merged griller model, no server required |
 | `status` | — | `{name,title,url,counts,queue,finished}` |
@@ -24,11 +25,23 @@ Common options: `--dir <directory>` selects the maps root (default `.grill` unde
 | `stop` | — | Stops the server, preserving the map |
 | `serve [--lang en\|ru] [--locale file.json]` | — | Runs the server in the foreground |
 
-`list` includes the root map and validly named subdirectories with `state.json`. Root `name` is null. `updated` is the state file's mtime in UTC ISO format. `url` is null for stopped servers. `listening` means a live `wait` or activity within 180 seconds, and is false when stopped.
+`list` includes the root map and validly named subdirectories with `state.json`. Root `name` is null. `updated` is the state file's mtime in UTC ISO format. `url` is null for stopped servers. `listening` means an armed monitor, a live `wait` or activity within 180 seconds, and is false when stopped.
 
 Exit codes: 0 success; 1 HTTP/input errors (CLI stderr uses `Ошибка <code>: <body>`, meaning Error) or invalid options; 2 server not running/responding, including a stale port belonging to a different `pid`.
 
 `watch` uses the same event delivery and recovery as `wait`; run at most one waiter per map. Its per-request timeout is clamped to 5–290 seconds. Total `--max-wait` is at least 5 seconds (default 1800), with no hard maximum. Both options accept finite positive seconds; invalid values exit 1. On expiry the outstanding request is aborted and the last server timeout body gains `expired:true`. If no timeout has arrived yet, the body is `{type:"timeout",waitingAnswers:0,waitingDiscussions:0,expired:true}` (counts are a fallback, not a fresh state query). A work event already read wins over expiry. An event taken at the cancellation boundary but not printed is recovered by the next waiter. Missing/unreachable servers exit 2, as for `wait`.
+
+## Codex event monitor
+
+`monitor` arms a process-local subscription owned by the existing map server. It requires a Codex binding created by `start` and an `owner` matching that binding; arbitrary browser thread/message fields cannot choose a wake target or prompt. It uses the same `takeEvent()` and `apply` contracts as `wait`. No event fields change, and the simulator's grading remains unchanged. Neither another process nor periodic model calls are needed while idle.
+
+Status is `{phase,delivery,error}`: `off`, `armed`, `notifying`, `pending`, or `failed`. Delivery is null until an event is reserved; otherwise it is a fresh UUID distinct from the event's apply token. Only protected `GET /api/monitor?delivery=...` returns the reserved event. It requires the exact ID, a still-current job and unchanged bound session. Completed, invalidated, stopped or pre-restart notifications return 409. Status and event fetches are read-only. CLI mode flags are mutually exclusive; malformed `--event` values exit 1.
+
+Arming rejects live waiters or unfinished manual work with 409. Repeated arm calls for the same active subscription/delivery are idempotent. `wait/watch` and `init` reject while a monitor exists. Successfully applying a result does not re-arm: the agent arms only after completing the event. `notes` and staged results retain the delivery. Browser actions received during grading remain queued. If an edit, new finish request or rejected stale apply invalidates unfinished monitored work, the still-active subscription automatically reserves replacement work and sends a new delivery ID. A finish invalidated by new work is requeued behind that work. This recovery never reactivates a stopped monitor. `monitor --stop` invalidates notification IDs without discarding pending work; the next ordinary wait can recover it. Restart disables the subscription and recovers work using the existing persistence rules; explicit continuation is required.
+
+On one event the server sends a fixed `codex queue --thread ... --message ... --resume` request and becomes pending. A transport error or stderr warning sets `failed` with a bounded diagnostic; no automatic resend occurs because the message might already be queued. The event remains available for manual processing. Payload errors also set `failed`, leaving recovery to the existing queue rules. Rebinding a root cannot redirect an old subscription into a different thread. Armed monitors count as listening; pending/failed/off use the existing activity grace period and current-work indicator. Successful queue submission does not itself prove the host resumed.
+
+Codex monitor mode remains one map per session. After a new finish, save report and drain the authoritative queue, then stop monitor while leaving the server readable. Explicit continuation of a finished map retains its previous summary and serves events until a new finish. No subscription survives server restart or enables parallel workers.
 
 ## Locale
 
@@ -55,7 +68,9 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`.
 | `GET /api/maps` | Header switcher | `{maps:[{name,title,counts,queue,finished,updated,url,listening,current}]}`; same discovery and ordering as `list`, with `current` for this server |
 | `GET /api/state` | UI polling, CLI status | State without `queue`, internal spec job/owner, internal reread job; includes `name` (null for legacy), queue length, listening, locale, spec progress, `rereadPending:null\|{stage,locked}` and `rereadResult:null\|{at,changed,summary?,error?}` (a new job clears the previous result) |
 | `GET /api/report` | CLI report | Markdown |
-| `GET /api/wait?timeout=N` | CLI wait | Event or timeout |
+| `GET /api/wait?timeout=N` | CLI wait | Event or timeout; 409 while monitor exists |
+| `GET /api/monitor[?delivery=<uuid>]` | CLI monitor | Status, or the exact current event; stale delivery returns 409 |
+| `POST /api/monitor` | CLI monitor | `{action:arm,owner:<bound thread UUID>}` or `{action:stop}`; returns monitor status |
 | `POST /api/locale` | CLI start | `{language,messages?}`; returns `{ok:true,language}`; 400 on invalid locale |
 | `POST /api/answer` | UI | `{id,answer}`; 404 missing question, 400 empty, 409 thinking, spec-locked or reread-locked. Replacing an existing answer also queues an automatic reread |
 | `GET /api/image?file=<name>` | UI | A stored chat image with its type and `nosniff`; 404 for an unknown or malformed name. The UI fetches it with `x-grill` and shows a blob URL |

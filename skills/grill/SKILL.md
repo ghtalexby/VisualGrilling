@@ -92,12 +92,23 @@ Use the same method for `init` and other `apply` payloads. Do not interpolate JS
 
 ### 4.0 Choose how to wait
 
-Prefer level 2 (section 4.4) when foreground workers with shell access are verified as well. Use level 1 only if the host supports a background shell command and automatically resumes you on completion. Otherwise use level 0. Codex uses level 0.
+Prefer level 2 (section 4.4) when foreground workers with shell access are verified as well. Use level 1 only if the host supports a background shell command and automatically resumes you on completion. Otherwise use level 0. Codex prefers the monitor workflow below after shared-server wake-up is verified, with level 0 as fallback.
 
 - Claude Code: Bash with `run_in_background`, `G watch --max-wait 1800`.
 - Kimi Code CLI: Bash with `run_in_background=true`, `G watch --max-wait 540` for its default ten-minute background limit. Use a longer value only if the user raised that limit.
 
 Host behavior varies by version: verify automatic completion wake-up and the host's background time limit before relying on level 1; otherwise fall back to level 0. Keep max-wait below that limit.
+
+### Codex monitor: event-driven wake-up
+
+Use this mode after `codex queue --resume` has demonstrably resumed an idle turn on this host. Launch Codex through its shared server, without `--no-daemon`. Run normal `G start` from the intended session to bind it, then initialize or continue the map normally. Keep one map per Codex session; monitor does not enable parallel workers.
+
+1. With no unfinished event or `wait/watch` process, run `G monitor` in the foreground. It returns immediately: the existing map server owns the subscription. On `phase:armed`, end your turn. Do not poll, sleep in a tool, or start `watch`. There are no periodic model calls and no 30-minute idle pause.
+2. A fixed host notification contains the absolute maps root, map name and delivery UUID. Fetch that exact event using `G monitor --event <delivery>` with the same `--dir` and `--name`. Follow `worker.md` and apply its result in this session. Never call `wait/watch` to fetch monitored work. If fetch returns 409, the notification is stale (completed, stopped, invalidated, rebound or restarted): ignore it and do not re-arm a stopped map. An active subscription automatically delivers replacement work after invalidation, including stale apply rejection; handle its new notification instead of replaying the old result.
+3. After successful apply, run `G monitor` again and end your turn. `phase:notifying` or `pending` means a single event has been reserved and its notification is being sent or has been queued; do not create another watcher. Repeated arm calls preserve that delivery. On explicit continuation, use `G monitor --status` and fetch its current delivery if one exists instead of waiting for another notification. Inspect current state before replaying uncertain results, especially tokenless `more`.
+4. After applying a NEW `finish` in this serving cycle, save `G report` and drain according to `G status` queue count. Once it is zero, run `G monitor --stop`, leave the server readable and end your turn. Continuing a previously finished map resets only your local drain flag; its persisted `finished` and summary do not stop subsequent monitor cycles.
+5. `phase:failed` means a payload/connection error or unconfirmed wake-up. Inspect `error` and, if present, fetch its delivery and finish that work manually. Do not retry notification automatically: the host may already have queued it. Diagnose the connection before re-arming; if automatic wake-up is unavailable, stop monitor and use level 0. Stopping a monitor leaves unfinished work recoverable by the next `wait`; finish current work before switching modes.
+6. `G monitor --status` is read-only; `G monitor --stop` disables future delivery and makes old notification IDs stale. Ordinary chat leaves an armed monitor in place. Never re-arm while applying work. Server restart disables monitor, invalidates old notifications and recovers unfinished work into the queue; explicitly continue with `G start` and `G monitor`. If the maps root was bound to another session, do not take it over without the user's direction.
 
 ### 4.1 Level 1: background wait
 
@@ -118,7 +129,7 @@ Read [worker.md](worker.md) and handle the delivered event exactly as described 
 
 ### 4.4 Level 2: dispatcher and per-event worker
 
-Use this level only with verified level 1 background wake-up AND a foreground subagent with shell access (Claude Code Agent tool; Kimi Code CLI `Agent`). Verify that the chosen worker model can run `G apply` before relying on this level. Otherwise keep level 1 or 0; Codex remains level 0.
+Use this level only with verified level 1 background wake-up AND a foreground subagent with shell access (Claude Code Agent tool; Kimi Code CLI `Agent`). Verify that the chosen worker model can run `G apply` before relying on this level. Otherwise keep level 1 or 0. Codex uses monitor or level 0 and handles events in the current session without worker delegation.
 
 Setup after init or when resuming:
 
@@ -168,7 +179,7 @@ Keep a served-map table: absolute maps root (`--dir`), `name` (null for legacy),
 
 ## Visual explanation events
 
-Handle `type:preview` using the preview section of `worker.md`. This narrowly authorizes producing preview files through `apply`, never editing or launching the reviewed application. Read `preview-format.md` before generating files. Prepare options, then await the user’s explicit build request in the normal sequential loop. Git is required; report errors without installing it. Codex keeps level 0 and one map per session. Preview work does not automatically delegate or create a parallel waiter.
+Handle `type:preview` using the preview section of `worker.md`. This narrowly authorizes producing preview files through `apply`, never editing or launching the reviewed application. Read `preview-format.md` before generating files. Prepare options, then await the user’s explicit build request in the normal sequential loop. Git is required; report errors without installing it. Codex keeps one map per session in monitor mode or level 0. Preview work does not automatically delegate or create a parallel waiter.
 
 
 Parent reassessments deliver complete affected ancestor branches in separate batches when necessary, bounded to 500 nodes per affected subtree and 600000 serialized characters including its ancestor context; unrelated map branches are not included. Context-only ancestor nodes preserve premises (including attached idea text) and are not assessment IDs. All pending batches survive restart, and frozen batches remain isolated from live state. `queueLength`, CLI `status.queue` and map-list `queue` include pending internal ancestor reassessments (including frozen ones); only drain when this authoritative count is zero. A whole-map reread exceeding these limits returns HTTP 400, records `rereadResult.error`, releases its job and answer lock, and suppresses automatic retries for the unchanged revision. Other queued events remain deliverable; a manual reread can retry after addressing the size. Context is never silently truncated. Merged-source answers, current verdicts and verdict histories remain visible in the drawer and both Markdown exports.

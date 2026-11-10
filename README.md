@@ -89,6 +89,8 @@ The default worker model is `inherit` in `skills/grill/config.default.json`. Set
 
 ## Parallel maps
 
-Levels 1/2 can serve several maps in one session with one background watch per map and sequential event handling. Codex/level 0 keeps one map per session. The header switcher uses protected, read-only `GET /api/maps` to show sibling maps under the same `--dir`; it never starts/stops servers. Finished maps are unwatched after their queue drains, but their servers remain readable. `watch --inbox` event and expired lines carry `name` (null for legacy). Run `node dev/check-maps.mjs`; real host validation is described in [docs/development.md](docs/development.md).
+Levels 1/2 can serve several maps in one session with one background watch per map and sequential event handling. Codex (monitor or level 0) keeps one map per session. The header switcher uses protected, read-only `GET /api/maps` to show sibling maps under the same `--dir`; it never starts/stops servers. Finished maps are unwatched after their queue drains, but their servers remain readable. `watch --inbox` event and expired lines carry `name` (null for legacy). Run `node dev/check-maps.mjs`; real host validation is described in [docs/development.md](docs/development.md).
 
 A fresh checkout includes the npm scripts and helpers, simulator fixture `dev/fixtures/init.json`, and `test-project/.gitkeep`. Runtime `.grill/` directories are ignored. Explicitly continuing a finished map resets only the dispatcher's local completion/drain flags; it stays served until a new finish event, while the server keeps the previous summary.
+
+Codex supports event-driven waiting through `grill.mjs monitor` after shared-server wake-up is verified: idle time does not trigger model turns. See [the monitor workflow](skills/grill/SKILL.md#codex-monitor-event-driven-wake-up) and [verification](docs/development.md#codex-monitor-verification). Blocking wait remains the fallback.

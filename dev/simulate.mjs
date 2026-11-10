@@ -8,6 +8,7 @@
 //     --inbox    read full events from inbox files (implies --watch)
 //     --watch    use background-compatible watch instead of wait
 // Play is a host-session transport, not a grading event; use check-connection.mjs for its fake-host checks.
+// Codex monitor keeps the same event/apply format; check-monitor.mjs tests its fake-host transport.
 //     --keep     continue the existing map without reinitializing it
 //     --name     use test-project/.grill/<name>; without it, use .grill directly
 //     --delay    simulated thinking time before apply, in milliseconds

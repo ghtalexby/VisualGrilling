@@ -46,6 +46,8 @@ When adding an endpoint:
 
 Inbox and session paths are fixed within the selected map directory and never taken from API requests. Only the server writes `session.md`; only `watch --inbox` writes `inbox.json`.
 
+Codex monitor is mutually exclusive with wait/watch. Keep its server state machine, fixed wake prompt, CLI, skill workflow and `dev/check-monitor.mjs` synchronized. Never send browser text as host instructions, retry ambiguous queue delivery automatically, or re-arm while applying an event. Monitor subscriptions are process-local; keep persisted work recovery independent of notification identity.
+
 `GET /api/maps` reads only the server's `--dir` root and valid sibling map directories, ignores request parameters, and never starts processes. Keep list discovery shared with CLI `list`. Escape map text and validate local link URLs in the switcher. `name` in inbox-mode watch lines identifies the map; plain watch stays compatible. Keep dispatcher rules, worker checks and map checks synchronized.
 
 ## Preview synchronization

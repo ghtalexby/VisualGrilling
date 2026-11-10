@@ -8,6 +8,7 @@ The interaction takes place on a browser map:
 
 - The agent works in the user's **current Codex or Claude Code session**, without an additional API key.
 - The map is a local page at `http://127.0.0.1:<port>/`, served by `grill.mjs`.
+- Codex can use an event-driven monitor after shared-server wake-up is verified: it ends its turn while idle, and the map server wakes the same session for one event at a time.
 - The browser queues events on the local server; the agent retrieves them with `wait` calls or a background `watch` on hosts with automatic wake-up and responds with `apply`.
 
 ## User workflow
@@ -21,7 +22,7 @@ The interaction takes place on a browser map:
 7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues the same review.
 8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
-A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 (Codex) requires separate sessions. Use the header switcher to visit sibling maps. Finishing drains queued actions, then stops listening while leaving the page readable.
+A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 and Codex monitor mode require separate sessions. Use the header switcher to visit sibling maps. Finishing drains queued actions, then stops listening while leaving the page readable.
 
 ## Language
 

@@ -57,6 +57,8 @@ Exercise grading `gap`, `ok`, and `verify`, discussion, more questions, finish, 
 
 ## Standalone checks
 
+- `node dev/check-monitor.mjs`: real server/CLI with a fake Codex executable; idle silence, single wake per event, sequential arming, waiter conflicts, stale IDs, failed/warned submissions, rebinding, restart recovery and Host/header protection. It never invokes a model.
+
 - `node dev/check-copy-browser.mjs`: optional Chromium/Node 22+ checks for copy hover placement, block boundaries, Unicode, history, pending/obsolete answers, clipboard failures, late completions and the unchanged export action. Set `GRILL_COPY_SCREENSHOT` to an output PNG path for a screenshot.
 
 - `node dev/check-maps.mjs`: shared list/API discovery, root and named maps, current flags, stopped maps, watch activity (including the 180-second recent-activity window, not a live-waiter-only assertion), Host/header protection, and inbox/expiry map identity in a temporary project.
@@ -72,15 +74,23 @@ These use temporary projects and preserve user maps. In a real session, create a
 
 ## Real agent session
 
+### Codex monitor verification
+
+Real-host transport acceptance on 2026-11-10 with Codex 0.167.0: after reopening the session through the shared server, a one-shot delayed `queue --resume` arrived after the assistant ended its turn, with exit 0 and empty stderr, and automatically started the next turn. The same attempt from the old standalone session had reported `already has an active writer`. Reverify after host changes; this transport check alone does not establish the complete map lifecycle.
+
+For map acceptance, run normal start/init in the intended session, then `G monitor` and end the turn. Leave the map idle for five minutes: no model turns should occur and the map should remain listening. Submit two answers: the first notification must fetch the exact delivery, apply it and re-arm before the second is handled. Check discussion, finish/report/drain/stop and explicit continuation of a finished map. `monitor --status` exposes delivery errors without resending. Restart only the disposable map server: monitor must be off, old delivery IDs rejected and unfinished events recoverable after explicit re-arm. Never run a waiter alongside monitor. Run connection, watch, worker, map and existing queue/spec checks alongside the monitor check. The simulator continues using wait/watch to validate shared event/apply behavior.
+
+### Other host background tasks
+
 For background waiting, first verify the installed host: run `sleep 60 && echo done` as a background Bash task and send nothing. Confirm automatic agent resumption and record the version/time limit. Claude Code uses `run_in_background` and max-wait 1800; Kimi uses `run_in_background=true` and max-wait 540 under its default ten-minute limit. If this is unsupported or unverified, use the blocking fallback.
 
-Then run a real-session “tea test”: start grilling and verify the agent arms watch and ends its turn; leave the map idle for 5+ minutes (no agent turns, still connected); submit an answer (automatic grading and re-arm); chat while armed (watch stays running); wait beyond max-wait (silent re-arm). Codex must still use level 0. CLI checks and the simulator do not validate host wake-up behavior.
+Then run a real-session “tea test”: start grilling and verify the agent arms watch and ends its turn; leave the map idle for 5+ minutes (no agent turns, still connected); submit an answer (automatic grading and re-arm); chat while armed (watch stays running); wait beyond max-wait (silent re-arm). Codex uses monitor after shared-server wake-up is verified, otherwise level 0. CLI checks and the simulator do not validate host wake-up behavior.
 
 For transport coverage run `node dev/simulate.mjs --watch --no-open --delay 200 --name sim-watch` on a disposable map and exercise answers, discussions, more, finish/report and spec. Compare with the normal simulator without `--watch`.
 
 Install once, restart the host, open your actual project, and invoke from chat. The agent starts the server; no separate server or simulator launch is needed.
 
-For Codex, run `npm run link:codex:global` from this repository, then ask `$grill grill my project`. Resume with `$grill continue grilling main`. Local test-workspace linking uses `npm run link:codex`. When invoking a Codex subprocess, always put `--no-daemon` before its subcommand.
+For Codex, run `npm run link:codex:global` from this repository, then ask `$grill grill my project`. Resume with `$grill continue grilling main`. Local test-workspace linking uses `npm run link:codex`.
 
 For Claude Code, run `npm run link:global`, then ask `grill my project`. Local test-workspace linking uses `npm run link`. Links point to the working skill, so edits are visible without recopying.
 
@@ -176,7 +186,9 @@ Real-agent acceptance must verify initial concrete reserve discovery and semanti
 
 Run `node dev/check-connection.mjs` for session binding, Codex argument transport using a fake CLI, Claude MCP initialization/notification transport, deduplication, stale channels, restart and protected HTTP routes. These checks never send prompts to a real model. Run browser checks for the status → Play → Stop order and preservation of drawers/drafts.
 
-For Codex, run the usual `grill.mjs start` from the intended session. The installed Codex must support `codex --no-daemon queue --thread <id> --message <text> --resume`. Play queues to that exact thread and attempts host resume; a host warning or unavailable daemon may require returning to the terminal. No fallback starts a second agent.
+For Codex, run the usual `grill.mjs start` from the intended session. The installed Codex must support `codex queue --thread <id> --message <text> --resume`. Play queues to that exact thread and attempts host resume; a host warning or unavailable daemon may require returning to the terminal. No fallback starts a second agent.
+
+Launch Codex normally for this transport. `queue` rejects `--no-daemon` because it needs the shared server. A session already open in a standalone `--no-daemon` process can reject shared-server resume with `already has an active writer`; starting the daemon alone does not migrate that session. End its current work, close that standalone session and resume it through normal `codex resume <thread-id>` before testing Play. Do not launch a competing agent against the same thread. A queued message or exit code 0 does not establish automatic wake-up; verify actual receipt after an idle turn before enabling event-driven monitoring.
 
 For Claude Code, register the channel once in the target project (replace paths):
 

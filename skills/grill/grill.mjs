@@ -6,6 +6,7 @@
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
 //   node grill.mjs wait   [--timeout 280]                            block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] wait across timeouts for one event
+//   node grill.mjs monitor [--status | --stop | --event <delivery>]  Codex event-driven wake-up
 //   node grill.mjs reread                 request a whole-map review
 //   node grill.mjs discuss < {"id":"...","message":"..."}  send a chat command
 //   node grill.mjs state                  inspect cards to identify a chat-command target
@@ -30,7 +31,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { locale, revision, translate, page } from "./i18n.mjs";
 import { previews } from "./preview.mjs";
 import { sessionUsage } from "./usage.mjs";
-import { bindSession, requestResume, ResumeError } from "./connection.mjs";
+import { bindSession, requestResume, codexConnection, requestWake, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
 import { knowledge, digest } from "./knowledge.mjs";
 
@@ -136,12 +137,15 @@ async function serve() {
   let lastActivity = 0;
   // Delivery identity is process-local: recovery queues work, but does not execute it.
   let currentWork = null;
+  // A monitor is a process-local, one-event subscription, never a second waiter.
+  let monitor = null;
+  const monitorStatus = () => monitor ? { phase: monitor.phase, delivery: monitor.delivery, error: monitor.error || null } : { phase: "off", delivery: null, error: null };
   function workIsCurrent() {
     if (!currentWork) return false;
     const { type, id, token, capturedForSpec } = currentWork;
     const n = S.nodes.find(n => n.id === id);
     if (type === "more") return S.morePending;
-    if (type === "finish") return S.finishPending && S.finishToken === token;
+    if (type === "finish") return S.finishPending && S.finishToken === token && S.finishRevision === mapRevision() && rereadReady() && !S.rereadJob && !S.knowledgeJob;
     if (type === "discuss") return n?.discuss === "thinking" && n.discussToken === token;
     const job = type === "answer" ? n?.pending : type === "preview" ? n?.job
       : type === "idea" ? capturedForSpec ? S.specJob?.ideaWork : n?.analysis
@@ -259,7 +263,7 @@ ${S.notes || "—"}
       fs.renameSync(tmp, file);
     } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
   }
-  const isListening = () => waiters.some(w => !w.res.destroyed) || Date.now() - lastActivity < 180000;
+  const isListening = () => monitor?.phase === "armed" || waiters.some(w => !w.res.destroyed) || Date.now() - lastActivity < 180000;
   // A running rebuild always locks answers. A requested one locks them only while an agent can reach it, and an automatic one never does, so edits in a row join a single run.
   const rereadLocked = () => !!S.rereadJob && (S.rereadJob.stage === "thinking" || !!S.rereadJob.manual && isListening());
   const rereadThinking = () => S.rereadJob?.stage === "thinking";
@@ -641,6 +645,17 @@ ${S.notes || "—"}
     else S.queue.unshift({ type: ev.type });
   }
   function pump() {
+    // Browser edits can invalidate reserved work before the host fetches/applies it.
+    // Keep that active subscription armed; completed work still needs explicit re-arm.
+    if (monitor?.event && !monitor.completed && !workIsCurrent()) {
+      if (monitor.event.type === "finish" && S.finishPending) {
+        delete S.finishToken;
+        if (!S.queue.some(e => e.type === "finish")) S.queue.push({ type: "finish" });
+        save();
+      }
+      currentWork = null;
+      monitor = { phase: "armed", owner: monitor.owner, delivery: null, event: null };
+    }
     waiters = waiters.filter(w => !w.res.destroyed);
     while (waiters.length) {
       // A reread may have to wait, so a waiter keeps its timer until an event really exists.
@@ -648,6 +663,30 @@ ${S.notes || "—"}
       const w = waiters.shift(); clearTimeout(w.timer);
       lastActivity = Date.now();
       send(w.res, 200, ev);
+    }
+    if (monitor?.phase === "armed" && !currentWork) {
+      const subscription = monitor;
+      try {
+        if (codexConnection(BASE).id !== subscription.owner) throw new Error("Сессия карты изменилась. Включите монитор заново.");
+        const event = takeEvent();
+        if (!event) return;
+        subscription.event = event;
+        subscription.delivery = randomUUID();
+        subscription.phase = "notifying";
+        lastActivity = Date.now();
+        void requestWake(BASE, NAME, subscription.owner, subscription.delivery).then(result => {
+          if (monitor !== subscription) return;
+          subscription.phase = result.resumeWarning ? "failed" : "pending";
+          if (result.resumeWarning) subscription.error = "Сообщение отправлено, но пробуждение Codex не подтверждено. Продолжите в сессии.";
+        }, () => {
+          if (monitor !== subscription) return;
+          subscription.phase = "failed";
+          subscription.error = "Не удалось подтвердить отправку события в Codex. Продолжите в сессии; событие сохранено.";
+        });
+      } catch (error) {
+        subscription.phase = "failed";
+        subscription.error = clean(Array.isArray(error) ? error[1] : error.message, 1000);
+      }
     }
   }
   function enqueue(e) { S.queue.push(e); save(); pump(); }
@@ -1085,6 +1124,12 @@ ${S.notes || "—"}
         return send(res, 200, { ...rest, sessionUsage: await readUsage(), knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
+      if (req.method === "GET" && p === "/api/monitor") {
+        if (!url.searchParams.has("delivery")) return send(res, 200, monitorStatus());
+        const delivery = clean(url.searchParams.get("delivery"), 80);
+        if (!monitor?.event || monitor.delivery !== delivery || !workIsCurrent() || codexConnection(BASE).id !== monitor.owner) throw [409, "Событие монитора устарело"];
+        return send(res, 200, monitor.event);
+      }
       if (req.method === "GET" && p === "/api/image") {
         const file = url.searchParams.get("file") || "";
         let data; try { if (IMG_RE.test(file)) data = fs.readFileSync(path.join(IMAGES, file)); } catch {}
@@ -1093,6 +1138,7 @@ ${S.notes || "—"}
         return res.end(data);
       }
       if (req.method === "GET" && p === "/api/wait") {
+        if (monitor) throw [409, "Сначала остановите монитор; wait/watch не могут работать одновременно с ним"];
         currentWork = null;
         lastActivity = Date.now();
         recoverKnowledge(); save();
@@ -1123,6 +1169,17 @@ ${S.notes || "—"}
       if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
       // Only a discussion message carries images: base64 of the allowed files plus its text.
       const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
+      if (p === "/api/monitor") {
+        if (b.action === "stop") { monitor = null; return send(res, 200, monitorStatus()); }
+        if (b.action !== "arm") throw [400, "Неизвестное действие монитора"];
+        const binding = codexConnection(BASE);
+        if (clean(b.owner, 80) !== binding.id) throw [409, "Включите монитор из привязанной сессии Codex"];
+        if (waiters.some(w => !w.res.destroyed)) throw [409, "Сначала завершите wait/watch"];
+        if (monitor?.owner === binding.id && (monitor.phase === "armed" || workIsCurrent())) return send(res, 200, monitorStatus());
+        if (currentWork) throw [409, "Сначала завершите обработку текущего события"];
+        monitor = { phase: "armed", owner: binding.id, delivery: null, event: null };
+        pump(); return send(res, 200, monitorStatus());
+      }
       if (p.startsWith("/api/preview/")) {
         if (rereadThinking()) throw [409, "Дождитесь завершения перечитывания"];
         return send(res, 200, preview.route("POST", p, b));
@@ -1295,6 +1352,7 @@ ${S.notes || "—"}
         return send(res, 200, { ok: true, path: S.specFile });
       }
       if (p === "/api/init") {
+        if (monitor) throw [409, "Перед инициализацией остановите монитор"];
         const roots = (Array.isArray(b.questions) ? b.questions : []).slice(0, 8);
         if (!roots.length) return send(res, 400, { error: "Нужен хотя бы один вопрос в questions" });
         const questions = roots.map((o, i) => mkQ(o, "root", { prio: i + 1 })).filter(Boolean);
@@ -1311,7 +1369,14 @@ ${S.notes || "—"}
         if (S.finishPending) return send(res, 409, { error: "Дождитесь завершения грилинга и повторите попытку." });
         return send(res, 200, await requestResume(BASE, NAME));
       }
-      if (p === "/api/apply") { const result = apply(b); pump(); return send(res, 200, result); }
+      if (p === "/api/apply") {
+        let result;
+        try { result = apply(b); }
+        catch (error) { if (monitor) pump(); throw error; }
+        const event = monitor?.event;
+        if (event && event.type === b.type && event.id === b.id && event.token === b.token && !workIsCurrent()) monitor.completed = true;
+        pump(); return send(res, 200, result);
+      }
       if (p === "/api/stop") { send(res, 200, { ok: true }); setTimeout(() => { try { fs.unlinkSync(INFO); } catch {} process.exit(0); }, 100); return; }
       return send(res, 404, { error: "not found" });
     } catch (e) {
@@ -1448,6 +1513,15 @@ const commands = {
   "knowledge-skip": async () => console.log(await api("POST", "/api/knowledge-skip", {})),
   state: async () => console.log(await api("GET", "/api/state")),
   wait: async () => console.log(await api("GET", `/api/wait?timeout=${Number(opt("timeout", 280))}`)),
+  monitor: async () => {
+    if (["status", "stop", "event"].filter(has).length > 1) throw new Error("Выберите только один режим монитора");
+    if (has("status")) console.log(await api("GET", "/api/monitor"));
+    else if (has("event")) {
+      const delivery = opt("event", "");
+      if (!/^[0-9a-f-]{36}$/i.test(delivery)) throw new Error("--event: нужен идентификатор доставки");
+      console.log(await api("GET", `/api/monitor?delivery=${encodeURIComponent(delivery)}`));
+    } else console.log(await api("POST", "/api/monitor", { action: has("stop") ? "stop" : "arm", owner: process.env.CODEX_THREAD_ID }));
+  },
   watch: async () => {
     const seconds = (name, fallback) => {
       const value = Number(opt(name, fallback));
@@ -1495,5 +1569,5 @@ const commands = {
     if (await alive()) { await api("POST", "/api/stop", {}); for (let i = 0; i < 20 && await alive(); i++) await new Promise(r => setTimeout(r, 150)); }
     console.log("Сервер карты остановлен. Карта сохранена в " + STATE); },
 };
-if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | apply | spec | reread | discuss | state | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
+if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | monitor | apply | spec | reread | discuss | state | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
 commands[cmd]().catch(e => { console.error(e && e.message || e); process.exit(1); });
