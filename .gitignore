@@ -12,3 +12,12 @@ test-project/.claude/skills/grill
 /docs/specs/
 /docs/todo/
 /docs/plans/
+/memory/code-index.db
+/memory/code-index.db-*
+/memory/runtime/
+/memory/agent-runs/thread-dialogues/*.lock*
+/memory/thread-agents/*.tmp
+/cm
+/cm.exe
+test-project/docs/specs/grill-sim-test-2.md
+test-project/docs/specs/grill-sim-test-3.md
