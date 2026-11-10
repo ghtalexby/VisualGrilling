@@ -400,5 +400,18 @@ try {
   const combined = (await state()).nodes.find(n => n.id === provenanceIds[0]);
   assert.equal(combined.answer, "Combined synthesis"); assert.equal(combined.answerSource, undefined);
   assert.ok(combined.mergedFrom.every(n => n.answer === "Original user wording" && n.answerSource.id === "root"));
+  // Discussion replacement of a decision must reconsider other branches based on its old answer.
+  await request("init", { title: "Cross-branch discussion edit", questions: ["Decision?", "Dependent?", "Unrelated open?"].map(q => ({ q, options })) });
+  const editIds = (await state()).nodes.filter(n => n.kind === "q").map(n => n.id);
+  await grade(editIds[0], "Old user decision");
+  await request("reread", {}); e = await wait();
+  await reread(e, { close: [{ id: editIds[1], source: editIds[0], verdict: "Old decision settles this" }] });
+  await request("discuss", { id: "root", message: "New incompatible decision" }); e = await wait();
+  await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Updated; reviewing dependencies", answers: [{ id: editIds[0], messageIds: [e.messages.at(-1).id], status: "ok", verdict: "User changed decision" }] });
+  assert.equal((await state()).rereadPending.stage, "queued");
+  e = await wait(); assert.equal(e.type, "reread");
+  assert.equal(e.nodes.find(n => n.id === editIds[0]).answer, "New incompatible decision");
+  assert.equal(e.nodes.find(n => n.id === editIds[1]).answer, "Old user decision");
+  await reread(e);
   console.log("Reread checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

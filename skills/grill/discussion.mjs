@@ -1,7 +1,7 @@
 // Build a discussion transaction without mutating live state or frozen specifications.
 export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, clean }) {
   const next = structuredClone(nodes), byId = new Map(next.map(n => [n.id, n]));
-  const source = byId.get(sourceId), refs = new Map(), added = [], touched = new Set();
+  const source = byId.get(sourceId), refs = new Map(), added = [], edited = [], touched = new Set();
   const bad = message => { throw [400, message]; };
   const text = (value, limit) => {
     if (typeof value !== "string" || value.trim().length > limit) bad("Текст обсуждения превышает лимит или имеет неверный тип");
@@ -48,11 +48,12 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
     const answer = text(messages.map(m => m.text).join("\n\n"), 2000), verdict = text(a.verdict, 400);
     if (!verdict || !["ok", "weak", "gap", "verify"].includes(a.status)) bad("Нужны отдельная оценка и вердикт для каждого ответа");
     const at = Date.now(), provenance = { id: sourceId, q: source.text || source.q || "", messageIds: [...a.messageIds], at };
+    if (n.answer && n.answer !== answer) edited.push(n.id);
     if (n.answer) n.answerHistory = [...(n.answerHistory || []), { answer: n.answer, status: n.status, verdict: n.verdict, source: n.answerSource || null, at }];
     n.answer = answer; n.answerSource = provenance;
     recordVerdict(n, a.status, verdict); targets.add(n.id); touched.add(n.id);
   }
-  return { nodes: next, links, touched: [...touched], added: added.length };
+  return { nodes: next, links, edited, touched: [...touched], added: added.length };
 }
 
 // Parts are persisted staging only. The final part validates and commits everything together.

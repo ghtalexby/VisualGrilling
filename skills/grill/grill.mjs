@@ -824,6 +824,7 @@ ${S.notes || "—"}
         target.chat = [...(target.chat || []), { id: randomUUID(), from: "user", text: message, at: Date.now() }];
         if (!target.discuss) { target.discuss = "queued"; S.queue.push({ type: "discuss", id: target.id }); }
       }
+      if (result.edited.length) { requestReread(false); if (S.rereadJob) S.rereadJob.settled = true; }
       if (b.reread) requestReread(true);
       save(); return { ok: true };
     }
