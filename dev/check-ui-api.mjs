@@ -51,6 +51,7 @@ try {
   const headerContext = vm.createContext({
     S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false, resumeSending: false,
     showObsolete: false, coverageText: () => "", qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
+    renderUsage: () => {}, // Token rendering is outside this isolated Stop-button check.
     $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute(key, value) { this[key] = value; } }
   });
   const headerCode = ui.match(/function renderHeader\(\)\{[\s\S]*?\n\}/)[0] + "\nrenderHeader();";
