@@ -95,3 +95,5 @@ Discussion questions appear automatically on the map, including questions from p
 The independent Obsolete toggle adds historical cards to the selected status results regardless of their old grade. It defaults off and is remembered separately for each map in the browser. Historical ancestors needed by current descendants remain dimmed context even with the toggle off; they never count as active tasks.
 
 The agent status line names the task currently delivered for this map (reviewing an answer, writing a reply, rereading, preparing a spec, and other task types). Its green dot breathes while that task remains unfinished, even after the connection grace period expires. The existing animated brand icon remains. Idle connected agents show the usual connection label; server outages keep their separate message. Reduced-motion preferences disable animation while retaining the task text.
+
+The header also shows cumulative tokens for the bound Codex session, including work outside the map. Expand it for input, cache, output and reasoning counts. Unsupported or unavailable statistics show no data.

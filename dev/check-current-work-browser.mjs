@@ -41,6 +41,17 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
 
+  assert.equal(await js('document.querySelector("#usageTotal").textContent'), "Session tokens: no data");
+  await js('window.originalApi=api;api=async(...args)=>{const d=await originalApi(...args);if(args[0]==="/api/state")d.sessionUsage={total_tokens:120,input_tokens:100,cached_input_tokens:80,output_tokens:20,reasoning_output_tokens:5};return d};poll()');
+  assert.equal(await js('document.querySelector("#usageTotal").textContent'), "Session tokens: 120");
+  assert.equal(await js('document.querySelector("#usageDetails").textContent.startsWith("Input: 100\\nCached: 80\\nOutput: 20\\nReasoning: 5")'), true);
+  assert.equal(await js('/[А-Яа-я]/.test(document.querySelector("#usageDetails").textContent)'), false);
+  await js('document.querySelector(".session-usage").open=true;poll()');
+  assert.equal(await js('document.querySelector(".session-usage").open'), true);
+  await js('offline=true;renderHeader()');
+  assert.equal(await js('document.querySelector("#usageTotal").textContent'), "Session tokens: no data");
+  await js('api=originalApi;document.querySelector(".session-usage").open=false;poll()');
+
   const id = (await api("state")).nodes.find(n => n.kind === "q").id;
   await api("answer", { id, answer: "Test" });
   const e = await api("wait?timeout=5");

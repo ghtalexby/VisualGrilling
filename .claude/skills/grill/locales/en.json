@@ -1,4 +1,12 @@
 {
+  "Токены сессии: нет данных": "Session tokens: no data",
+  "Токены сессии:": "Session tokens:",
+  "Вход:": "Input:",
+  "Из кэша:": "Cached:",
+  "Выход:": "Output:",
+  "Рассуждения:": "Reasoning:",
+  "Вся сессия, включая работу вне карты. Кэш и рассуждения входят в соответствующие счётчики.": "Entire session, including work outside this map. Cache and reasoning are included in their respective counters.",
+  "Статистика сессии недоступна.": "Session usage is unavailable.",
   "Агент разбирает ответ…": "Agent is reviewing an answer…",
   "Агент пишет ответ…": "Agent is writing a reply…",
   "Агент перечитывает карту…": "Agent is rereading the map…",

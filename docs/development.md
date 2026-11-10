@@ -206,3 +206,7 @@ Large discussion results use numbered staged parts and one final commit; interme
 An oversized full-map discussion context returns HTTP 400, records `node.discussError`, and releases only that failed delivery so unrelated queued work can continue. The UI shows the error; all user messages remain saved. After addressing the context limit, send another message to retry the thread (all messages since the last agent reply are delivered together). Resetting the chat clears the error. This is a failed discussion, never a successful partial result.
 
 Run `node dev/check-current-work.mjs` for delivery versus queued work, notes/staged discussion, stale tokens, cancellation, restart, and more-question recovery. `node dev/check-current-work-browser.mjs` checks task labels in RU/EN, elapsed listening, reload, offline precedence, both animations, narrow layout and reduced motion. Existing event suites also assert active delivery types through the shared knowledge fixture.
+
+## Session usage validation
+
+Run `node dev/check-usage.mjs` for isolated rollout fixtures, partial writes, repeated totals, session rebinding, invalid data, missing providers, HTTP protection and restart. Run locale and current-work browser checks for the header. For real Codex acceptance, start from the intended session and compare the expanded counter with its cumulative usage after another model response; the internal rollout may be flushed with a delay. Counts include work before map launch.

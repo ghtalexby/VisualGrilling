@@ -1,6 +1,7 @@
 // Resume requests target an existing host session; never start a second agent.
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -40,7 +41,7 @@ export function bindSession(base) {
   }
   if (!command) return;
   fs.mkdirSync(base, { recursive: true });
-  write(bindingFile(base), { provider: "codex", id: thread, command, args });
+  write(bindingFile(base), { provider: "codex", id: thread, command, args, codexHome: path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), ".codex")) });
 }
 
 export async function requestResume(base, name) {

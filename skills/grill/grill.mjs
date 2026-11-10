@@ -29,6 +29,7 @@ import { promisify } from "node:util";
 import { randomUUID, createHash } from "node:crypto";
 import { locale, revision, translate, page } from "./i18n.mjs";
 import { previews } from "./preview.mjs";
+import { sessionUsage } from "./usage.mjs";
 import { bindSession, requestResume, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
 import { knowledge, digest } from "./knowledge.mjs";
@@ -93,6 +94,7 @@ async function doubleClickTime() {
 /* ============================== server ============================== */
 async function serve() {
   fs.mkdirSync(DIR, { recursive: true });
+  const readUsage = sessionUsage(BASE);
   let S = readJSON(STATE) || freshState();
   S.notes = clean(S.notes, 3000);
   S.locale = has("lang") || has("locale") ? requestedLocale() : locale(S.locale, true);
@@ -1080,7 +1082,7 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
         const { queue, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
-        return send(res, 200, { ...rest, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
+        return send(res, 200, { ...rest, sessionUsage: await readUsage(), knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/image") {
