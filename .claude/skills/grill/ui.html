@@ -204,7 +204,18 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 .node.unread{box-shadow:0 0 0 3px var(--accent)}
 .chip[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
 .zoom button{width:auto;min-width:32px;padding:0 9px}
-.msg [data-copy]{display:block;margin-top:8px}
+.copy-block{position:relative;padding-right:48px;min-height:36px;flex-shrink:0;overflow-wrap:anywhere}
+.copy-block>p{white-space:pre-wrap}
+.copy-block>.copy-button{position:absolute;right:6px;top:6px;width:28px;height:28px;padding:5px;display:grid;place-items:center;opacity:0;pointer-events:none;background:var(--surface)}
+.copy-block:hover>.copy-button,.copy-block>.copy-button:focus-visible{opacity:1;pointer-events:auto}
+.copy-button svg{width:16px;height:16px;grid-area:1/1}
+.copy-button .copy-check{display:none}
+.copy-button.copy-success{color:var(--ok)}
+.copy-button.copy-success .copy-icon{display:none}
+.copy-button.copy-success .copy-check{display:block;animation:copy-confirm .3s ease-out}
+.copy-block.copy-heading{padding-top:6px;padding-bottom:6px}
+.copy-history{display:flex;flex-direction:column;gap:8px}
+@keyframes copy-confirm{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
 </style>
 </head>
 <body>
@@ -476,7 +487,23 @@ const ideaStatus=n=>n.status==="open"?"Открыта":n.status==="ok"?"Закр
 const coverageText=()=>S.coverage?.stale?"Охват требует обновления":S.coverage?.percent==null?"Охват не оценён":`Охват ${S.coverage.percent}%`;
 const hasUnread=n=>(n.chat||[]).some(m=>m.from==="claude"&&!m.readAt);
 const chatBadge=n=>`<span class="rmeta">Обсуждение: ${(n.chat||[]).length}${hasUnread(n)?" · Новый ответ":""}</span>`;
-const copyButton=text=>`<button class="btn small" data-copy="${esc(text||"")}">Скопировать</button>`;
+const copyButton=text=>`<button class="btn small copy-button" data-copy="${esc(text||"")}" title="Скопировать" aria-label="Скопировать"><svg class="copy-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg><svg class="copy-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>`;
+const copyBlock=(text,body,classes="note",attrs="")=>`<div class="copy-block ${classes}"${attrs}>${body}${copyButton(text)}</div>`;
+const copyTimers=new WeakMap();
+async function copyText(button){
+  if(button.disabled)return;
+  clearTimeout(copyTimers.get(button));
+  button.disabled=true;button.classList.remove("copy-success");
+  button.title=button.ariaLabel="Скопировать";
+  try{
+    await navigator.clipboard.writeText(button.dataset.copy);
+    if(!button.isConnected)return;
+    button.classList.add("copy-success");button.title=button.ariaLabel="Скопировано";
+    copyTimers.set(button,setTimeout(()=>{button.classList.remove("copy-success");button.title=button.ariaLabel="Скопировать";copyTimers.delete(button)},1200));
+  }catch{
+    if(button.isConnected){showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");renderPanel()}
+  }finally{button.disabled=false}
+}
 function toggleChoice(value){
   const id=panel.id,selected=selections[id]||=[];
   selections[id]=selected.includes(value)?selected.filter(x=>x!==value):value==="Не знаю"?[value]:[...selected.filter(x=>x!=="Не знаю"),value];
@@ -584,25 +611,27 @@ function nodePanel(n){
   let b="";const anc=ancestors(n);
   if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
   if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
-  b+=`<h2>${esc(n.q)}</h2><div class="row">${copyButton(n.q)}<button class="btn small" data-act="explainquestion">Не понял</button></div>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
+  b+=`${copyBlock(n.q,`<h2>${esc(n.q)}</h2>`,"copy-heading")}<div class="row"><button class="btn small" data-act="explainquestion">Не понял</button></div>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
   const sourceLabel=s=>s?(s.id==="root"?S.title:get(s.id)?.text||get(s.id)?.q||s.q||s.id):"";
-  const answerHistory=history=>(history||[]).map(h=>`<div class="note"><p>${esc(h.answer)}</p>${h.source?`<p>Ответ из обсуждения: ${esc(sourceLabel(h.source))}</p>`:""}</div>`).join("");
+  const answerHistory=history=>(history||[]).map(h=>`${copyBlock(h.answer,`<p>${esc(h.answer)}</p>`)}${h.source?`<p>Ответ из обсуждения: ${esc(sourceLabel(h.source))}</p>`:""}`).join("");
   if(n.answerSource)b+=`<div class="note">Ответ из обсуждения: ${esc(sourceLabel(n.answerSource))}</div>`;
   if(n.answerHistory?.length)b+=`<details><summary>История ответов</summary>${answerHistory(n.answerHistory)}</details>`;
   if(n.obsolete)b+=`<div class="note"><b>Устарело</b>: ${esc(n.obsolete.reason)}<br>История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.</div>`;
   const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
-  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note"><b>${esc(m.q)}</b>${copyButton(m.q)}<p>Ваш ответ: ${esc(m.answer)}</p>${m.answer?copyButton(m.answer):""}${m.verdict?`<p>Вердикт: ${esc(m.verdict)}</p>${copyButton(m.verdict)}`:""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>${copyButton(v.verdict)}`).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
+  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note copy-history">${copyBlock(m.q,`<b>${esc(m.q)}</b>`)}${m.answer?copyBlock(m.answer,`<p>Ваш ответ: ${esc(m.answer)}</p>`):""}${m.verdict?copyBlock(m.verdict,`<p>Вердикт: ${esc(m.verdict)}</p>`):""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>copyBlock(v.verdict,`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>`)).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
   if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${mergedHistory(n.mergedFrom)}`;
   const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
-  else if(n.obsolete){if(n.answer)b+=`<div class="note">Ваш ответ: ${esc(n.answer)}${copyButton(n.answer)}${n.verdict?`<p>${esc(n.verdict)}</p>${copyButton(n.verdict)}`:""}</div>`}
+  else if(n.obsolete){if(n.answer)b+=copyBlock(n.answer,`<p>Ваш ответ: ${esc(n.answer)}</p>`);if(n.verdict)b+=copyBlock(n.verdict,`<p>${esc(n.verdict)}</p>`)}
   else if(n.pending){
-    b+=`<div class="verdict s-think"><span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p>${copyButton(n.pending.answer)}</div>`;
+    b+=copyBlock(n.pending.answer,`<span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p>`,"verdict s-think");
     b+=n.pending.stage==="thinking"?working("Агент оценивает ответ и ищет слабые места…"):waitNote()+`<div class="row"><button class="btn small" data-act="cancel">Отозвать ответ</button></div>`;
   }else if(n.answer&&!panel.edit){
-    b+=`<div class="verdict s-${n.status}"${n.verdict?` data-verdict tabindex="0" title="Правый клик — обсудить вердикт"`:""}><span class="pill">${STATUS[n.status]}</span><p class="atext">Ваш ответ: ${esc(n.answer)}</p>${copyButton(n.answer)}${n.verdict?`<p>${esc(n.verdict)}</p>${copyButton(n.verdict)}`:""}</div>`;
+    b+=copyBlock(n.answer,`<p class="atext">Ваш ответ: ${esc(n.answer)}</p>`,"verdict s-open");
+    if(n.verdict)b+=copyBlock(n.verdict,`<span class="pill">${STATUS[n.status]}</span><p>${esc(n.verdict)}</p>`,`verdict s-${n.status}`,` data-verdict tabindex="0" title="Правый клик — обсудить вердикт"`);
+    else b+=`<span class="pill s-${n.status}">${STATUS[n.status]}</span>`;
     const ch=kids(n.id);
     if(ch.length)b+=`<h3>Подвопросы</h3><div class="sublist">${ch.map(c=>`<button class="subq s-${vis(c)}" data-open="${c.id}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
     else if(n.status==="ok")b+=`<p class="why">Ветка закрыта, копать глубже не нужно.</p>`;
@@ -616,13 +645,13 @@ function nodePanel(n){
     b+=`<label class="fl">Комментарий к выбранным вариантам или свой ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?n.answer:""))}</textarea></label>`;
     b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending||S.rereadPending?.locked?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
   }
-  if(n.verdictHistory?.length>1)b+=`<details><summary>История вердиктов</summary>${n.verdictHistory.map(v=>`<div class="note"><span class="pill s-${v.status}">${STATUS[v.status]}</span><p>${esc(v.verdict)}</p>${copyButton(v.verdict)}</div>`).join("")}</details>`;
+  if(n.verdictHistory?.length>1)b+=`<details><summary>История вердиктов</summary>${n.verdictHistory.map(v=>copyBlock(v.verdict,`<span class="pill s-${v.status}">${STATUS[v.status]}</span><p>${esc(v.verdict)}</p>`)).join("")}</details>`;
 
   return{head,body:b};
 }
 function discussTab(n){
   const chat=n.chat||[];
-  let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
+  let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg copy-block ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
   if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
   const busy=n.discuss==="thinking";
@@ -645,7 +674,7 @@ function ideaPanel(n){
   let b=`<h2>${esc(n.text)}</h2>`;
   if(panel.edit)b=`<label class="fl">Текст идеи<textarea id="fIdeaEdit" rows="5" maxlength="3000">${esc(drafts["i:"+n.id]??n.text)}</textarea></label><div class="row"><button class="btn primary" data-act="saveidea" ${sending?"disabled":""}>Сохранить идею</button><button class="btn" data-act="cancelideaedit">Отмена</button></div>`;
   if(n.analysis)b+=working(n.analysis.stage==="thinking"?"Агент разбирает идею…":"Разбор идеи в очереди")+waitNote();
-  if(n.verdict)b+=`<div class="verdict s-${n.status}" data-verdict tabindex="0"><span class="pill">${ideaStatus(n)}</span><p>${esc(n.verdict)}</p>${copyButton(n.verdict)}${n.analysis?`<small>Предыдущий итог, ожидается переоценка</small>`:""}</div>`;
+  if(n.verdict)b+=copyBlock(n.verdict,`<span class="pill">${ideaStatus(n)}</span><p>${esc(n.verdict)}</p>${n.analysis?`<small>Предыдущий итог, ожидается переоценка</small>`:""}`,`verdict s-${n.status}`,` data-verdict tabindex="0"`);
   if(panel.deleteIdea)b+=`<div class="warn"><p>Удалить идею, все её вопросы, ответы и чаты?</p>${n.deleteBlocked?`<p>Дождитесь завершения работы с веткой идеи</p>`:""}<div class="row"><button class="btn" data-act="deleteidea" ${sending||n.deleteBlocked?"disabled":""}>Удалить всю ветку</button><button class="btn" data-act="cancelideadelete">Отмена</button></div></div>`;
   b+=discussTab(n);
 
@@ -944,7 +973,7 @@ $("#panel").addEventListener("click",e=>{
   const im=e.target.closest("img[data-img]");if(im){if(im.src)window.open(im.src);return}
   const o=e.target.closest("[data-open]");if(o){openPanel({mode:"node",id:o.dataset.open});return}
   const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;clearError();confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
-  const cb=e.target.closest("[data-copy]");if(cb){clearError();Promise.resolve().then(()=>navigator.clipboard.writeText(cb.dataset.copy)).then(()=>{if(cb.isConnected)cb.textContent="Скопировано"},()=>{showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");renderPanel()});return}
+  const cb=e.target.closest("[data-copy]");if(cb){clearError();copyText(cb);return}
   const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
   const kd=e.target.closest("[data-document]");if(kd){api("/api/knowledge-document?path="+encodeURIComponent(kd.dataset.document)).then(d=>{knowledgeDocument=d;renderPanel()},err=>showError(err.message));return}
   const a=e.target.closest("[data-act]");if(!a)return;

@@ -65,7 +65,7 @@ try {
   const newCard = { id: "new", parentId: "old", kind: "q", area: "Lifecycle", q: "Current detail?", status: "open" };
   const historicalState = { title: "History", nodes: [oldCard, newCard] };
   const historicalContext = vm.createContext({
-    copyButton: () => "", S: historicalState, panel: { tab: "answer" }, errMsg: null,
+    copyButton: () => "", copyBlock: (text, body) => `<div>${body}</div>`, S: historicalState, panel: { tab: "answer" }, errMsg: null,
     qs: () => historicalState.nodes, kids: id => historicalState.nodes.filter(n => n.parentId === id),
     get: id => historicalState.nodes.find(n => n.id === id), ancestors: () => [], rootPrio: () => 1, depth: () => 1,
     esc: value => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;"),
