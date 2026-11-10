@@ -87,6 +87,7 @@ try {
   assert.equal(await js('document.querySelector("#errorToast").hidden'), false);
   await click('[data-card-link="hidden"]'); assert.equal(await js("panel.id"), "hidden");
   assert.equal(await js("showObsolete"), false); assert.equal(await js("isolated.filter"), "open");
+  assert.equal(await js('document.querySelector("[data-id=hidden]").classList.contains("ctx")'), false);
   await click("#zAll"); assert.equal(await js("panel.id"), "hidden");
   await click("#bIsolation"); assert.equal(await js("flt"), "open");
   assert.deepEqual(await shown(), ["live", "old1", "old2", "root"]);

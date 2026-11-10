@@ -500,7 +500,7 @@ function render(){
   const els={},shown=new Set(["root"]),hit=new Set();
   const chain=n=>{for(let p=n;p&&!shown.has(p.id);p=get(p.parentId))shown.add(p.id)};
   if(isolated&&!get(isolated.id)){flt=isolated.filter;isolated=null;requestAnimationFrame(focusFilter)}
-  if(isolated)chain(get(isolated.id));
+  if(isolated){chain(get(isolated.id));hit.add(isolated.id)}
   else{
     S.nodes.forEach(n=>{if(n.obsolete?!showObsolete:flt&&(!["q","idea"].includes(n.kind)||n.status!==flt))return;hit.add(n.id);chain(n)});
   }
