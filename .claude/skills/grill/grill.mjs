@@ -19,6 +19,7 @@
 // GET /api/maps shares list discovery; watch --inbox identifies its map with name (null for legacy).
 // Every command takes [--dir .grill] [--name <name>]: the map lives in <dir>/<name>, or in <dir> itself without --name.
 
+import { discussionResult, discussionParts } from "./discussion.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -191,7 +192,7 @@ ${S.notes || "—"}
   const qs = () => S.nodes.filter(n => n.kind === "q");
   const specNode = n => {
     if (n.kind === "preview") { const snap = n.snapshot ? n : preview.snapshot(n); return { ...snap, link: snap.snapshot ? `http://127.0.0.1:${port}/#preview=${snap.snapshot}` : null }; }
-    const { chat, discuss, discussToken, discussRevision, options, pending, analysis, ...rest } = n;
+    const { chat, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, options, pending, analysis, ...rest } = n;
     return { ...rest, ...(n.kind === "idea" ? { chat: chat || [] } : {}), ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) };
   };
   const specLocked = id => S.specJob?.waiting.includes(id);
@@ -202,7 +203,7 @@ ${S.notes || "—"}
   };
   // Processing stages and delivery credentials do not change a question's meaning.
   const contextNode = n => {
-    const { discuss, discussToken, discussRevision, pending, analysis, ...rest } = n;
+    const { discuss, discussToken, discussRevision, discussMapRevision, discussDraft, pending, analysis, ...rest } = n;
     if (rest.job) { const { stage, token, ...job } = rest.job; rest.job = job; }
     if (rest.chat) rest.chat = rest.chat.map(({ readAt, ...m }) => m);
     return { ...rest, ...(pending ? { pending: { answer: pending.answer, at: pending.at } } : {}) };
@@ -524,12 +525,15 @@ ${S.notes || "—"}
       const n = get(e.id); if (!n || !n.discuss) return null;
       const branchSnapshot = n.kind === "q" ? subtree(S.nodes, n.id).map(contextNode) : [];
       boundBranch(branchSnapshot);
+      const nodes = S.nodes.map(contextNode); boundBranch(nodes);
+      delete n.discussDraft;
       n.discuss = "thinking"; n.discussToken = randomUUID();
+      n.discussMapRevision = mapRevision();
       n.discussRevision = branchRevision(n.id);
       const chat = n.chat || []; let i = chat.length; while (i && chat[i - 1].from === "user") i--;
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : n.kind === "idea" ? "idea" : "question", question: n.kind === "root" ? S.title : n.text || n.q, why: n.why, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
         status: n.status, obsolete: n.obsolete || null, answer: n.answer || null, verdict: n.verdict || null, pendingAnswer: n.pending ? n.pending.answer : null,
-        options: n.options || [], branchSnapshot,
+        options: n.options || [], branchSnapshot, nodes, messages: chat.filter(m => m.from === "user").map(m => ({ id: m.id, text: m.text })),
         branch: anc(n).map(a => ({ q: a.q, ...(a.kind === "idea" ? { kind: "idea", text: a.text } : {}), answer: a.answer || null, status: a.status, obsolete: a.obsolete || null })),
         message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : m.about === "question" ? "вопрос" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
         images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
@@ -632,12 +636,16 @@ ${S.notes || "—"}
       md += r.kind === "idea" ? `### ${t("Идея")} · [${t(r.status === "open" ? "Открыта" : r.status === "ok" ? "Закрыта" : LABEL[r.status])}]\n${r.text}\n` : `### P${r.prio} · ${r.area} · [${LABEL[r.status]}]\n${r.q}\n`;
       if (r.kind === "idea") for (const m of r.chat || []) md += `- ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
       if (r.answer) md += `- ${t("Ответ:")} ${r.answer}\n`; if (r.verdict) md += `- ${t("Вердикт:")} ${r.verdict}\n`;
+      for (const h of r.answerHistory || []) md += `- ${t("История ответов")}: ${h.answer}\n`;
+      if (r.answerSource) md += `- ${t("Ответ из обсуждения:")} ${r.answerSource.id}\n`;
       for (const h of r.verdictHistory || []) md += `- ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
       if (r.obsolete) md += `- ${t("Устарело:")} ${r.obsolete.reason}\n`;
       md += merged(r.mergedFrom);
       const walk = (id, ind) => kids(id).forEach(k => {
         md += `${ind}- [${k.kind === "preview" ? t("Превью") : LABEL[k.status]}] ${k.q}${k.commit ? " · " + k.commit : ""}\n`;
         if (k.answer) md += `${ind}  - ${t("Ответ:")} ${k.answer}\n`; if (k.verdict) md += `${ind}  - ${t("Вердикт:")} ${k.verdict}\n`;
+        for (const h of k.answerHistory || []) md += `${ind}  - ${t("История ответов")}: ${h.answer}\n`;
+        if (k.answerSource) md += `${ind}  - ${t("Ответ из обсуждения:")} ${k.answerSource.id}\n`;
         for (const h of k.verdictHistory || []) md += `${ind}  - ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
         if (k.obsolete) md += `${ind}  - ${t("Устарело:")} ${k.obsolete.reason}\n`;
         md += merged(k.mergedFrom, ind + "  ");
@@ -715,7 +723,10 @@ ${S.notes || "—"}
         const next = nodes.filter(x => !drop.has(x.id)).map(x => ({ ...x }));
         next.push(...additions.map(x => ({ ...x })));
         for (const m of moves) { const q = next.find(x => x.id === m.id); if (q) q.parentId = parentId(m.parentId); }
-        recordVerdict(next.find(x => x.id === n.id), status, clean(b.verdict, 400));
+        const graded = next.find(x => x.id === n.id);
+        if (graded.answer && (graded.answer !== answer || graded.answerSource)) graded.answerHistory = [...(graded.answerHistory || []), { answer: graded.answer, status: graded.status, verdict: graded.verdict, source: graded.answerSource || null, at: Date.now() }];
+        delete graded.answerSource;
+        recordVerdict(graded, status, clean(b.verdict, 400));
         Object.assign(next.find(x => x.id === n.id), { answer, pending: null });
         delete next.find(x => x.id === n.id).awaiting;
         const byId = new Map(next.map(x => [x.id, x]));
@@ -749,10 +760,21 @@ ${S.notes || "—"}
       save(); pruneImages(); return { ok: true, added: additions.length };
     }
     if (b.type === "discuss") {
-      const n = get(b.id); if (!n) throw [404, "Нет вопроса с id " + b.id];
-      const reply = clean(b.reply, 2000); if (!reply) throw [400, "Пустой reply"];
+      let n = get(b.id); if (!n) throw [404, "Нет вопроса с id " + b.id];
       // a reply taken before a server restart is stale: the thread was re-queued and may hold newer messages
       if (n.discuss !== "thinking" || b.token !== n.discussToken) throw [409, "Обсуждение не ждёт этого ответа: его сбросили или сообщения снова в очереди, возьмите их через wait"];
+      if (n.discussMapRevision !== mapRevision()) {
+        n.discuss = "queued"; delete n.discussToken; delete n.discussDraft;
+        if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id });
+        save(); throw [409, "Карта изменилась, получите событие через wait"];
+      }
+      const assembled = discussionParts(n, b);
+      if (assembled.staged) { n.discussDraft = assembled.staged; save(); return { ok: true, staged: true, nextPart: assembled.staged.length, committed: false }; }
+      b = assembled.body;
+      if (typeof b.reply !== "string" || b.reply.trim().length > 2000) throw [400, "reply должен быть не длиннее 2000 символов"];
+      const reply = clean(b.reply, 2000); if (!reply) throw [400, "Пустой reply"];
+      const result = discussionResult(S.nodes, n.id, b, { mkQ, recordVerdict, clean });
+      if (JSON.stringify(b).length > 600000) throw [400, "Результат обсуждения слишком большой; ничего не применено"];
       if (b.reread !== undefined && typeof b.reread !== "boolean") throw [400, "reread должен быть boolean"];
       if (b.reread && !qs().length) throw [400, "На карте пока нет вопросов"];
       let forwarded = null;
@@ -771,16 +793,26 @@ ${S.notes || "—"}
           if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id });
           save(); throw [409, "Ветка изменилась, получите событие через wait"];
         }
+        if (n.pending) throw [409, "Дождитесь обработки отправленного ответа"];
+      }
+      const assessed = result.nodes.find(x => x.id === n.id);
+      if (b.assessment !== undefined) {
+        const a = b.assessment;
+        recordVerdict(assessed, a.status, clean(a.verdict, 400));
+        if (!assessed.answer) assessed.answer = clean(a.answer, 2000);
+      }
+      S.nodes = result.nodes; n = get(b.id);
+      if (b.assessment !== undefined) {
         // Preserve submitted answers and frozen specifications; this evaluates live discussion evidence.
-        recordVerdict(n, a.status, clean(a.verdict, 400));
-        if (!n.answer) n.answer = clean(a.answer, 2000);
         queueReview(S.nodes, n.id);
         queueIdea(ideaOf(S.nodes, n.id));
       }
-      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, at: Date.now() }]; n.discuss = null;
+      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
+      delete n.discussDraft; delete n.discussMapRevision;
+      for (const id of result.touched) { queueReview(S.nodes, id); queueIdea(ideaOf(S.nodes, id)); }
       delete n.discussRevision;
       if (forwarded) {
-        const { target, message } = forwarded;
+        const target = get(forwarded.target.id), { message } = forwarded;
         target.chat = [...(target.chat || []), { id: randomUUID(), from: "user", text: message, at: Date.now() }];
         if (!target.discuss) { target.discuss = "queued"; S.queue.push({ type: "discuss", id: target.id }); }
       }
@@ -867,7 +899,7 @@ ${S.notes || "—"}
       const keep = byId.get(keepId);
       // A merged conflict card must keep its disagreement on record, or it could be raised again.
       const conflicts = [...new Set(cards.flatMap(n => n.conflictOf || []))];
-      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", verdictHistory: structuredClone(n.verdictHistory || []), ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
+      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", verdictHistory: structuredClone(n.verdictHistory || []), answerHistory: structuredClone(n.answerHistory || []), answerSource: n.answerSource || null, ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
       // keep.conflictOf is only a union for display; each exact disagreement stays in mergedFrom.
       if (conflicts.length) keep.conflictOf = conflicts;
       delete keep.conflictAnswers;
@@ -1018,7 +1050,7 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
         const { queue, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
-        return send(res, 200, { ...rest, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening() });
+        return send(res, 200, { ...rest, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening() });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/image") {

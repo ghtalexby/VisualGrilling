@@ -232,3 +232,9 @@ Local `agent-connection.json` selects a host; `claude-connection.json` carries t
 ## Project knowledge
 
 See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.
+
+## Atomic discussion results
+
+`discussion.mjs` builds a candidate tree for discussion questions, resolved card links and multi-target user answers. `grill.mjs` validates the whole-map delivery revision and legacy fields before committing the candidate with the assistant reply. Large results can be staged in numbered parts; staging is persisted but excluded from semantic context and specification projections. New deliveries invalidate old staging. All transfers refer to source user message IDs and preserve previous answers/provenance in answerHistory alongside verdictHistory. Existing parent/idea evaluation queues handle affected ancestors. Captured specifications remain independent.
+
+Discussion links are structured card references, rendered with escaped text. Hidden targets open in temporary isolation; missing targets produce an error. The independent Obsolete preference uses a map-directory identity and localStorage. Rendering takes the union of active status matches and requested historical cards, then adds context ancestors; context never contributes to active status counts.

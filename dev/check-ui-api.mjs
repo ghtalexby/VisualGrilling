@@ -50,7 +50,7 @@ try {
   const controls = {}, headerState = { finished: true, nodes: [{ kind: "q" }] };
   const headerContext = vm.createContext({
     S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false, resumeSending: false,
-    coverageText: () => "", qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
+    showObsolete: false, coverageText: () => "", qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
     $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute(key, value) { this[key] = value; } }
   });
   const headerCode = ui.match(/function renderHeader\(\)\{[\s\S]*?\n\}/)[0] + "\nrenderHeader();";

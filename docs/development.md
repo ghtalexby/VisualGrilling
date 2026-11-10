@@ -192,3 +192,11 @@ Real-host acceptance is required separately for both apps: stop a map, switch to
 ## Project knowledge
 
 See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.
+
+## Discussion questions acceptance
+
+Run `node dev/check-discussion.mjs` for atomic additions beyond four children, cross-branch parenting, reused links, independent multi-card assessments, answer/provenance history, snapshot isolation, pending-answer conflicts, restart, stale/replayed tokens, staged retries, project/question/idea contexts and header protection. Run `node dev/check-discussion-browser.mjs` for safe links, hidden/deleted targets, historical filters/ancestors, map-specific persistence and preserved drawer drafts. Existing locale, UI/API, spec, reread, completeness, ideas, workers and maps checks remain applicable.
+
+The simulator accepts `[questions]` to add six linked cards and `[answers:<id>,<id>] <user text>` to copy the exact message to several independently graded targets. These are deterministic transport fixtures. A real agent session must separately validate semantic duplicate detection, parent selection anywhere on the map, every substantive follow-up appearing in chat and the tree, no cards for pure explanations, and independently justified closure. No deterministic test establishes the quality of that reasoning.
+
+Large discussion results use numbered staged parts and one final commit; intermediate `committed:false` is not success. Oversized context or aggregate results must produce an explicit error rather than hiding questions. With Obsolete off, test empty status matches, several historical ancestors, Show all, isolation and drafts; with it on, test the union with Open and saved preferences after reload. Equal names in different project directories have different map keys.

@@ -244,6 +244,8 @@ const QLABEL={question:"Вопрос",option:"Вариант ответа",verdi
 const KEYS=`<span class="keys">Enter — отправить · Ctrl+Enter — перенос</span>`;
 let fresh=new Set(); const selections={},drafts={},draftQuotes={},draftImages={},imgUrls={}; let zoom=1,px=0,py=0;
 const IMG_TYPES=["image/png","image/jpeg","image/gif","image/webp"],IMG_MAX=8*1024*1024,IMG_COUNT=4;
+let showObsolete=false;
+const obsoleteKey=()=>"grill:obsolete:"+S.mapKey;
 let flt=null; /* status picked in the ledger: map keeps only such questions and their ancestor chains */
 let isolated=null, clickTimer=0;
 
@@ -499,7 +501,7 @@ function render(){
   if(isolated&&!get(isolated.id)){flt=isolated.filter;isolated=null;requestAnimationFrame(focusFilter)}
   if(isolated)chain(get(isolated.id));
   else{
-    S.nodes.forEach(n=>{if(!flt){chain(n);return}if(!["q","idea"].includes(n.kind)||n.obsolete||n.status!==flt)return;hit.add(n.id);chain(n)});
+    S.nodes.forEach(n=>{if(n.obsolete?!showObsolete:flt&&(!["q","idea"].includes(n.kind)||n.status!==flt))return;hit.add(n.id);chain(n)});
   }
   if(panel?.id&&!shown.has(panel.id)){panel=null;renderPanel()}
   $("#bIsolation").hidden=!isolated;
@@ -507,7 +509,7 @@ function render(){
   const vk=id=>kids(id).filter(k=>shown.has(k.id));
   S.nodes.forEach(n=>{if(!shown.has(n.id))return;
     const b=existing.get(n.id)||document.createElement(n.kind==="root"?"div":"button");
-    b.className="node "+(n.kind==="root"?"root":(n.kind==="idea"?"idea q s-":"q s-")+vis(n))+(panel&&panel.id===n.id?" sel":"")+(hasUnread(n)?" unread":"")+(fresh.has(n.id)?" fresh":"")+(flt&&n.kind!=="root"&&!hit.has(n.id)?" ctx":"");
+    b.className="node "+(n.kind==="root"?"root":(n.kind==="idea"?"idea q s-":"q s-")+vis(n))+(panel&&panel.id===n.id?" sel":"")+(hasUnread(n)?" unread":"")+(fresh.has(n.id)?" fresh":"")+(n.kind!=="root"&&!hit.has(n.id)?" ctx":"");
     // Keep gesture targets and focus stable when polling redraws unchanged cards.
     const html=nodeHTML(n);if(b.contentHTML!==html){
       const rootFocus=n.kind==="root"&&b.contains(document.activeElement)?".root-main":null;
@@ -561,6 +563,7 @@ function renderHeader(){
   const c=counts();
   const refocus=document.activeElement&&document.activeElement.closest("#ledger")?document.activeElement.dataset.flt:null;
   $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}" title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");
+  $("#ledger").innerHTML+=`<button class="pill" data-obsolete aria-pressed="${showObsolete}">Устаревшие</button>`;
   if(refocus){const b=$(`#ledger [data-flt="${refocus}"]:not(:disabled)`)||$("#ledger button:not(:disabled)");if(b)b.focus()}
   const conn=$("#conn");
   if(offline){conn.className="conn dead";conn.innerHTML="<i></i>Сервер карты остановлен. Попросите агента продолжить грилинг"}
@@ -581,6 +584,8 @@ function nodePanel(n){
   if(anc.length)b+=`<div class="crumbs">${anc.map(a=>`<span>${esc(a.q)}</span>`).join("")}</div>`;
   if(n.addedFrom)b+=`<div class="note">Появился после ответа на вопрос «${esc(n.addedFrom)}»</div>`;
   b+=`<h2>${esc(n.q)}</h2><div class="row">${copyButton(n.q)}<button class="btn small" data-act="explainquestion">Не понял</button></div>`;if(n.why)b+=`<p class="why">${esc(n.why)}</p>`;
+  if(n.answerSource)b+=`<div class="note">Ответ из обсуждения: ${esc(n.answerSource.id)}${(n.answerSource.messageIds||[]).map(esc).join(", ")}</div>`;
+  if(n.answerHistory?.length)b+=`<details><summary>История ответов</summary>${n.answerHistory.map(h=>`<p>${esc(h.answer)}</p>`).join("")}</details>`;
   if(n.obsolete)b+=`<div class="note"><b>Устарело</b>: ${esc(n.obsolete.reason)}<br>История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.</div>`;
   const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
@@ -614,7 +619,7 @@ function nodePanel(n){
 }
 function discussTab(n){
   const chat=n.chat||[];
-  let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
+  let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
   const busy=n.discuss==="thinking";
   if(busy)b+=working("Агент пишет ответ…");
@@ -683,9 +688,9 @@ function toMarkdown(){
     if(r.kind==="preview"){md+=`## Превью · ${r.q}\n${r.commit||""}\n`;return}
     md+=r.kind==="idea"?`## Идея · [${ideaStatus(r)}]\n${r.text}\n`:`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
-    if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
+    for(const h of r.answerHistory||[])md+=`- История ответов: ${h.answer}\n`;if(r.answerSource)md+=`- Ответ из обсуждения: ${r.answerSource.id}\n`;if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;for(const h of k.answerHistory||[])md+=`${ind}  - История ответов: ${h.answer}\n`;if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;
@@ -738,7 +743,7 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(){
   const p=$("#panel");
@@ -846,6 +851,7 @@ async function poll(force){
     if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
       const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
       const first=!loaded,previousErrors=stateErrors(S);S=d;listening=d.listening;loaded=true;pruneImgUrls();
+      if(first){try{showObsolete=localStorage.getItem(obsoleteKey())==="true"}catch{showObsolete=false}}
       const newErrors=[...stateErrors(S)].filter(([key,error])=>previousErrors.get(key)!==error).map(([,error])=>error);
       if(!first&&newErrors.length)showError(newErrors.map(friendlyError).join("\n\n"));
       if(!first)S.nodes.forEach(n=>{if(!oldIds.has(n.id))fresh.add(n.id)});
@@ -860,6 +866,12 @@ async function poll(force){
 }
 
 /* ---------- events ---------- */
+$("#panel").addEventListener("click",e=>{
+  const link=e.target.closest("[data-card-link]");if(!link)return;
+  const id=link.dataset.cardLink,n=get(id);if(!n){showError("Карточка больше не существует");return}
+  clearTimeout(clickTimer);isolated={id,filter:isolated?isolated.filter:flt};flt=null;
+  openPanel({mode:"node",id});render();centerNode(id);
+});
 $("#stage").addEventListener("mousedown",e=>{if(e.button===0&&e.detail>1&&e.target.closest(".node"))clearTimeout(clickTimer)});
 $("#stage").addEventListener("click",e=>{const b=e.target.closest(".node");if(!b)return;
   clearTimeout(clickTimer);if(e.detail>1)return;
@@ -872,7 +884,7 @@ $("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if
   isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);
 });
 $("#bIsolation").onclick=()=>{if(!isolated)return;flt=isolated.filter;isolated=null;render();focusFilter()};
-$("#ledger").addEventListener("click",e=>{const b=e.target.closest("[data-flt]");if(!b)return;clearTimeout(clickTimer);isolated=null;flt=flt===b.dataset.flt?null:b.dataset.flt;render();focusFilter()});
+$("#ledger").addEventListener("click",e=>{if(e.target.closest("[data-obsolete]")){showObsolete=!showObsolete;try{localStorage.setItem(obsoleteKey(),String(showObsolete))}catch{}render();focusFilter();return}const b=e.target.closest("[data-flt]");if(!b)return;clearTimeout(clickTimer);isolated=null;flt=flt===b.dataset.flt?null:b.dataset.flt;render();focusFilter()});
 $("#bSummary").onclick=()=>openPanel({mode:"summary"});
 $("#bSpec").onclick=()=>act("/api/spec");
 $("#bPlay").onclick=async()=>{
