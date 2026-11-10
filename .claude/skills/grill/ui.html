@@ -69,7 +69,9 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .agent-controls{display:flex;align-items:center;gap:6px;margin-left:auto}
 .agent-control{display:inline-flex;align-items:center;justify-content:center;width:30px;height:28px;padding:0;flex:none}
 .conn{font-family:var(--f-mono);font-size:11.5px;display:flex;align-items:center;gap:6px;color:var(--muted)}
-.conn i{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
+.conn i{flex-shrink:0;width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
+.conn.working i{animation:work-breathe 1.6s ease-in-out infinite}
+@keyframes work-breathe{50%{opacity:.35;box-shadow:0 0 0 4px rgba(79,154,109,.15)}}
 .conn.off i{background:transparent;border:1.5px solid var(--weak)}
 .conn.dead i{background:var(--gap)}
 .conn b{font-weight:500;color:var(--ink)}
@@ -593,8 +595,11 @@ function renderHeader(){
   $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}" title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");
   $("#ledger").innerHTML+=`<button class="pill" data-obsolete aria-pressed="${showObsolete}">Устаревшие</button>`;
   if(refocus){const b=$(`#ledger [data-flt="${refocus}"]:not(:disabled)`)||$("#ledger button:not(:disabled)");if(b)b.focus()}
+  const workLabels={answer:"Агент разбирает ответ…",discuss:"Агент пишет ответ…",reread:"Агент перечитывает карту…",reevaluate:"Агент переоценивает выводы…",question:"Агент готовит варианты…",idea:"Агент разбирает идею…",preview:"Агент готовит превью…",spec:"Агент составляет спеку…",knowledge:"Агент сохраняет знания…",more:"Агент готовит вопросы…",finish:"Агент готовит итог…"};
+  const workLabel=Object.hasOwn(workLabels,S.currentWork?.type)?workLabels[S.currentWork.type]:null;
   const conn=$("#conn");
   if(offline){conn.className="conn dead";conn.innerHTML="<i></i>Сервер карты остановлен. Попросите агента продолжить грилинг"}
+  else if(workLabel){conn.className="conn working";conn.innerHTML="<i></i>"+esc(workLabel)}
   else if(listening){conn.className="conn";conn.innerHTML="<i></i>Агент на связи"}
   else{conn.className="conn off";conn.innerHTML="<i></i>Агент не слушает. Напишите в терминале: <b>продолжай грилинг</b>"}
   const hint=$("#hint");
