@@ -150,7 +150,14 @@ try {
   // Explicit continuation retains finished/summary but serves new discussions.
   await arm(); await api("discuss", { id: "root", message: "Continue this map" });
   status = await pending(); e = await event(status.delivery); assert.equal(e.type, "discuss");
-  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Continued" });
+  const beforeReread = calls().length;
+  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Continued", reread: true });
+  assert.equal((await api("monitor")).delivery, status.delivery, "Nested enqueue inside apply must not re-arm");
+  assert.equal(calls().length, beforeReread);
+  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "reread");
+  await api("apply", { type: "reread", token: e.token, reserve: [], audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport test" })) });
+  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "knowledge");
+  await api("apply", { type: "knowledge", token: e.token, files: [] });
   await arm(); assert.equal((await api("monitor")).phase, "armed");
   // Finish cancels an automatic reread that was already sent to the host.
   await stop(); await api("init", { title: "Cancel reread", questions: [{ q: "Question?" }] });

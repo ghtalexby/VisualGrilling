@@ -139,6 +139,7 @@ async function serve() {
   let currentWork = null;
   // A monitor is a process-local, one-event subscription, never a second waiter.
   let monitor = null;
+  let applying = false;
   const monitorStatus = () => monitor ? { phase: monitor.phase, delivery: monitor.delivery, error: monitor.error || null } : { phase: "off", delivery: null, error: null };
   function workIsCurrent() {
     if (!currentWork) return false;
@@ -645,6 +646,8 @@ ${S.notes || "—"}
     else S.queue.unshift({ type: ev.type });
   }
   function pump() {
+    // apply may enqueue follow-up work before completing its current transaction.
+    if (applying) return;
     // Browser edits can invalidate reserved work before the host fetches/applies it.
     // Keep that active subscription armed; completed work still needs explicit re-arm.
     if (monitor?.event && !monitor.completed && !workIsCurrent()) {
@@ -1371,8 +1374,10 @@ ${S.notes || "—"}
       }
       if (p === "/api/apply") {
         let result;
+        applying = true;
         try { result = apply(b); }
-        catch (error) { if (monitor) pump(); throw error; }
+        catch (error) { applying = false; if (monitor) pump(); throw error; }
+        applying = false;
         const event = monitor?.event;
         if (event && event.type === b.type && event.id === b.id && event.token === b.token && !workIsCurrent()) monitor.completed = true;
         pump(); return send(res, 200, result);
