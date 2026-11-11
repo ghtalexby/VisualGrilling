@@ -36,7 +36,7 @@ button{font:inherit;color:inherit}
 .s-open{--sc:var(--open)} .s-ok{--sc:var(--ok)} .s-weak{--sc:var(--weak)} .s-gap{--sc:var(--gap)} .s-verify{--sc:var(--verify)} .s-think{--sc:var(--accent)}
 .pill{display:inline-flex;align-items:center;gap:5px;font-family:var(--f-mono);font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--sc);white-space:nowrap}
 .pill::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--sc)}
-.pill.s-open::before,.s-open>.nhead .pill::before{background:transparent;border:1.5px solid var(--sc);width:5px;height:5px}
+.pill.s-open::before,.s-open .node-main>.nhead .pill::before{background:transparent;border:1.5px solid var(--sc);width:5px;height:5px}
 .pill.s-think::before{animation:pulse 1s infinite alternate}
 
 header{background:var(--surface);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;flex-direction:column;gap:8px;z-index:5}
@@ -106,6 +106,10 @@ main{flex:1;position:relative;min-height:0;z-index:0}
 .node.root{background:var(--ink);color:var(--bg);border-color:var(--ink);padding:14px 14px 13px}
 .node.root .eyebrow{color:color-mix(in srgb,var(--bg) 65%,var(--ink))}
 .rtitle{font-family:var(--f-display);font-weight:500;font-size:16px;line-height:1.25;text-wrap:balance}
+.chat-link{align-self:flex-start;border:0;border-radius:4px;padding:3px 6px;background:color-mix(in srgb,var(--accent) 12%,transparent);cursor:pointer;text-align:left}
+.node .chat-link{color:var(--accent);font-weight:600}
+.node.root .chat-link{color:var(--bg);background:color-mix(in srgb,var(--bg) 12%,transparent)}
+.chat-link:hover,.chat-link:focus-visible{text-decoration:underline;text-underline-offset:3px;background:color-mix(in srgb,var(--accent) 22%,transparent)}
 .rmeta{font-family:var(--f-mono);font-size:11px;color:color-mix(in srgb,var(--bg) 65%,var(--ink))}
 .ridea{font-size:12px;line-height:1.35;color:color-mix(in srgb,var(--bg) 85%,var(--ink));display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden}
 .eyebrow{font-family:var(--f-mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -205,7 +209,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 .map-row a{color:inherit}
 #finishedNotice{font-size:12px;color:var(--muted)}
 .node.idea{border-style:double;border-width:3px}.node.idea .qtext{white-space:pre-wrap;max-height:160px;overflow:hidden}
-.root-main{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer;overflow-wrap:anywhere}
+.node-main,.root-main{display:flex;flex-direction:column;align-items:stretch;gap:6px;width:100%;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:inherit;cursor:pointer;overflow-wrap:anywhere}
 .root-stats{display:flex;flex-direction:column;gap:4px;margin-top:4px;padding-top:8px;border-top:1px solid color-mix(in srgb,var(--bg) 18%,transparent);line-height:1.4}
 .node.unread{box-shadow:0 0 0 3px var(--accent)}
 .chip[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 20%,var(--surface))}
@@ -492,7 +496,7 @@ addEventListener("keydown",async e=>{if(e.key==="Escape"&&previewView&&!previewV
 const ideaStatus=n=>n.status==="open"?"Открыта":n.status==="ok"?"Закрыта":STATUS[n.status];
 const coverageText=()=>S.coverage?.stale?"Охват требует обновления":S.coverage?.percent==null?"Охват не оценён":`Охват ${S.coverage.percent}%`;
 const hasUnread=n=>(n.chat||[]).some(m=>m.from==="claude"&&!m.readAt);
-const chatBadge=n=>`<span class="rmeta">Обсуждение: ${(n.chat||[]).length}${hasUnread(n)?" · Новый ответ":""}</span>`;
+const chatBadge=n=>(n.chat||[]).length?`<button type="button" class="rmeta chat-link" data-chat>Обсуждение: ${n.chat.length}${hasUnread(n)?" · Новый ответ":""}</button>`:`<span class="rmeta">Обсуждение: ${0}</span>`;
 const copyButton=text=>`<button class="btn small copy-button" data-copy="${esc(text||"")}" title="Скопировать" aria-label="Скопировать"><svg class="copy-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg><svg class="copy-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>`;
 const copyBlock=(text,body,classes="note",attrs="")=>`<div class="copy-block ${classes}"${attrs}>${body}${copyButton(text)}</div>`;
 const copyTimers=new WeakMap();
@@ -516,16 +520,20 @@ function toggleChoice(value){
   renderPanel();
 }
 function nodeHTML(n){
+  const body=nodeBody(n);
+  return (n.kind==="root"?body:`<button type="button" class="node-main">${body}</button>`)+(n.kind==="preview"?"":chatBadge(n));
+}
+function nodeBody(n){
   if(n.kind==="preview")return `<span class="nhead"><span class="area">▧ Превью</span><span class="pill">${n.job?"В очереди":n.stale?`Устарело: ${n.stale}`:""}</span></span><span class="qtext">${esc(n.q)}</span>${n.error?`<span class="ans">${esc(friendlyError(n.error))}</span>`:""}`;
   if(n.kind==="root"){
     const q=qs().filter(n=>!n.obsolete),open=q.filter(x=>x.status==="open"&&!x.pending).length;
-    return `<button class="root-main"><span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="root-stats"><span class="rmeta">${q.length} вопр. · ${open} открыто</span><span class="rmeta">${coverageText()}</span>${chatBadge(n)}</span></button>`;
+    return `<button class="root-main"><span class="eyebrow">Проект</span><span class="rtitle">${esc(S.title||"Готовлю вопросы…")}</span>${S.brief?`<span class="ridea">${esc(S.brief)}</span>`:""}<span class="root-stats"><span class="rmeta">${q.length} вопр. · ${open} открыто</span><span class="rmeta">${coverageText()}</span></span></button>`;
   }
-  if(n.kind==="idea")return `<span class="nhead"><span class="area">◇ Идея</span><span class="pill">${n.analysis?(n.analysis.stage==="thinking"?"Разбор":"В очереди"):ideaStatus(n)}</span></span><span class="qtext">${esc(n.text)}</span>${chatBadge(n)}`;
+  if(n.kind==="idea")return `<span class="nhead"><span class="area">◇ Идея</span><span class="pill">${n.analysis?(n.analysis.stage==="thinking"?"Разбор":"В очереди"):ideaStatus(n)}</span></span><span class="qtext">${esc(n.text)}</span>`;
   const p=n.parentId==="root"?`<b>P${n.prio}</b> · `:"";
   const pill=n.obsolete?`<span class="pill">Устарело</span>`:n.pending?`<span class="pill s-think">${n.pending.stage==="thinking"?"Разбор":"В очереди"}</span>`:`<span class="pill">${STATUS[n.status]}</span>`;
   const a=n.pending?n.pending.answer:n.answer;
-  return `<span class="nhead"><span class="area">${p}${esc(n.area||"")}</span>${pill}</span><span class="qtext">${esc(n.q)}</span>${a?`<span class="ans">${esc(a)}</span>`:""}${chatBadge(n)}`;
+  return `<span class="nhead"><span class="area">${p}${esc(n.area||"")}</span>${pill}</span><span class="qtext">${esc(n.q)}</span>${a?`<span class="ans">${esc(a)}</span>`:""}`;
 }
 function render(){
   const stage=$("#stage"),svg=$("#edges");
@@ -542,12 +550,12 @@ function render(){
   existing.forEach((e,id)=>{if(!shown.has(id))e.remove()});
   const vk=id=>kids(id).filter(k=>shown.has(k.id));
   S.nodes.forEach(n=>{if(!shown.has(n.id))return;
-    const b=existing.get(n.id)||document.createElement(n.kind==="root"?"div":"button");
+    const b=existing.get(n.id)||document.createElement("div");
     b.className="node "+(n.kind==="root"?"root":(n.kind==="idea"?"idea q s-":"q s-")+vis(n))+(panel&&panel.id===n.id?" sel":"")+(hasUnread(n)?" unread":"")+(fresh.has(n.id)?" fresh":"")+(n.kind!=="root"&&!hit.has(n.id)?" ctx":"");
     // Keep gesture targets and focus stable when polling redraws unchanged cards.
     const html=nodeHTML(n);if(b.contentHTML!==html){
-      const rootFocus=n.kind==="root"&&b.contains(document.activeElement)?".root-main":null;
-      b.innerHTML=html;b.contentHTML=html;if(rootFocus)b.querySelector(rootFocus)?.focus({preventScroll:true});
+      const cardFocus=b.contains(document.activeElement)?(document.activeElement.matches("[data-chat]")?"[data-chat]":n.kind==="root"?".root-main":".node-main"):null;
+      b.innerHTML=html;b.contentHTML=html;if(cardFocus)(b.querySelector(cardFocus)||b.querySelector(".node-main,.root-main"))?.focus({preventScroll:true});
     }
     b.dataset.id=n.id;if(!b.isConnected)stage.appendChild(b);els[n.id]=b;
   });
@@ -941,12 +949,14 @@ $("#panel").addEventListener("click",e=>{
 });
 $("#stage").addEventListener("mousedown",e=>{if(e.button===0&&e.detail>1&&e.target.closest(".node"))clearTimeout(clickTimer)});
 $("#stage").addEventListener("click",e=>{const b=e.target.closest(".node");if(!b)return;
-  clearTimeout(clickTimer);if(e.detail>1)return;
+  clearTimeout(clickTimer);
+  if(e.target.closest("[data-chat]")){openPanel({mode:get(b.dataset.id)?.kind==="root"?"project":"node",id:b.dataset.id,tab:"discuss"});return}
+  if(e.detail>1)return;
   const id=b.dataset.id,open=()=>{if(get(id))openPanel(id==="root"?{mode:"summary",id:"root"}:{mode:"node",id})};
   if(e.detail===0)open();else clickTimer=setTimeout(open,PAGE_DOUBLE_CLICK_MS);
 });
 $("#stage").addEventListener("dblclick",e=>{const b=e.target.closest(".node");if(!b)return;
-  e.preventDefault();clearTimeout(clickTimer);const id=b.dataset.id;
+  e.preventDefault();clearTimeout(clickTimer);if(e.target.closest("[data-chat]"))return;const id=b.dataset.id;
   if(get(id)?.kind==="preview"){openPreview(id).catch(error=>{showError(error.message)});return}
   isolated={id,filter:isolated?isolated.filter:flt};flt=null;render();centerNode(id);
 });
@@ -1047,7 +1057,7 @@ $("#panel").addEventListener("click",e=>{
 let ctx=null;
 function closeCtx(refocus){if(!ctx)return;const c=ctx;ctx=null;c.el.remove();if(!refocus)return;
   /* a poll may have re-rendered the panel while the menu was open: look the target up again */
-  const t=c.target.isConnected?c.target:panel&&panel.id===c.id&&$(`#panel ${c.sel}`);if(t)(t.matches(".root")?t.querySelector(".root-main"):t)?.focus()}
+  const t=c.target.isConnected?c.target:panel&&panel.id===c.id&&$(`#panel ${c.sel}`);if(t)(t.matches(".node")?t.querySelector(".node-main,.root-main"):t)?.focus()}
 document.addEventListener("contextmenu",()=>closeCtx(),true);
 $("#panel").addEventListener("contextmenu",e=>{
   if(!panel)return;
