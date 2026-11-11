@@ -47,9 +47,10 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .brand-activity.pending::before{content:"";position:absolute;inset:-2px;border:2px solid var(--accent);border-right-color:transparent;border-bottom-color:transparent;border-radius:50%}
 .brand-activity.active::before{animation:reread-spin 1.4s linear infinite}
 @media(prefers-reduced-motion:reduce){.brand-activity.active::before{animation:none}}
-.ptitle{color:var(--muted);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
+.ptitle{color:var(--muted);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
 .map-identity{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 240px}
-.map-identity>.copy-button{display:grid;place-items:center;padding:5px;width:28px;height:28px;flex:none;opacity:0;pointer-events:none}
+.map-identity>.copy-button{display:grid;place-items:center;width:28px;height:28px;flex:none;opacity:0;pointer-events:none}
+.map-identity>.copy-button.btn{padding:0}
 .map-identity:hover>.copy-button,.map-identity:focus-within>.copy-button,.map-identity>.copy-success{opacity:1;pointer-events:auto}
 @media(hover:none){.map-identity>.copy-button{opacity:1;pointer-events:auto}}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
@@ -508,6 +509,8 @@ function renderResumeCopy(){
   let button=$("#mapIdentity>.copy-button");
   if(!S.resume){button?.remove();return}
   if(!button){$("#mapIdentity").insertAdjacentHTML("beforeend",copyButton(""));button=$("#mapIdentity>.copy-button")}
+  button.dataset.copyLabel="Скопировать в буфер обмена для продолжения этого грилинга в новой сессии";
+  if(!button.classList.contains("copy-success"))button.title=button.ariaLabel=button.dataset.copyLabel;
   button.dataset.copy=["Продолжи существующий грилинг в этой сессии. Не создавай новую карту и не инициализируй её заново.",
     "Прочитай инструкцию навыка и контекст сессии по указанным путям, затем проверь сохранённое состояние. Используй эти пути и имя во всех командах. Перед запуском проверь, что другая сессия больше не обслуживает карту; не запускай второй обработчик событий. Выполни команду запуска и продолжай цикл обработки событий по инструкции навыка.",
     JSON.stringify({title:S.title,...S.resume},null,2)].join("\n\n");
@@ -518,12 +521,13 @@ async function copyText(button){
   if(button.disabled)return;
   clearTimeout(copyTimers.get(button));
   button.disabled=true;button.classList.remove("copy-success");
-  button.title=button.ariaLabel="Скопировать";
+  const label=button.dataset.copyLabel||"Скопировать";
+  button.title=button.ariaLabel=label;
   try{
     await navigator.clipboard.writeText(button.dataset.copy);
     if(!button.isConnected)return;
     button.classList.add("copy-success");button.title=button.ariaLabel="Скопировано";
-    copyTimers.set(button,setTimeout(()=>{button.classList.remove("copy-success");button.title=button.ariaLabel="Скопировать";copyTimers.delete(button)},1200));
+    copyTimers.set(button,setTimeout(()=>{button.classList.remove("copy-success");button.title=button.ariaLabel=label;copyTimers.delete(button)},1200));
   }catch{
     if(button.closest("#mapIdentity")){window.prompt("Не удалось скопировать. Выделите текст и скопируйте вручную.",button.dataset.copy);return}
     if(button.isConnected){showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");renderPanel()}

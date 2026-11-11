@@ -1,4 +1,5 @@
 {
+  "Скопировать в буфер обмена для продолжения этого грилинга в новой сессии": "Copy to clipboard to continue this grilling in a new session",
   "Продолжи существующий грилинг в этой сессии. Не создавай новую карту и не инициализируй её заново.": "Resume this existing grilling in this session. Do not create a new map or initialize it again.",
   "Прочитай инструкцию навыка и контекст сессии по указанным путям, затем проверь сохранённое состояние. Используй эти пути и имя во всех командах. Перед запуском проверь, что другая сессия больше не обслуживает карту; не запускай второй обработчик событий. Выполни команду запуска и продолжай цикл обработки событий по инструкции навыка.": "Read the skill instructions and session context at the supplied paths, then inspect saved state. Use these paths and name in every command. Before starting, verify that another session is no longer serving the map; do not start a second event handler. Run the start command and continue the skill event loop.",
   "Вход за все запросы:": "Input across all requests:",
