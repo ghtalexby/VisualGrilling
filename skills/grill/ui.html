@@ -173,7 +173,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 .note code{font-family:var(--f-mono);font-size:12px;color:var(--ink)}
 .err{font-size:13px;color:var(--gap);border:1px solid color-mix(in srgb,var(--gap) 40%,var(--line));border-radius:6px;padding:10px 12px}
 .warn{font-size:13px;border:1px solid color-mix(in srgb,var(--weak) 45%,var(--line));background:color-mix(in srgb,var(--weak) 8%,var(--surface));border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
-.tabs{display:flex;gap:20px;border-bottom:1px solid var(--line);margin-top:2px}
+.tabs{position:sticky;top:-16px;z-index:3;flex-shrink:0;display:flex;gap:20px;border-bottom:1px solid var(--line);margin:2px -20px 0;padding:0 20px;background:var(--surface)}
 .tab{border:0;border-bottom:2px solid transparent;background:none;margin-bottom:-1px;padding:8px 0;font-size:14px;font-weight:500;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:6px}
 .tab:hover{color:var(--ink)}
 .tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
@@ -842,7 +842,7 @@ function renderPanel(revealDiscussion=false){
   const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
   quietScroll=performance.now()+150; /* restoring scrollTop fires a scroll event that must not close the context menu */
   pb.scrollTop=nc>oc&&ob?pb.scrollHeight:top;
-  if(nc&&!panel.edit&&!panel.deleteIdea&&(!same||revealDiscussion))p.querySelector(".chat .msg:last-child")?.scrollIntoView({block:"end"});
+  if(nc&&!(get(panel.id)?.kind==="idea"&&(panel.edit||panel.deleteIdea))&&(!same||revealDiscussion))p.querySelector(".chat .msg:last-child")?.scrollIntoView({block:"end"});
   /* a just-disabled or replaced control cannot hold focus: fall back to the input or the active tab */
   let f=fsel&&p.querySelector(fsel);if(ae&&(!f||f.disabled))f=p.querySelector("#fMsg,#fAns")||p.querySelector('[data-tab][aria-selected="true"]');
   if(f){f.focus({preventScroll:true});if(sel)f.setSelectionRange(...sel)}
@@ -853,11 +853,11 @@ async function ackVisibleMessages(){
   if(document.visibilityState!=="visible"||!document.hasFocus()||!panel?.id)return;
   const n=get(panel.id),p=$("#panel"),box=p.querySelector(".pb");
   if(!n||p.hidden||!box||!(n.kind==="root"||n.kind==="idea"||panel.tab==="discuss"))return;
-  const bounds=box.getBoundingClientRect();
+  const bounds=box.getBoundingClientRect(),visibleTop=Math.max(bounds.top,box.querySelector(".tabs")?.getBoundingClientRect().bottom||bounds.top);
   for(const el of box.querySelectorAll("[data-message]")){
     if(document.visibilityState!=="visible"||!document.hasFocus()||panel?.id!==n.id||!el.isConnected)return;
     const m=(n.chat||[]).find(m=>m.id===el.dataset.message),r=el.getBoundingClientRect();
-    if(!m||m.from!=="claude"||m.readAt||reading.has(m.id)||r.bottom<=bounds.top||r.top>=bounds.bottom)continue;
+    if(!m||m.from!=="claude"||m.readAt||reading.has(m.id)||r.bottom<=visibleTop||r.top>=bounds.bottom)continue;
     reading.add(m.id);
     try{await api("/api/discuss/read",{id:n.id,messageId:m.id});await poll(true)}catch{}finally{reading.delete(m.id)}
   }
