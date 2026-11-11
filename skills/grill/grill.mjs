@@ -1132,6 +1132,11 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
         const { queue, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
+        const quote = value => "'" + (process.platform === "win32" ? value.replace(/['\u2018\u2019\u201a\u201b]/g, c => c + c) : value.replaceAll("'", "'\"'\"'")) + "'";
+        const resume = { project: process.cwd(), dir: BASE, name: NAME, state: STATE, session: path.join(DIR, "session.md"), skill: path.join(HERE, "SKILL.md"), cli: path.join(HERE, "grill.mjs"), language: S.locale.language,
+          shell: process.platform === "win32" ? "PowerShell" : "POSIX sh",
+          start: `${process.platform === "win32" ? "Set-Location -LiteralPath" : "cd --"} ${quote(process.cwd())}${process.platform === "win32" ? "; if ($?) { " : " && "}node ${quote(path.join(HERE, "grill.mjs"))} start --dir ${quote(BASE)}${NAME ? " --name " + NAME : ""}${process.platform === "win32" ? " }" : ""}` };
+        rest.resume = resume;
         return send(res, 200, { ...rest, sessionUsage: await readUsage(), knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queue.length + (knowledgeJob && !queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (specJob?.reviewIds?.length ? 1 : 0), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
       }
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");

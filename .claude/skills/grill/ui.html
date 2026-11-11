@@ -48,6 +48,10 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .brand-activity.active::before{animation:reread-spin 1.4s linear infinite}
 @media(prefers-reduced-motion:reduce){.brand-activity.active::before{animation:none}}
 .ptitle{color:var(--muted);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
+.map-identity{display:flex;align-items:center;gap:12px;min-width:0;flex:1 1 240px}
+.map-identity>.copy-button{display:grid;place-items:center;padding:5px;width:28px;height:28px;flex:none;opacity:0;pointer-events:none}
+.map-identity:hover>.copy-button,.map-identity:focus-within>.copy-button,.map-identity>.copy-success{opacity:1;pointer-events:auto}
+@media(hover:none){.map-identity>.copy-button{opacity:1;pointer-events:auto}}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 12px;font-size:14px;font-weight:500;cursor:pointer}
 .btn:hover{border-color:var(--ink)}
@@ -232,8 +236,9 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <header>
   <div class="hrow">
     <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span>Грилинг-карта</span></div>
-    <div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
+    <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
+    </div>
     <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
   <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bPlay" aria-label="Продолжить грилинг" title="Продолжить грилинг в текущей сессии агента"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l9 6-9 6z" fill="currentColor"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
@@ -499,7 +504,16 @@ const hasUnread=n=>(n.chat||[]).some(m=>m.from==="claude"&&!m.readAt);
 const chatBadge=n=>(n.chat||[]).length?`<button type="button" class="rmeta chat-link" data-chat>Обсуждение: ${n.chat.length}${hasUnread(n)?" · Новый ответ":""}</button>`:`<span class="rmeta">Обсуждение: ${0}</span>`;
 const copyButton=text=>`<button class="btn small copy-button" data-copy="${esc(text||"")}" title="Скопировать" aria-label="Скопировать"><svg class="copy-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg><svg class="copy-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>`;
 const copyBlock=(text,body,classes="note",attrs="")=>`<div class="copy-block ${classes}"${attrs}>${body}${copyButton(text)}</div>`;
+function renderResumeCopy(){
+  let button=$("#mapIdentity>.copy-button");
+  if(!S.resume){button?.remove();return}
+  if(!button){$("#mapIdentity").insertAdjacentHTML("beforeend",copyButton(""));button=$("#mapIdentity>.copy-button")}
+  button.dataset.copy=["Продолжи существующий грилинг в этой сессии. Не создавай новую карту и не инициализируй её заново.",
+    "Прочитай инструкцию навыка и контекст сессии по указанным путям, затем проверь сохранённое состояние. Используй эти пути и имя во всех командах. Перед запуском проверь, что другая сессия больше не обслуживает карту; не запускай второй обработчик событий. Выполни команду запуска и продолжай цикл обработки событий по инструкции навыка.",
+    JSON.stringify({title:S.title,...S.resume},null,2)].join("\n\n");
+}
 const copyTimers=new WeakMap();
+$("#mapIdentity").addEventListener("click",e=>{const button=e.target.closest("[data-copy]");if(button){clearError();copyText(button)}});
 async function copyText(button){
   if(button.disabled)return;
   clearTimeout(copyTimers.get(button));
@@ -511,6 +525,7 @@ async function copyText(button){
     button.classList.add("copy-success");button.title=button.ariaLabel="Скопировано";
     copyTimers.set(button,setTimeout(()=>{button.classList.remove("copy-success");button.title=button.ariaLabel="Скопировать";copyTimers.delete(button)},1200));
   }catch{
+    if(button.closest("#mapIdentity")){window.prompt("Не удалось скопировать. Выделите текст и скопируйте вручную.",button.dataset.copy);return}
     if(button.isConnected){showError("Не удалось скопировать. Выделите текст и скопируйте вручную.");renderPanel()}
   }finally{button.disabled=false}
 }
@@ -602,6 +617,7 @@ function renderHeader(){
   $("#bPlay").disabled=resumeSending||!!S.finishPending||offline||!loaded;
   $("#bPlay").setAttribute("aria-busy",String(resumeSending));
   $("#ptitle").textContent=S.title||"";document.title=S.title?`Грилинг: ${S.title}`:"Грилинг-карта";
+  renderResumeCopy();
   const c=counts();
   const refocus=document.activeElement&&document.activeElement.closest("#ledger")?document.activeElement.dataset.flt:null;
   $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}" title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");

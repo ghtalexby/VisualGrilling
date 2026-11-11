@@ -4,11 +4,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
-const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-maps-check-"));
+const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill maps O’Reilly 'check-"));
 const dir = path.join(cwd, "maps");
 const children = new Set();
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -50,6 +50,19 @@ const watchdog = setTimeout(() => { for (const child of children) child.kill(); 
 try {
   let a = await start("arch");
   const b = await start("money");
+  const resume = (await request(a, "state")).resume;
+  assert.equal(resume.project, cwd);
+  assert.equal(resume.dir, dir);
+  assert.equal(resume.name, "arch");
+  assert.equal(resume.cli, cli);
+  assert.equal(resume.state, path.join(dir, "arch", "state.json"));
+  assert.equal(resume.session, path.join(dir, "arch", "session.md"));
+  assert.ok(resume.start.includes("--name arch"));
+  assert.ok(resume.start.includes("--dir"));
+  const statusCommand = resume.start.replace(" start --dir ", " status --dir ");
+  const statusOutput = execFileSync(process.platform === "win32" ? "powershell.exe" : "sh", process.platform === "win32" ? ["-NoProfile", "-NonInteractive", "-Command", statusCommand] : ["-c", statusCommand], { encoding: "utf8", windowsHide: true });
+  assert.doesNotThrow(() => JSON.parse(statusOutput));
+  assert.equal((await fetch(a.url + "api/state")).status, 403);
   for (const [server, title] of [[a, "Architecture"], [b, "Money"]]) await request(server, "init", { title, questions: [{ q: "Why?" }] });
   const state = JSON.parse(fs.readFileSync(path.join(dir, "arch", "state.json")));
   for (const name of ["stopped", "Invalid_Name"]) {
@@ -98,6 +111,10 @@ try {
   assert.equal(expired.name, "arch");
   assert.equal(expired.expired, true);
   const root = await start(null);
+  const legacyResume = (await request(root, "state")).resume;
+  assert.equal(legacyResume.name, null);
+  assert.equal(legacyResume.state, path.join(dir, "state.json"));
+  assert.ok(!legacyResume.start.includes("--name"));
   await request(root, "init", { title: "Legacy", questions: [{ q: "Legacy?" }] });
   await request(root, "more", {});
   assert.equal((await result(run(null, ["watch", "--inbox"]))).name, null);

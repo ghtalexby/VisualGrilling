@@ -54,6 +54,17 @@ try {
       mergedFrom:[{q:"Merged question",answer:"Merged answer",verdict:"Merged verdict",answerHistory:[{answer:"Merged earlier answer"}]}]});
     openPanel({mode:"node",id:qid});`);
   assert.equal(await js('document.querySelector("unsafe")'), null);
+  await click("#mapIdentity [data-copy]");
+  const resumeText = await js("copied.pop()");
+  assert.ok(resumeText.startsWith("Resume this existing grilling"));
+  const resumeData = JSON.parse(resumeText.slice(resumeText.indexOf("{")));
+  assert.equal(resumeData.project, cwd);
+  assert.equal(resumeData.name, "check");
+  assert.equal(resumeData.dir, dir);
+  assert.ok(resumeData.start.includes("--name check"));
+  assert.equal(await js('document.querySelector("#mapIdentity [data-copy]").classList.contains("copy-success")'), true);
+  await js('render();document.querySelector("#mapIdentity [data-copy]").focus()');
+  assert.equal(await js('getComputedStyle(document.querySelector("#mapIdentity [data-copy]")).opacity'), "1");
   for(const text of ["Earlier answer","Earlier verdict","Merged question","Merged answer","Merged verdict","Merged earlier answer"]){
     assert.equal(await js(`Array.from(document.querySelectorAll("[data-copy]")).some(b=>b.dataset.copy===${JSON.stringify(text)})`),true,text);
   }

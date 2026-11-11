@@ -222,3 +222,5 @@ Run `node dev/check-current-work.mjs` for delivery versus queued work, notes/sta
 ## Session usage validation
 
 Run `node dev/check-usage.mjs` for isolated rollout fixtures, partial writes, repeated totals, session rebinding, invalid data, missing providers, HTTP protection and restart. Run locale and current-work browser checks for the header. For real Codex acceptance, start from the intended session and compare the tooltip counters with its cumulative usage after another model response; the internal rollout may be flushed with a delay. Counts include work before map launch.
+
+Resume-copy checks are included in `check-maps.mjs` (absolute project/custom root paths, named and legacy maps, protected metadata) and `check-copy-browser.mjs` (clipboard contents, English instructions, confirmation and keyboard access). Manually hover the map title/name, check narrow layouts and touch visibility, and paste into a new session after the old listener has stopped.
