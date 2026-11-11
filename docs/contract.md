@@ -33,6 +33,8 @@ Exit codes: 0 success; 1 HTTP/input errors (CLI stderr uses `Ошибка <code>
 
 ## Codex event monitor
 
+The skill defaults to monitor for new and continued Codex maps without repeating wake-up verification. Blocking wait is reserved for an explicit user request, a confirmed standalone (--no-daemon) host, or a diagnosed host/transport failure. This selection policy does not change the transport contract below.
+
 `monitor` arms a process-local subscription owned by the existing map server. It requires a Codex binding created by `start` and an `owner` matching that binding; arbitrary browser thread/message fields cannot choose a wake target or prompt. It uses the same `takeEvent()` and `apply` contracts as `wait`. No event fields change, and the simulator's grading remains unchanged. Neither another process nor periodic model calls are needed while idle.
 
 Status is `{phase,delivery,error}`: `off`, `armed`, `notifying`, `pending`, `ready`, or `failed`. `ready` means the last event was successfully applied and explicit re-arm is needed; it exposes no old delivery or transport error. Delivery is null until an event is reserved; otherwise it is a fresh UUID distinct from the event's apply token. Only protected `GET /api/monitor?delivery=...` returns the reserved event. It requires the exact ID, a still-current job and unchanged bound session. Completed, invalidated, stopped or pre-restart notifications return 409. Status and event fetches are read-only. CLI mode flags are mutually exclusive; malformed `--event` values exit 1.

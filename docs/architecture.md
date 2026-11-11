@@ -125,7 +125,7 @@ The server validates the candidate on a clone, independently confirms that every
 
 ## Recovery
 
-- `watch` is a client loop around the unchanged `/api/wait`: it swallows server timeout replies and exits on one event. When `--max-wait` expires, it aborts the outstanding request and prints a timeout body with `expired:true`. A host with automatic background completion wake-up can end the agent turn while it runs, then re-arm after applying an event or silently after expiry. Codex keeps the blocking `wait --timeout 50` loop. The active request keeps the map connected. An event taken at the cancellation boundary but not printed is returned to the queue by the next `wait` or `watch`.
+- `watch` is a client loop around the unchanged `/api/wait`: it swallows server timeout replies and exits on one event. When `--max-wait` expires, it aborts the outstanding request and prints a timeout body with `expired:true`. A host with automatic background completion wake-up can end the agent turn while it runs, then re-arm after applying an event or silently after expiry. Codex defaults to monitor; the blocking `wait --timeout 50` loop is reserved for an explicit user request, a confirmed standalone (--no-daemon) host, or a diagnosed host/transport failure. The active request keeps the map connected. An event taken at the cancellation boundary but not printed is returned to the queue by the next `wait` or `watch`.
 
 - On restart, pending answers and discussions return to queued; no messages are lost.
 - `start` checks `/api/ping` with a 1.5-second timeout and matching `pid`. A dead server is replaced; readiness is checked for up to 6 seconds. `EADDRINUSE` advances the port, up to 20 retries, and saves the actual port.
@@ -223,7 +223,7 @@ The header brand icon shows map-wide pending work independently of the open draw
 
 ## Host session connection
 
-After verified shared-server wake-up, `monitor` registers one subscription inside the map server. `pump()` reserves one event using `takeEvent()`, keeps its full payload in process memory and sends a fixed notification through `connection.mjs`. Codex fetches it with a separate delivery UUID, grades and applies it, then explicitly re-arms. No timeout reaches the model, no extra polling process is launched, and normal wait/watch transport stays available as a mutually exclusive fallback. Status is exposed through protected `/api/monitor`; no delivery credentials are added to browser state.
+The default Codex mode, `monitor`, registers one subscription inside the map server. `pump()` reserves one event using `takeEvent()`, keeps its full payload in process memory and sends a fixed notification through `connection.mjs`. Codex fetches it with a separate delivery UUID, grades and applies it, then explicitly re-arms. No timeout reaches the model, no extra polling process is launched, and normal wait/watch transport stays available as a mutually exclusive fallback. Status is exposed through protected `/api/monitor`; no delivery credentials are added to browser state.
 
 Subscription identity guards asynchronous transport completion: a late queue result cannot change a newer subscription. Failed or warned submissions are not retried automatically. Restart drops the subscription and existing recovery requeues work, so old notifications cannot fetch a new event. The original bound thread owns arming; rebinding is detected before dispatch and event retrieval. See [contract.md](contract.md#codex-event-monitor) for lifecycle and recovery details.
 

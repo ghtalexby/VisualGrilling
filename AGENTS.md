@@ -71,7 +71,7 @@ Codex uses the same `skills/grill/SKILL.md` and CLI loop as Claude Code. Install
 
 ## Per-event worker support
 
-`skills/grill/worker.md` contains event rules shared by all levels; `config.default.json` defaults the griller model to `inherit`. `node skills/grill/grill.mjs config` merges optional `<--dir>/config.json` without a server. `watch --inbox` writes full events to the map's `inbox.json` and prints a short dispatcher line. `apply notes` replaces bounded agent notes; the server generates `session.md`. Keep these contracts synchronized and run `node dev/check-workers.mjs`. Level 2 requires verified background wake-up and foreground workers; Codex uses event-driven `monitor` after verified shared-server wake-up, with level 0 as fallback; run `node dev/check-monitor.mjs`. Never re-arm while a worker is applying an event.
+`skills/grill/worker.md` contains event rules shared by all levels; `config.default.json` defaults the griller model to `inherit`. `node skills/grill/grill.mjs config` merges optional `<--dir>/config.json` without a server. `watch --inbox` writes full events to the map's `inbox.json` and prints a short dispatcher line. `apply notes` replaces bounded agent notes; the server generates `session.md`. Keep these contracts synchronized and run `node dev/check-workers.mjs`. Level 2 requires verified background wake-up and foreground workers; Codex defaults to event-driven `monitor` without repeating wake-up verification; level 0 is only for an explicit user request, a confirmed standalone (--no-daemon) host, or a diagnosed host/transport failure; run `node dev/check-monitor.mjs`. Never re-arm while a worker is applying an event.
 
 ## Parallel maps
 
