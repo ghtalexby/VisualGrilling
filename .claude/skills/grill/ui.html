@@ -819,7 +819,7 @@ function panelSig(){
   const n=get(panel.id);if(!n)return"gone";
   return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
-function renderPanel(){
+function renderPanel(revealDiscussion=false){
   const p=$("#panel");
   if(!panel){p.hidden=true;p.dataset.key="";return}
   let r;
@@ -842,6 +842,7 @@ function renderPanel(){
   const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
   quietScroll=performance.now()+150; /* restoring scrollTop fires a scroll event that must not close the context menu */
   pb.scrollTop=nc>oc&&ob?pb.scrollHeight:top;
+  if(nc&&!panel.edit&&!panel.deleteIdea&&(!same||revealDiscussion))p.querySelector(".chat .msg:last-child")?.scrollIntoView({block:"end"});
   /* a just-disabled or replaced control cannot hold focus: fall back to the input or the active tab */
   let f=fsel&&p.querySelector(fsel);if(ae&&(!f||f.disabled))f=p.querySelector("#fMsg,#fAns")||p.querySelector('[data-tab][aria-selected="true"]');
   if(f){f.focus({preventScroll:true});if(sel)f.setSelectionRange(...sel)}
@@ -864,7 +865,7 @@ async function ackVisibleMessages(){
 addEventListener("focus",()=>requestAnimationFrame(ackVisibleMessages));
 document.addEventListener("visibilitychange",()=>requestAnimationFrame(ackVisibleMessages));
 $("#panel").addEventListener("scroll",()=>requestAnimationFrame(ackVisibleMessages),true);
-function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id])panel.quote=draftQuotes[o.id];confirmReset=false;render();renderPanel()}
+function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id])panel.quote=draftQuotes[o.id];confirmReset=false;render();renderPanel(true)}
 
 /* ---------- actions ---------- */
 async function submitAnswer(){
@@ -1015,7 +1016,7 @@ $("#panel").addEventListener("click",e=>{
   clearTimeout(clickTimer);
   const im=e.target.closest("img[data-img]");if(im){if(im.src)window.open(im.src);return}
   const o=e.target.closest("[data-open]");if(o){openPanel({mode:"node",id:o.dataset.open});return}
-  const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;clearError();confirmReset=false;renderPanel();const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus();return}
+  const tb=e.target.closest("[data-tab]");if(tb){panel.tab=tb.dataset.tab;clearError();confirmReset=false;renderPanel(panel.tab==="discuss");const f=$(panel.tab==="discuss"?"#fMsg":"#fAns")||$('#panel [data-tab][aria-selected="true"]');if(f)f.focus({preventScroll:true});return}
   const cb=e.target.closest("[data-copy]");if(cb){clearError();copyText(cb);return}
   const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
   const kd=e.target.closest("[data-document]");if(kd){api("/api/knowledge-document?path="+encodeURIComponent(kd.dataset.document)).then(d=>{knowledgeDocument=d;renderPanel()},err=>showError(err.message));return}
