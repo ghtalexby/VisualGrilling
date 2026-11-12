@@ -86,7 +86,7 @@ export function focusedContext(nodes, id, text, { index = false, descendants = t
   const delivered = new Set([...ids, ...related.map(n => n.id)]);
   // Lexical hits are navigation, not an invitation to read five unrelated chats.
   const hits = ranking(nodes.filter(semanticCard), text).filter(x => !delivered.has(x.node.id)).slice(0, 5).map(x => x.node);
-  return { mode: "focused", focus, related, relatedOmitted, ...(index ? { index: indexText(nodes, delivered) } : { relatedIndex: indexText(hits), indexAvailable: true }), vocabulary: vocabulary(nodes) };
+  return { mode: "focused", focus, related, relatedOmitted, ...(index ? { index: indexText(nodes, delivered), relatedIds: hits.map(n => n.id) } : { relatedIndex: indexText(hits), indexAvailable: true }), vocabulary: vocabulary(nodes) };
 }
 
 export function applySemantics(nodes, id, input, clean) {

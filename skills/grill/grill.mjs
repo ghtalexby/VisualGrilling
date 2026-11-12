@@ -639,7 +639,7 @@ ${S.notes || "—"}
     const entry = { type: p.type, characters: size(p),
       focus: sum(["question", "why", "answer", "previousAnswer", "pendingAnswer", "verdict", "options", "branch", "branchSnapshot", "parent", "idea", "message", "messages", "history", "images", "previews"]) + size(p.context?.focus ?? p.context),
       related: sum(["nodes", "ideas", "projectChat", "sources", "mainQuestions", "problems"]) + size(p.context?.related),
-      index: size(p.context?.index) + size(p.context?.relatedIndex) };
+      index: size(p.context?.index) + size(p.context?.relatedIndex) + size(p.context?.relatedIds) };
     const stats = S.contextStats ||= { recent: [], totals: {} };
     stats.recent.push(entry); stats.recent = stats.recent.slice(-200);
     const total = stats.totals[p.type] ||= { count: 0, characters: 0, focus: 0, related: 0, index: 0 };

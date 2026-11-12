@@ -6,13 +6,13 @@ Status: stages 0–5 implemented and independently verified. Four full review pa
 
 Cut the tokens the agent spends per map event without lowering the quality of grading, discussion replies, duplicate detection or rereads.
 
-Today most events carry a near-complete snapshot of the map, sometimes several copies of it. In a single long session (Codex monitor, levels 0/1) every delivered snapshot also stays in the conversation history, so later events pay for all earlier ones.
+Before this implementation, most events carried a near-complete snapshot of the map, sometimes several copies of it. In a single long session (Codex monitor, levels 0/1) every delivered snapshot also stays in the conversation history, so later events pay for all earlier ones.
 
 The target model is: **focus in full, the rest of the map as a compact index, full cards on demand by ID, and a semantic map (topics and typed links) that tells both the server and the agent which distant cards matter.**
 
 ## Baseline (measured on this repository's own maps)
 
-Serialized characters of `S.nodes.map(contextNode)`, which is what `discuss` and `idea` events deliver as `nodes`, against a one-line-per-card index (`id`, parent, status, question, answer cut to 160 characters).
+Serialized characters of `S.nodes.map(contextNode)`, which the original `discuss` and `idea` events delivered as `nodes`, against a one-line-per-card index (`id`, parent, status, question, answer cut to 160 characters).
 
 | Map | Cards | Full `nodes` | Index | Ratio |
 |---|---|---|---|---|
@@ -23,7 +23,7 @@ Serialized characters of `S.nodes.map(contextNode)`, which is what `discuss` and
 
 Largest fields across maps: `chat`, `verdict`, `options`, `verdictHistory`, `why`, `answer`. A single main-question subtree is at most 18 743 characters (median about 1 000 to 4 000).
 
-Known waste in `payload()` (`skills/grill/grill.mjs`):
+Original waste in `payload()` (`skills/grill/grill.mjs`):
 
 - `discuss`: `nodes` is the whole map with chats; `branchSnapshot`, `history` and `messages` repeat data already inside `nodes`.
 - `answer`: `existingQuestions` lists the text of every question on the map, only to prevent duplicates.
@@ -71,16 +71,16 @@ finish      8607       0     8218    0
 
 `preview` measures its prepare phase. `reevaluate` first grades a child answer; `finish` first acknowledges knowledge extraction with no files. The check also verifies repeated delivery accounting, rolling-history eviction after 205 events, restart persistence/redelivery, initialization reset, and HTTP 403 without `x-grill: 1`. Payloads remain unchanged in this stage.
 
-## Implemented stages 1–4 measurement
+## Current implemented measurement
 
-Measured with `node dev/check-context.mjs` on the unchanged stage 0 fixture. Character counts remain UTF-16 code units. The check now asserts the budgets, read-only retrieval, coverage of every card, duplicate atomicity and explicit acknowledgment, semantic limits and reverse links, evidence/specification identity, source snapshot injection, incremental audits, and frozen read-token recovery.
+Measured with `node dev/check-context.mjs` on the unchanged stage 0 fixture after switching lexical matches to navigation and adding ranked inline-index hints. Character counts are UTF-16 code units. The check asserts budgets, read-only retrieval, complete discovery, lexical shortlist ranking and exclusions, duplicate atomicity, semantic limits, evidence identity, source injection, incremental audits and frozen read recovery.
 
 ```text
 type        characters focus related index
-answer      9588       5768  3224    0
-discuss     13796      5630  3224    4429
-question    1418       948   2       0
-idea        7450       241   2       6618
+answer      6928       5499  2       815
+discuss     11207      5361  2       5317
+question    1167       679   2       2
+idea        7466       241   2       6620
 reevaluate  6093       0     5604    0
 reread      26329      25454 237     2
 more        1376       0     1098    0
@@ -90,9 +90,11 @@ knowledge   30137      0     29497   0
 finish      8607       0     8218    0
 ```
 
-Discussion is 34.84% and idea analysis is 22.79% of the stage 0 delivery. An automatic reread after one edited main answer, with one explicit graph neighbour, is 8,646 characters (32.84% of the full reread's 26,329), below the 40% budget. Adding unrelated branches leaves the focused answer context unchanged when they have no lexical or semantic relation. Related selection remains bounded when candidates qualify.
+Discussion is 28.30% and idea analysis is 22.83% of the stage 0 delivery. An automatic reread after one edited main answer with one graph neighbour is 8,646 characters (32.84% of full reread's 26,329), below 40%. Unrelated branches do not enlarge the answer's full evidence; lexical candidates contribute only bounded navigation. The index counter includes `index`, `relatedIndex` and `relatedIds` values. Empty arrays/strings account for two serialized characters.
 
-Concrete defaults: lexical minimum score 2 with `log(1 + N / documentFrequency)` weights, top five lexical candidates after graph neighbours, exact serialized related-array budget 20,000 characters; duplicate normalized exact matching or stem-set Jaccard similarity at least 0.85; `knowledge.rereadThreshold` is an integer from 1 to 500, default 5. Captured answer/idea contexts provide `readToken`; pass it as `--token` to retrieval commands to read the captured tree. Invalid, expired, or restarted delivery tokens fail closed. See [the contract](../../contract.md) for final field and endpoint shapes.
+Defaults: lexical score >=2 using `log(1 + N / documentFrequency)` weights; top five question/idea candidates outside full focus/related context, as index rows or ranked IDs. Only graph neighbours receive full cards within the 20,000-character related-array budget. Duplicate detection uses normalized exact text or stem-set Jaccard >=0.85; `knowledge.rereadThreshold` is 1–500, default 5. Captured answer/idea contexts provide `readToken`; pass `--token` to retrieval commands. Invalid, expired or restarted tokens fail closed. See [the contract](../../contract.md) for field/endpoint shapes.
+
+Shared worker plus answer instructions measure 10,560 UTF-8 bytes, leaving 1,440 bytes below the hard 12,000-byte limit. `check-workers.mjs` enforces a maintenance ceiling of 11,000 bytes so at least 1,000 bytes remain free. The example uses a meaningful topic and an existing related-card placeholder, not empty arrays; omit unjustified links rather than inventing evidence.
 
 ## Stage 1: remove duplication and dead weight
 
@@ -115,9 +117,10 @@ Events gain a `context` object and lose the whole-map arrays:
 ```json
 {"context":{"mode":"focused",
   "focus":[/* full cards: target, its ancestors, its subtree */],
-  "related":[/* full cards chosen by the server, see below */],
+  "related":[/* full one-hop graph neighbours within budget */],
   "relatedOmitted":["id"],
   "index":"<text, one line per remaining card>",
+  "relatedIds":["lexical-match-id"],
   "vocabulary":[["topic",3]]}}
 ```
 
@@ -133,7 +136,9 @@ Per event type:
 | `reevaluate`, `spec`, `preview`, `finish` | unchanged | no | no |
 | `reread`, `knowledge` | see stage 4 | | |
 
-`existingQuestions` is removed from `answer` and `question`; the duplicate guard below replaces it.
+`relatedIds` identifies up to five inline-index rows in descending lexical relevance order, excluding full focus/related cards. Answer/question events omit the full index and instead carry those candidates as compact `relatedIndex` rows plus `indexAvailable:true`. Empty hits produce an empty list/string.
+
+`existingQuestions` is removed from `answer` and `question`. Before adding questions, read `G index --questions` (all current full titles) and plausible candidates with `G node`; the atomic duplicate guard catches near-verbatim repeats, not every paraphrase.
 
 ### Index format
 
@@ -144,20 +149,21 @@ n2ein89l ok  | Name a real case: which UI contradiction…  | = circle size edit
   k81aa02x weak ! obsolete | …
 ```
 
-Columns: ID, status, flags (`obsolete`, `conflict`, `pending`, `idea`), question cut to 140 characters, `decision` when present or else the answer cut to 160, topics, chat message count. Bounded by the existing 500-node limit; report an explicit error rather than cutting lines.
+Columns: ID, status, flags (`obsolete`, `conflict`, `pending`, `idea`), question cut to 140 characters, `decision` (up to 200 characters) when present or else the answer cut to 160, topics, chat message count. Bounded by the existing 500-node limit; report an explicit error rather than cutting lines.
 
 ### Related cards (server-side selection)
 
-Until stage 3 adds links, relatedness is lexical:
+Full related evidence comes only from one-hop semantic links. Lexical similarity supplies navigation:
 
 - Tokenize the new user text (answer or message) and every card's `q` + `answer`: lowercase, Unicode letters and digits, tokens of 3+ characters, cut to the first 5 characters as a crude stem (adequate for Russian and English), weight by inverse document frequency across the map.
-- Deliver the top 5 cards above a minimum score in full, within a 20 000 character budget. Cards that qualified but did not fit go to `relatedOmitted`.
+- Deliver graph neighbours in full within a 20 000-character serialized-array budget; graph candidates that do not fit go to `relatedOmitted`.
+- Rank question/idea cards by lexical score and select up to five qualifying cards outside full focus/related context. Without an inline index send compact `relatedIndex` rows; with one, send ranked `relatedIds` pointing to its rows. Never deliver full lexical chats merely because vocabulary overlaps. Root chat appears in full only when root itself is the requested focus.
 
 ### On-demand commands
 
 - `G node <id> [<id>…]`: full context cards (same projection as focus), at most 20 per call.
 - `G branch <id>`: a card with ancestors and subtree.
-- `G index`: the whole-map index text.
+- `G index`: the whole-map index text; `G index --questions` returns IDs and full titles of current questions for duplicate checks.
 - `G search <text>`: the lexical ranking above, as index lines with scores.
 
 All are read-only `GET /api/*` endpoints with the usual `Host` and `x-grill` checks, inputs through `clean()`. They do not touch the queue, leases or listening state.
@@ -168,7 +174,7 @@ When `apply` adds a question (`children`, `newRoot`, `questions`, `branchChanges
 
 ### Instructions
 
-`worker.md` rules for `discuss` and `idea`: read `focus` and `related`; scan `index` for cards on the same object or decision; fetch any plausible match with `G node` before creating a question, recording an answer for another card, or claiming something is undecided. The existing "search all delivered nodes for duplicates" wording becomes "search the index, then read the candidates".
+`worker.md` rules for `discuss` and `idea`: read `focus` and `related`; inspect ranked `relatedIds`/`relatedIndex` candidates and scan `index` for cards on the same object or decision; fetch any plausible match with `G node` before creating a question, recording an answer for another card, or claiming something is undecided. The existing "search all delivered nodes for duplicates" wording becomes "search the index, then read the candidates".
 
 Acceptance: on the fixture, `discuss` and `idea` events are at most 35% of their stage 0 size; `answer` no longer grows with the number of cards outside its branch. New `dev/check-context.mjs` cases: on-demand commands, duplicate rejection and `allowSimilar`, nothing missing (every card is either in `focus`, `related` or the index). Simulator updated to the new shape.
 
@@ -192,12 +198,12 @@ A shared optional `semantics` object, accepted by:
 - `apply idea`,
 - `apply reread` as `semantics:[{id, topics?, relates?, decision?, chatDigest?}]` for any cards, which is also the backfill path for existing maps.
 
-Validation: all link targets exist and are not the card itself; unknown `kind` rejects; everything through `clean()`. Stored on the node. Editing an answer or adding user chat sets `semanticsStale:true` on that card; the next result that carries `semantics` for it clears the flag.
+Validation: link targets are other existing question/idea cards, never root or preview; unknown `kind` rejects; everything through `clean()`. Stored on the node. Editing an answer or adding user chat sets `semanticsStale:true` on that card; the next result that carries `semantics` for it clears the flag.
 
 ### What the server does with them
 
 - Links are stored one way and read both ways: a card's neighbours are its own `relates` plus every card that links to it. Nothing is written to the target card, so its branch revision does not change.
-- `context.related` selection becomes: one-hop neighbours first, then lexical matches, same budget.
+- `context.related` contains one-hop question/idea graph neighbours only. Lexical matches remain index navigation, never automatic full-card evidence.
 - `context.vocabulary`: the map's topics with counts, most used first, capped at 200. Instructions: reuse a listed topic; introduce a new one only when none fits. The shared glossary under `docs/vgril/` is a good seed when it exists.
 - Index lines show `decision` and topics.
 - New read-only commands: `G related <id>` (neighbours with link kinds) and `G search --topic <topic>`.
@@ -230,7 +236,7 @@ Acceptance: `check-reread.mjs` extended with incremental cases (changed card del
 
 - `worker.md` keeps the shared procedure, JSON passing, and a routing table from event type to a rules file. Move event rules to `skills/grill/events/`: `answer.md`, `discuss.md`, `question.md`, `reread.md`, `reevaluate.md`, `idea.md`, `spec.md`, `finish.md`; `knowledge.md` and `preview-format.md` already exist. A worker reads `worker.md` and only the file for its event.
 - `SKILL.md`: keep map selection, language, context gathering, `init`, and the choice of waiting mode. Move the Codex monitor workflow, level 2 dispatcher, and parallel maps to separate files read only when that mode is selected.
-- Remove the duplicated limit paragraphs; keep each rule in one place and link to it.
+- Remove the duplicated limit paragraphs; keep each rule in one place and link to it. Keep shared plus answer instructions at most 11 000 UTF-8 bytes, reserving at least 1 000 bytes below the 12 000-byte hard budget.
 - Update `dev/link-skill.mjs`, install notes and `check-workers.mjs` for the new files.
 
 Acceptance: a level 2 worker handling `answer` reads under 12 KB of instructions in total; all `dev/check-*.mjs` pass; a real session on each host still follows the loop.
@@ -251,7 +257,7 @@ Defaults are what the plan assumes; change them before implementation if needed.
 1. Manual Reread button stays a full reread; only automatic rereads become incremental. (Default: yes.)
 2. Duplicate guard rejects and requires `allowSimilar`, rather than only warning. (Default: reject.)
 3. Knowledge extraction threshold N = 5 changed answered cards. (Default: 5.)
-4. Related-cards budget 20 000 characters and top 5 lexical matches. (Default: as stated; tune from stage 0 numbers.)
+4. Full graph-neighbour budget 20 000 characters; top 5 lexical matches as navigation rows/IDs only.
 5. Show topics and links in the UI. (Default: not in this plan.)
 
 ## Synchronization checklist for every stage

@@ -25,6 +25,29 @@ for (const n of dense.filter(n => n.kind === "q")) {
   assert.ok(JSON.stringify(focusedContext(dense, n.id, n.answer, { index: true })).length <= JSON.stringify(dense).length * 0.35);
 }
 assert.equal(focusedContext(dense, "root", "", { descendants: false }).focus[0].chat[0].text, dense[0].chat[0].text);
+// Inline indexes retain a ranked lexical shortlist without duplicating cards or chats.
+const lexical = [{ id: "root", kind: "root" },
+  { id: "focus", kind: "q", parentId: "root", q: "Deployment?", relates: [{ id: "graph", kind: "depends" }] },
+  { id: "graph", kind: "q", parentId: "root", q: "Retention backup encryption?" },
+  { id: "best", kind: "q", parentId: "root", q: "Retention backup encryption?", chat: [{ text: "PRIVATE MATCH CHAT" }] },
+  ...Array.from({ length: 6 }, (_, i) => ({ id: `match${i}`, kind: "q", parentId: "root", q: "Retention backup?" })),
+  { id: "unrelated", kind: "q", parentId: "root", q: "Pricing?" },
+  ...Array.from({ length: 12 }, (_, i) => ({ id: `other${i}`, kind: "q", parentId: "root", q: "Staffing?" })),
+  { id: "preview", kind: "preview", parentId: "root", q: "Retention backup encryption?" }];
+for (const id of ["focus", "root"]) {
+  const context = focusedContext(lexical, id, "retention backup encryption", { index: true, descendants: false });
+  assert.equal(context.relatedIds.length, 5);
+  assert.equal(context.relatedIds[0], "best");
+  assert.equal(context.relatedIndex, undefined);
+  for (const hit of context.relatedIds) {
+    assert.ok(context.index.split("\n").some(line => line.trimStart().startsWith(hit + " ")));
+    assert.ok(![...context.focus, ...context.related].some(n => n.id === hit));
+  }
+  assert.ok(!context.relatedIds.includes("preview"));
+  assert.ok(!context.relatedIds.includes("unrelated"));
+  assert.ok(!JSON.stringify(context).includes("PRIVATE MATCH CHAT"));
+}
+assert.deepEqual(focusedContext(lexical, "focus", "", { index: true }).relatedIds, []);
 const badGraph = [...dense, { id: "preview", kind: "preview", parentId: "root", relates: [{ id: "dense0", kind: "depends" }] }];
 assert.throws(() => applySemantics(badGraph, "dense0", { relates: [{ id: "preview", kind: "depends" }] }, s => s));
 badGraph[1].relates = [{ id: "root", kind: "depends" }, { id: "preview", kind: "depends" }];
@@ -75,6 +98,7 @@ async function delivered(type, print = true) {
   const stats = (await api("state")).contextStats, entry = stats.recent.at(-1);
   assert.equal(entry.type, type);
   assert.equal(entry.characters, JSON.stringify(event).length);
+  if (event.context?.relatedIds) assert.equal(entry.index, JSON.stringify(event.context.index).length + JSON.stringify(event.context.relatedIds).length);
   assert.ok(entry.focus + entry.related + entry.index <= entry.characters);
   assert.equal("contextStats" in event, false);
   if (print) console.log(`${type}\t${entry.characters}\t${entry.focus}\t${entry.related}\t${entry.index}`);
@@ -125,6 +149,7 @@ try {
   assert.ok(JSON.stringify(measured.idea).length <= 32696 * 0.35);
   assert.ok(JSON.stringify(measured.knowledge).length < 71422);
   for (const event of [measured.discuss, measured.idea]) {
+    assert.ok(Array.isArray(event.context.relatedIds));
     const deliveredIds = new Set([...event.context.focus, ...event.context.related].map(n => n.id));
     for (const n of fixture.nodes) assert.ok(deliveredIds.has(n.id) || event.context.index.split("\n").some(line => line.trimStart().startsWith(n.id + " ")), `Missing ${n.id}`);
   }

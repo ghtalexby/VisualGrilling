@@ -22,6 +22,7 @@ for (const file of ["monitor.md", "dispatcher.md", "parallel-maps.md"]) {
 }
 const answerInstructionBytes = Buffer.byteLength(workerRules) + Buffer.byteLength(instruction("events/answer.md"));
 assert.ok(answerInstructionBytes < 12000, `Answer instructions exceed budget: ${answerInstructionBytes} bytes`);
+assert.ok(answerInstructionBytes <= 11000, `Keep at least 1000 bytes of instruction headroom: ${answerInstructionBytes} bytes`);
 // Every local Markdown link in the split instruction package must resolve.
 for (const file of ["SKILL.md", "worker.md", "knowledge.md", "preview-format.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles]) {
   for (const match of instruction(file).matchAll(/\]\(([^)]+)\)/g)) {

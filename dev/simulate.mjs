@@ -13,6 +13,7 @@
 //     --name     use test-project/.grill/<name>; without it, use .grill directly
 //     --delay    simulated thinking time before apply, in milliseconds
 
+// relatedIds/relatedIndex are navigation only; simulated grading uses full context cards.
 import { contextCards, focusCard, discussionChat } from "./context-fixture.mjs";
 import fs from "node:fs";
 import path from "node:path";

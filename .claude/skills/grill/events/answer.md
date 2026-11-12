@@ -4,18 +4,20 @@
 
   ```bash
   G apply <<'EOF'
-  {"type":"answer","id":"<event id>","token":"<event token>","status":"weak","verdict":"...","children":[{"q":"...","why":"...","options":["...","..."]}],"newRoot":null,"semantics":{"topics":[],"relates":[],"decision":"..."}}
+  {"type":"answer","id":"<event id>","token":"<event token>","status":"weak","verdict":"...","children":[{"q":"...","why":"...","options":["...","..."]}],"newRoot":null,"semantics":{"topics":["retention"],"relates":[{"id":"<existing related card id>","kind":"depends"}],"decision":"..."}}
   EOF
   ```
 
 
+Use a topic supported by the answer and replace the link placeholder with a relevant existing question/idea ID you have read. Omit `relates` when no link is justified; do not invent one to match the example.
+
 ## Branch review
 
-For an answer, inspect the complete `context.focus` branch (IDs, parents, answers, verdicts, pending work, and chat). Review all affected questions regardless of `createdBy`. Keep relevant questions, their IDs, grades and chats. `children` now ADDS follow-ups and never implicitly deletes existing descendants. Omitted `branchChanges` preserves existing descendants.
+Inspect the complete `context.focus` branch: IDs, parents, answers, verdicts, pending work and chat, regardless of `createdBy`. Keep relevant questions, IDs, grades and chats. `children` only adds follow-ups; omitting `branchChanges` preserves descendants.
 
-Follow-up counts below apply only to newly needed questions. Use `children:[]` when retained questions already cover the weakness; do not add questions just to meet a minimum count on regrading.
+Counts below cover newly needed questions only. Use `children:[]` when retained questions cover the weakness; never add questions merely to meet a regrading quota.
 
-Use `branchChanges:{remove:["obsolete-id"],move:[{id:"kept-id",parentId:"parent-id"}],add:[{key:"$new",parentId:"existing-id",q:"...",why:"...",options:["...","..."]}]}` for semantic restructuring. Additions can reference other additions by their `$key`, including forward references. Moves can also reference those keys. All operations are confined to the graded subtree; the graded node itself cannot move or be removed. `newRoot` remains the separate route to add a main question. Remove obsolete decisions explicitly; a removed parent’s children must also be explicitly removed or moved. Never remove a card with `conflictOf`: it records a disagreement only the user settles, and the server rejects that. Cycles, missing parents, duplicate operations and outside IDs are rejected atomically. Do not rewrite existing question meaning while keeping its grade: remove it and add a new open question instead. Retained answers, discussions and queued work survive; removed nodes’ work is discarded. Preserve parents listed in `questionRequests` until their custom questions have been prepared.
+Restructure with `branchChanges:{remove:["obsolete-id"],move:[{id:"kept-id",parentId:"parent-id"}],add:[{key:"$new",parentId:"existing-id",q:"...",why:"...",options:["...","..."]}]}`. Additions and moves may reference new `$key`s, including forward references. Operations stay inside the graded subtree; its root cannot move or be removed. Add main questions through `newRoot`. Remove obsolete decisions explicitly, also moving/removing every child of a removed parent. Never remove `conflictOf` cards: only the user settles their disagreement. Cycles, missing parents, duplicate operations and outside IDs fail atomically. To change question meaning, remove it and add a new open question; never retain its old grade. Retained answers, discussions and queued work survive; removed nodes' work is discarded. Preserve `questionRequests` parents until their custom questions are prepared.
 
 Limits: 500 nodes / 600000 serialized characters per graded subtree; at most 500 removals, 500 moves, 20 keyed additions, 4 direct children. On `capturedForSpec:true`, use only the frozen `context` and delivered answer for decisions; ignore later activity and discussions. `protectedIds` identifies nodes changed after capture (including later chat); do not remove them. The server applies structure and captured grades to the frozen specification tree independently of current answers. Later work is never imported into that snapshot.
 
