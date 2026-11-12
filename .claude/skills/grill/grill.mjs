@@ -227,8 +227,10 @@ ${S.notes || "—"}
   const rootOf = n => { let p = n; while (p.parentId && p.parentId !== "root") p = get(p.parentId); return p; };
   const qs = () => S.nodes.filter(n => n.kind === "q");
   const specNode = n => {
+    const { topics, relates, decision, chatDigest, semanticsStale, ...evidence } = n;
+    n = evidence;
     if (n.kind === "preview") { const snap = n.snapshot ? n : preview.snapshot(n); return { ...snap, link: snap.snapshot ? `http://127.0.0.1:${port}/#preview=${snap.snapshot}` : null }; }
-    const { topics, relates, decision, chatDigest, semanticsStale, chat, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, options, pending, analysis, ...rest } = n;
+    const { chat, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, options, pending, analysis, ...rest } = n;
     return { ...rest, ...(n.kind === "idea" ? { chat: chat || [] } : {}), ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) };
   };
   const specLocked = id => S.specJob?.waiting.includes(id);

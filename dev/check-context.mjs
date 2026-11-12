@@ -1,6 +1,7 @@
 // Measure focused event payloads using a deterministic, disposable 40-question map.
 import { evidenceNode, deliveryNode, focusedContext, indexText, vocabulary, applySemantics, validateDuplicates, reconcileLinks, validateLinks } from "../skills/grill/context.mjs";
 import { digest } from "../skills/grill/knowledge.mjs";
+import { circlePreview } from "./fixtures/preview.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -172,7 +173,61 @@ try {
   await api("reread", {}); const manual = await delivered("reread", false);
   assert.equal(manual.context.mode, "full");
   await api("apply", { type: "reread", token: manual.token, audit: audit(manual) });
+  // Preview evidence stays byte-identical after API-authored navigation annotations,
+  // including prepared projects without a commit and immutable built snapshots.
+  for (const built of [false, true]) {
+    await reset();
+    const { id } = await api("preview/prepare", { sourceId: "q00" });
+    const prepared = await delivered("preview", false);
+    const previewResult = event => ({ type: "preview", id, token: event.token, projectId: event.projectId, base: event.base });
+    await api("apply", { ...previewResult(prepared), question: "Which visual?", options: ["UI", "Diagram"] });
+    if (built) {
+      await api("preview/build", { id, request: "Circle UI" });
+      const build = await delivered("preview", false);
+      await api("apply", { ...previewResult(build), files: circlePreview, purpose: "Circle" });
+    }
+    const annotatePreview = async semantics => {
+      await api("reread", {}); const review = await delivered("reread", false);
+      await api("apply", { type: "reread", token: review.token, audit: audit(review), ...(semantics ? { semantics: [{ id, ...semantics }] } : { brief: "Preview evidence fixture" }) });
+      if ((await api("state")).knowledgePending) {
+        const extraction = await delivered("knowledge", false);
+        await api("apply", { type: "knowledge", token: extraction.token, files: [] });
+      }
+    };
+    // Normalize preview reconciliation bookkeeping equally for both captures.
+    await annotatePreview();
+    const capture = async () => {
+      await api("spec", {});
+      const job = JSON.parse(fs.readFileSync(stateFile)).specJob;
+      const event = await delivered("spec", false);
+      await api("apply", { type: "spec", token: event.token, markdown: "# Preview evidence" });
+      return { nodes: job.nodes, gradingNodes: job.gradingNodes, delivered: event.nodes };
+    };
+    const baseline = await capture();
+    const previewEvidence = baseline.delivered.find(n => n.id === id);
+    assert.equal(previewEvidence.sourceId, "q00");
+    assert.equal(previewEvidence.parentId, "q00");
+    if (built) {
+      assert.match(previewEvidence.snapshot, /^[a-f0-9]{64}$/);
+      assert.ok(previewEvidence.link.endsWith("#preview=" + previewEvidence.snapshot));
+      assert.equal((await api("preview/snapshot?key=" + previewEvidence.snapshot)).purpose, "Circle");
+    } else {
+      assert.equal(previewEvidence.question, "Which visual?");
+      assert.deepEqual(previewEvidence.options, ["UI", "Diagram"]);
+      assert.equal(previewEvidence.link, null);
+    }
+    await annotatePreview({ topics: ["preview-navigation"], decision: "Navigation sentinel", chatDigest: "Digest sentinel", relates: [{ id: "q01", kind: "depends" }] });
+    assert.equal((await api(`node?id=${id}`)).nodes[0].decision, "Navigation sentinel");
+    const annotated = await capture();
+    for (const key of Object.keys(baseline)) for (let i = 0; i < baseline[key].length; i++) assert.deepEqual(annotated[key][i], baseline[key][i]);
+    assert.equal(JSON.stringify(annotated), JSON.stringify(baseline));
+    for (const nodes of Object.values(annotated)) {
+      const preview = nodes.find(n => n.id === id);
+      for (const key of ["topics", "relates", "decision", "chatDigest", "semanticsStale"]) assert.equal(key in preview, false);
+    }
+  }
   // Near duplicate guards reject whole transactions, and explicit matching IDs allow intentional overlap.
+  await reset();
   await api("init", { questions: [{ q: "Which authentication protocol protects account access?", options: ["Token", "Password"] }, { q: "How are database backups restored?", options: ["Manual", "Scheduled"] }] });
   let state = await api("state"); const auth = state.nodes.find(n => n.kind === "q"), backup = state.nodes.find(n => n.kind === "q" && n.id !== auth.id);
   const duplicate = { q: auth.q, options: ["Token", "Password"] };

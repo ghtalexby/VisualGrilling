@@ -1,0 +1,98 @@
+[
+  {
+    "check": "check-completeness-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-completeness.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-connection.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-context.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-copy-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-current-work-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-current-work.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-discussion-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-discussion.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-ideas-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-ideas.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-knowledge-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-knowledge.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-locale.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-maps.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-monitor.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-preview-browser.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-preview.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-reread.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-spec.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-ui-api.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-usage.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-watch.mjs",
+    "exit": 0
+  },
+  {
+    "check": "check-workers.mjs",
+    "exit": 0
+  }
+]

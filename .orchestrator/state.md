@@ -79,3 +79,9 @@ Parent confirmed relevant code paths. Fresh distinct fixer fix_integrated_1 assi
 ### Review1 fixes verified
 Fresh fixer addressed F1-F3; targeted context/reread/discussion/ideas/spec/workers PASS including oversized unrelated histories and focus, stale merge/close, graph remap/prune/union>8 rejection, explicit replacement, indirect incremental audits, live/frozen deletions and idea edits. Budgets unchanged; worker11941bytes. All runtime/docs/check files frozen.
 Root final all24 check suite running, per-check results in check-results.json. Preparing review1 implementation/fix commit after targeted relevant checks passed; final full-suite result will be recorded separately.
+
+## Full review pass 2 — CHANGES_REQUESTED
+Implementation/fixes committed84a9702. Fresh reviewer independently passed context/reread/knowledge/discussion/workers, then reproduced F4 P2 via valid API: prepared/unbuilt preview annotated through reread leaks decision/topics through specNode preview early return into spec nodes and grading capture. Built preview allowlist is safe. Parent confirmed early return before semantic destructuring. Fresh fixer fix_integrated_2 assigned minimal all-kind semantic stripping and API regression; full review count2. Separate fix commit planned after relevant checks, then fresh full review3.
+
+F4 fixed with semantic stripping before preview handling; prepared/unbuilt and built API regression verifies byte-identical spec.nodes/gradingNodes/delivery and preserves metadata. Targeted context/spec/preview/knowledge checks PASS. Root full24 suite on preceding84a9702 passed with0 failures; final verifier will rerun all24 on final tree. Preparing separate review2 fix commit.
+
