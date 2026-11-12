@@ -75,7 +75,7 @@ For every delivered event, follow [worker.md](worker.md) and only the event file
 
 ## Map context commands
 
-Events use focused context and a compact map index; follow [worker context rules](worker.md#focused-map-context). Read-only `G node <id> [<id>...]`, `G branch <id>`, `G index`, `G search <text>`, `G related <id>` and `G search --topic <topic>` retrieve evidence without advancing the queue. Semantic topics, links and summaries aid navigation, never replace user evidence. Manual `G reread` is full; automatic rereads are incremental after the first successful reread.
+Events use focused context and a compact map index; follow [worker context rules](worker.md#focused-map-context). Read-only `G node <id> [<id>...]`, `G branch <id>`, `G index` (or `G index --questions` for current question titles), `G search <text>`, `G related <id>` and `G search --topic <topic>` retrieve evidence without advancing the queue. Attach semantics to each answer assessment; topics, links and summaries aid navigation, never replace user evidence. Focused events include graph evidence and compact lexical navigation; root chat is delivered only when root is the target. Manual `G reread` is full; automatic rereads are incremental after the first successful reread.
 
 ## 3. Pass JSON safely
 

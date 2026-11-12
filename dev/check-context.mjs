@@ -10,6 +10,41 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
+// Long shared vocabulary must not pull unrelated answers/chats into deliveries.
+const dense = [{ id: "root", kind: "root", chat: [{ text: "Project chat ".repeat(1000) }] },
+  ...Array.from({ length: 40 }, (_, i) => ({ id: `dense${i}`, kind: "q", parentId: "root", status: "ok",
+    q: `How should decision ${i} validate shared project requirements?`,
+    answer: "Shared project requirements need explicit validation and reproducible evidence. ".repeat(24),
+    chat: [{ text: "Discuss the shared requirements and project decision. ".repeat(30) }] }))];
+for (const n of dense.filter(n => n.kind === "q")) {
+  const context = focusedContext(dense, n.id, n.answer);
+  assert.deepEqual(context.focus.map(n => n.id), [n.id]);
+  assert.equal(context.related.length, 0);
+  assert.ok(context.relatedIndex.length < 2000);
+  assert.ok(JSON.stringify(context).length <= JSON.stringify(context.focus).length + 2300, "Answer navigation must stay bounded for long shared answers");
+  assert.ok(JSON.stringify(focusedContext(dense, n.id, n.answer, { index: true })).length <= JSON.stringify(dense).length * 0.35);
+}
+assert.equal(focusedContext(dense, "root", "", { descendants: false }).focus[0].chat[0].text, dense[0].chat[0].text);
+const badGraph = [...dense, { id: "preview", kind: "preview", parentId: "root", relates: [{ id: "dense0", kind: "depends" }] }];
+assert.throws(() => applySemantics(badGraph, "dense0", { relates: [{ id: "preview", kind: "depends" }] }, s => s));
+badGraph[1].relates = [{ id: "root", kind: "depends" }, { id: "preview", kind: "depends" }];
+assert.equal(focusedContext(badGraph, "dense0", "").related.length, 0);
+assert.throws(() => validateLinks(badGraph));
+// Optional read-only acceptance against saved real maps; never start their servers.
+const realArg = process.argv.indexOf("--real-maps");
+if (realArg >= 0) {
+  const root = path.resolve(process.argv[realArg + 1]);
+  for (const name of ["reread", "knowledge", "ui-preview", "ux-completeness", "attached-ideas"]) {
+    const nodes = JSON.parse(fs.readFileSync(path.join(root, name, "state.json"))).nodes;
+    const rows = nodes.filter(n => n.kind === "q").map(n => ({
+      answer: JSON.stringify(focusedContext(nodes, n.id, n.answer || n.q)).length,
+      discuss: JSON.stringify(focusedContext(nodes, n.id, n.answer || n.q, { index: true })).length
+    }));
+    const median = rows.map(r => r.discuss / JSON.stringify(nodes).length).sort((a, b) => a - b)[Math.floor(rows.length / 2)];
+    assert.ok(median <= 0.35, `${name}: median discussion exceeds 35%`);
+    console.log(`${name}: answer mean ${Math.round(rows.reduce((sum, r) => sum + r.answer, 0) / rows.length)}, discuss median ${(median * 100).toFixed(1)}%`);
+  }
+}
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-context-"));
 const dir = path.join(cwd, "maps"), map = path.join(dir, "check"), stateFile = path.join(map, "state.json");
 let server, url, fixture;
@@ -85,6 +120,7 @@ try {
     }
     measured[type] = await delivered(type);
   }
+  assert.ok(JSON.stringify(measured.answer).length <= 9730, "Answer exceeds the Stage 0 budget");
   assert.ok(JSON.stringify(measured.discuss).length <= 39603 * 0.35);
   assert.ok(JSON.stringify(measured.idea).length <= 32696 * 0.35);
   assert.ok(JSON.stringify(measured.knowledge).length < 71422);
@@ -128,11 +164,13 @@ try {
   assert.equal(JSON.parse(cliRead("node", ["q00", "q01"])).nodes.length, 2);
   assert.equal(JSON.parse(cliRead("branch", ["q05"])).nodes.length, 3);
   assert.equal(cliRead("index").split("\n").length, 41);
+  assert.equal(cliRead("index", ["--questions"]).split("\n").length, 40);
+  assert.ok(cliRead("index", ["--questions"]).length < cliRead("index").length);
   assert.ok(JSON.parse(cliRead("search", ["validate requirement decision"])).matches.length);
   assert.deepEqual(JSON.parse(cliRead("related", ["q00"])), { related: [] });
   assert.deepEqual(JSON.parse(cliRead("search", ["--topic", "none"])), { matches: [] });
   const cleanText = (s, n) => String(s).trim().slice(0, n);
-  for (const bad of [{ topics: Array(6).fill("topic") }, { topics: ["x".repeat(41)] }, { decision: "x".repeat(201) }, { chatDigest: "x".repeat(301) }, { relates: [{ id: "q00", kind: "depends" }] }, { relates: [{ id: "q01", kind: "unknown" }] }]) {
+  for (const bad of [{ topics: Array(6).fill("topic") }, { topics: ["x".repeat(41)] }, { decision: "x".repeat(201) }, { chatDigest: "x".repeat(301) }, { relates: [{ id: "q00", kind: "depends" }] }, { relates: [{ id: "root", kind: "depends" }] }, { relates: [{ id: "q01", kind: "unknown" }] }]) {
     const unchanged = structuredClone(semantic); assert.throws(() => applySemantics(semantic, "q00", bad, cleanText)); assert.deepEqual(semantic, unchanged);
   }
   // Navigation metadata cannot change either specification cards or knowledge source versions.
@@ -167,8 +205,8 @@ try {
   assert.ok(incremental.context.related.some(n => n.id === "q01"));
   assert.ok(JSON.stringify(incremental).length <= JSON.stringify(full).length * 0.4);
   console.log(`incremental reread\t${JSON.stringify(incremental).length}\tfull ${JSON.stringify(full).length}`);
-  await api("apply", { type: "reread", token: incremental.token, audit: audit(incremental), semantics: [{ id: "q02", topics: ["unaudited"] }] }, 400);
-  await api("apply", { type: "reread", token: incremental.token, audit: audit(incremental) });
+  await api("apply", { type: "reread", token: incremental.token, audit: audit(incremental), semantics: [{ id: "q02", topics: ["unaudited"] }] });
+  assert.deepEqual((await api("node?id=q02")).nodes[0].topics, ["unaudited"]);
   assert.equal((await api("state")).knowledgePending, null);
   await api("reread", {}); const manual = await delivered("reread", false);
   assert.equal(manual.context.mode, "full");
@@ -268,9 +306,9 @@ try {
   const restarting = await delivered("answer", false); await stop(); await start();
   await api(`node?id=${backup.id}&token=${restarting.token}`, undefined, 409);
   // Merged outgoing unions never silently drop links to fit the eight-link contract.
-  const linkedCards = [{ id: "kept", relates: Array.from({ length: 5 }, (_, i) => ({ id: `target${i}`, kind: "depends" })) },
-    { id: "merged", relates: Array.from({ length: 5 }, (_, i) => ({ id: `target${i + 4}`, kind: "depends" })) },
-    ...Array.from({ length: 9 }, (_, i) => ({ id: `target${i}` }))];
+  const linkedCards = [{ id: "kept", kind: "q", relates: Array.from({ length: 5 }, (_, i) => ({ id: `target${i}`, kind: "depends" })) },
+    { id: "merged", kind: "q", relates: Array.from({ length: 5 }, (_, i) => ({ id: `target${i + 4}`, kind: "depends" })) },
+    ...Array.from({ length: 9 }, (_, i) => ({ id: `target${i}`, kind: "q" }))];
   const linkedResult = reconcileLinks(linkedCards, structuredClone(linkedCards.filter(n => n.id !== "merged")), new Map([["merged", "kept"]]));
   assert.equal(linkedResult[0].relates.length, 9);
   assert.throws(() => validateLinks(linkedResult));
@@ -338,15 +376,13 @@ try {
   assert.deepEqual(graphState.find(n => n.id === "q02").relates, [{ id: "q00", kind: "depends" }]);
   assert.equal(graphState.find(n => n.id === "q00").semanticsStale, true);
   assert.equal(graphState.find(n => n.id === "q03").semanticsStale, true);
-  // Indirect navigation rewrites still require audit in incremental mode, atomically.
+  // Indirect navigation rewrites do not require an audit of undelivered evidence.
   fixture.rereadSeen = Object.fromEntries(fixture.nodes.map(n => [n.id, digest(JSON.stringify(evidenceNode(n)))]));
   card("q00").answer = "Edited evidence";
   fixture.rereadJob = { stage: "queued", manual: false, edits: [], settled: true }; fixture.queue = [{ type: "reread" }];
   await reset(); const incrementalGraph = await delivered("reread", false);
-  const graphBefore = (await api("state")).nodes;
-  await api("apply", { ...graphResult, token: incrementalGraph.token, audit: graphResult.audit.filter(a => a.id !== "q02") }, 400);
-  assert.deepEqual((await api("state")).nodes, graphBefore);
-  await api("apply", { ...graphResult, token: incrementalGraph.token, semantics: [{ id: "q00", decision: "Combined evidence" }, { id: "q03", decision: "Copied evidence" }] });
+  assert.ok(![...incrementalGraph.context.focus, ...incrementalGraph.context.related].some(n => n.id === "q02"));
+  await api("apply", { ...graphResult, token: incrementalGraph.token, audit: graphResult.audit.filter(a => a.id !== "q02"), semantics: [{ id: "q00", decision: "Combined evidence" }, { id: "q03", decision: "Copied evidence" }] });
   assert.equal((await api("state")).nodes.find(n => n.id === "q00").semanticsStale, undefined);
   // Answer branch removals reconcile live and captured trees atomically.
   fixture = structuredClone(standardFixture);

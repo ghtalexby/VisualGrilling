@@ -21,6 +21,7 @@ export function deliveryNode(n, history = true, imageDirectory) {
 }
 
 export const tokens = text => new Set((String(text || "").toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) || []).map(s => [...s].slice(0, 5).join("")));
+const semanticCard = n => n?.kind === "q" || n?.kind === "idea";
 export function ranking(nodes, text) {
   const query = tokens(text), documents = nodes.map(n => tokens(`${n.q || n.text || ""} ${n.answer || ""}`));
   const frequencies = new Map();
@@ -31,8 +32,9 @@ export function ranking(nodes, text) {
 
 export function neighbours(nodes, ids) {
   const selected = new Set(ids), result = new Map();
-  for (const n of nodes) for (const link of n.relates || []) {
-    if (selected.has(n.id) && !selected.has(link.id) && nodes.some(x => x.id === link.id)) result.set(link.id, [...(result.get(link.id) || []), link.kind]);
+  for (const n of nodes.filter(semanticCard)) for (const link of n.relates || []) {
+    if (!nodes.some(x => x.id === link.id && semanticCard(x))) continue;
+    if (selected.has(n.id) && !selected.has(link.id)) result.set(link.id, [...(result.get(link.id) || []), link.kind]);
     if (selected.has(link.id) && !selected.has(n.id)) result.set(n.id, [...(result.get(n.id) || []), link.kind]);
   }
   return [...result].map(([id, kinds]) => ({ id, kinds: [...new Set(kinds)] }));
@@ -44,14 +46,17 @@ export function vocabulary(nodes) {
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 200);
 }
 
-export function indexText(nodes, omitted = new Set()) {
+export function indexText(nodes, omitted = new Set(), questionsOnly = false) {
   if (nodes.length > 500) throw [400, "Индекс превышает 500 карточек", "context-limit"];
   const lines = [], seen = new Set();
   const line = text => String(text || "").replace(/\s+/g, " ");
   function visit(n, depth) {
     if (seen.has(n.id)) return;
     seen.add(n.id);
-    if (!omitted.has(n.id)) lines.push(`${"  ".repeat(depth)}${n.id} ${n.status || n.kind} ${[n.obsolete && "obsolete", n.conflictOf?.length && "conflict", n.pending && "pending", n.kind === "idea" && "idea"].filter(Boolean).join(" ")} | ${line(n.q || n.text).slice(0, 140)} | = ${line(n.decision || n.answer).slice(0, n.decision ? 200 : 160)} | ${(n.topics || []).map(t => "#" + t).join(" ")} | chat:${n.chat?.length || 0}`);
+    if (!omitted.has(n.id)) {
+      if (questionsOnly) { if (n.kind === "q" && !n.obsolete) lines.push(`${n.id} | ${line(n.q)}`); }
+      else lines.push(`${"  ".repeat(depth)}${n.id} ${n.status || n.kind} ${[n.obsolete && "obsolete", n.conflictOf?.length && "conflict", n.pending && "pending", n.kind === "idea" && "idea"].filter(Boolean).join(" ")} | ${line(n.q || n.text).slice(0, 140)} | = ${line(n.decision || n.answer).slice(0, n.decision ? 200 : 160)} | ${(n.topics || []).map(t => "#" + t).join(" ")} | chat:${n.chat?.length || 0}`);
+    }
     for (const child of nodes.filter(c => c.parentId === n.id)) visit(child, depth + 1);
   }
   for (const root of nodes.filter(n => !n.parentId || !nodes.some(p => p.id === n.parentId))) visit(root, 0);
@@ -68,8 +73,10 @@ export function branchIds(nodes, id, descendants = true, ancestors = true) {
 
 export function focusedContext(nodes, id, text, { index = false, descendants = true, ancestors = true, imageDirectory } = {}) {
   const ids = branchIds(nodes, id, descendants, ancestors);
+  // Project chat is evidence only when root itself is the requested focus.
+  for (const n of nodes) if (n.kind === "root" && n.id !== id) ids.delete(n.id);
   const focus = nodes.filter(n => ids.has(n.id)).map(n => deliveryNode(n, n.id === id, imageDirectory));
-  const candidates = [...neighbours(nodes, [id]).map(x => x.id), ...ranking(nodes, text).filter(x => !ids.has(x.node.id)).slice(0, 5).map(x => x.node.id)];
+  const candidates = neighbours(nodes, [id]).map(x => x.id);
   const related = [], relatedOmitted = []; let size = 2;
   for (const candidate of new Set(candidates)) {
     if (ids.has(candidate)) continue;
@@ -77,7 +84,9 @@ export function focusedContext(nodes, id, text, { index = false, descendants = t
     if (size + length <= 20000) { related.push(card); size += length; } else relatedOmitted.push(candidate);
   }
   const delivered = new Set([...ids, ...related.map(n => n.id)]);
-  return { mode: "focused", focus, related, relatedOmitted, ...(index ? { index: indexText(nodes, delivered) } : { indexAvailable: true }), vocabulary: vocabulary(nodes) };
+  // Lexical hits are navigation, not an invitation to read five unrelated chats.
+  const hits = ranking(nodes.filter(semanticCard), text).filter(x => !delivered.has(x.node.id)).slice(0, 5).map(x => x.node);
+  return { mode: "focused", focus, related, relatedOmitted, ...(index ? { index: indexText(nodes, delivered) } : { relatedIndex: indexText(hits), indexAvailable: true }), vocabulary: vocabulary(nodes) };
 }
 
 export function applySemantics(nodes, id, input, clean) {
@@ -95,7 +104,7 @@ export function applySemantics(nodes, id, input, clean) {
     update.topics = [...new Set(input.topics.map(t => clean(t.toLowerCase(), 40)))];
   }
   if (input.relates !== undefined) {
-    if (!Array.isArray(input.relates) || input.relates.length > 8 || input.relates.some(l => !l || l.id === id || !nodes.some(n => n.id === l.id) || !["depends", "conflicts", "same-object", "supersedes"].includes(l.kind))) throw [400, "Некорректные связи"];
+    if (!Array.isArray(input.relates) || input.relates.length > 8 || input.relates.some(l => !l || l.id === id || !nodes.some(n => n.id === l.id && semanticCard(n)) || !["depends", "conflicts", "same-object", "supersedes"].includes(l.kind))) throw [400, "Некорректные связи"];
     update.relates = input.relates.map(l => ({ id: clean(l.id, 80), kind: clean(l.kind, 20) }));
   }
   Object.assign(node, update); delete node.semanticsStale;
@@ -103,7 +112,7 @@ export function applySemantics(nodes, id, input, clean) {
 
 // Structural transactions reconcile each tree independently, including frozen evidence.
 export function reconcileLinks(before, after, merged = new Map()) {
-  const ids = new Set(after.map(n => n.id));
+  const ids = new Set(after.filter(semanticCard).map(n => n.id));
   for (const node of after) {
     const inherited = before.filter(n => merged.get(n.id) === node.id).flatMap(n => n.relates || []);
     if (!node.relates && !inherited.length) continue;
@@ -118,7 +127,7 @@ export function reconcileLinks(before, after, merged = new Map()) {
 }
 
 export function validateLinks(nodes) {
-  for (const node of nodes) if (node.relates && (node.relates.length > 8 || node.relates.some(link => link.id === node.id || !nodes.some(n => n.id === link.id) || !["depends", "conflicts", "same-object", "supersedes"].includes(link.kind)))) throw [400, "Некорректные связи"];
+  for (const node of nodes) if (node.relates && (node.relates.length > 8 || node.relates.some(link => link.id === node.id || !nodes.some(n => n.id === link.id && semanticCard(n)) || !["depends", "conflicts", "same-object", "supersedes"].includes(link.kind)))) throw [400, "Некорректные связи"];
 }
 
 // Jaccard >= 0.85 rejects near-identical stem sets; explicit IDs acknowledge intentional overlap.

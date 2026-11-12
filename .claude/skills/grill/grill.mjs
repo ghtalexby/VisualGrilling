@@ -9,7 +9,7 @@
 //   node grill.mjs monitor [--status | --stop | --event <delivery>]  Codex event-driven wake-up
 //   node grill.mjs reread                 request a whole-map review
 //   node grill.mjs discuss < {"id":"...","message":"..."}  send a chat command
-//   node grill.mjs node <id>... | branch <id> | index | search <text> | search --topic <topic> | related <id> [--token <readToken>]
+//   node grill.mjs node <id>... | branch <id> | index [--questions] | search <text> | search --topic <topic> | related <id> [--token <readToken>]
 //   node grill.mjs state                  inspect cards to identify a chat-command target
 //   node grill.mjs apply  < {"type":"answer"|"discuss"|"question"|"idea"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
 //   node grill.mjs knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate
@@ -639,7 +639,7 @@ ${S.notes || "—"}
     const entry = { type: p.type, characters: size(p),
       focus: sum(["question", "why", "answer", "previousAnswer", "pendingAnswer", "verdict", "options", "branch", "branchSnapshot", "parent", "idea", "message", "messages", "history", "images", "previews"]) + size(p.context?.focus ?? p.context),
       related: sum(["nodes", "ideas", "projectChat", "sources", "mainQuestions", "problems"]) + size(p.context?.related),
-      index: size(p.context?.index) };
+      index: size(p.context?.index) + size(p.context?.relatedIndex) };
     const stats = S.contextStats ||= { recent: [], totals: {} };
     stats.recent.push(entry); stats.recent = stats.recent.slice(-200);
     const total = stats.totals[p.type] ||= { count: 0, characters: 0, focus: 0, related: 0, index: 0 };
@@ -1142,7 +1142,7 @@ ${S.notes || "—"}
     const brief = clean(b.brief, 6000) || S.brief;
     if (j.mode === "incremental") for (const original of qs()) {
       const final = nodes.find(n => n.id === original.id);
-      if ((!final || JSON.stringify(final) !== JSON.stringify(original)) && !audit.has(original.id)) throw bad("Изменённой карточке нужна проверка: " + original.id);
+      if ((!final || JSON.stringify(evidenceNode(final)) !== JSON.stringify(evidenceNode(original))) && !audit.has(original.id)) throw bad("Изменённой карточке нужна проверка: " + original.id);
     }
     const changed = brief !== S.brief || JSON.stringify(nodes) !== JSON.stringify(S.nodes);
     const summary = clean(b.summary, 1000);
@@ -1201,7 +1201,7 @@ ${S.notes || "—"}
           if (ids.some(id => !nodes.some(n => n.id === id))) throw [404, "Карточка не найдена"];
           return send(res, 200, { nodes: ids.map(id => deliveryNode(nodes.find(n => n.id === id))) });
         }
-        if (p === "/api/index") return send(res, 200, { index: indexText(nodes) });
+        if (p === "/api/index") return send(res, 200, { index: indexText(nodes, new Set(), url.searchParams.get("questions") === "1") });
         if (p === "/api/search") {
           const topic = clean(url.searchParams.get("topic"), 40).toLowerCase(), text = clean(url.searchParams.get("text"), 2000);
           if (!topic && !text) throw [400, "Нужен текст или тема поиска"];
@@ -1569,6 +1569,7 @@ async function start() {
   const selectedLocale = has("lang") || has("locale") ? requestedLocale() : null;
   let info = await alive();
   if (!info) {
+    config(false); // Report the exact config path/cause before detaching the server.
     fs.mkdirSync(DIR, { recursive: true });
     try { fs.unlinkSync(INFO); } catch {}
     const args = [path.join(HERE, "grill.mjs"), "serve", "--dir", BASE, ...(NAME ? ["--name", NAME] : []), "--port", opt("port", "4777"), ...(has("locale") ? ["--locale", path.resolve(opt("locale", ""))] : has("lang") ? ["--lang", opt("lang", "")] : [])];
@@ -1636,7 +1637,7 @@ const commands = {
   config: async () => config(),
   node: async () => console.log(JSON.stringify(await readRoute("node", readArgs().map(id => ["id", id])))),
   branch: async () => console.log(JSON.stringify(await readRoute("branch", [["id", readArgs()[0] || ""]]))),
-  index: async () => console.log((await readRoute("index")).index),
+  index: async () => console.log((await readRoute("index", has("questions") ? [["questions", "1"]] : [])).index),
   search: async () => console.log(JSON.stringify(await readRoute("search", has("topic") ? [["topic", opt("topic", "")]] : [["text", readArgs().join(" ")]]))),
   related: async () => console.log(JSON.stringify(await readRoute("related", [["id", readArgs()[0] || ""]]))),
   serve,
@@ -1709,5 +1710,5 @@ const commands = {
     if (await alive()) { await api("POST", "/api/stop", {}); for (let i = 0; i < 20 && await alive(); i++) await new Promise(r => setTimeout(r, 150)); }
     console.log("Сервер карты остановлен. Карта сохранена в " + STATE); },
 };
-if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | monitor | apply | spec | reread | discuss | state | node | branch | index | search | related | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
+if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | monitor | apply | spec | reread | discuss | state | node | branch | index [--questions] | search | related | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
 commands[cmd]().catch(e => { console.error(e && e.message || e); process.exit(1); });

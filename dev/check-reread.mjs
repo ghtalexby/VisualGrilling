@@ -419,11 +419,11 @@ try {
   assert.equal((await request("node?id=" + editIds[1])).nodes[0].answer, "Old user decision");
   const untouched = (await state()).nodes.find(n => n.id === editIds[1]);
   // Changing an indexed card requires its own audit even after an explicit read.
-  const unaudited = await reread(e, { semantics: [{ id: editIds[1], decision: "Unaudited navigation edit" }] }, 400);
+  const unaudited = await reread(e, { move: [{ id: editIds[1], parentId: editIds[0] }] }, 400);
   assert.match(unaudited.error, /Изменённой карточке нужна проверка/);
   assert.deepEqual((await state()).nodes.find(n => n.id === editIds[1]), untouched);
-  await reread(e);
-  assert.deepEqual((await state()).nodes.find(n => n.id === editIds[1]), untouched);
+  await reread(e, { semantics: [{ id: editIds[1], decision: "Navigation backfill" }] });
+  assert.deepEqual((await state()).nodes.find(n => n.id === editIds[1]), { ...Object.fromEntries(Object.entries(untouched).filter(([key]) => key !== "semanticsStale")), decision: "Navigation backfill" });
   await request("reread", {}); e = await wait();
   assert.equal(e.context.mode, "full");
   assert.equal(contextCards(e).length, 3);

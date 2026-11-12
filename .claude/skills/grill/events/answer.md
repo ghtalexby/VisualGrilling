@@ -4,7 +4,7 @@
 
   ```bash
   G apply <<'EOF'
-  {"type":"answer","id":"<event id>","token":"<event token>","status":"weak","verdict":"...","children":[{"q":"...","why":"...","options":["...","..."]}],"newRoot":null}
+  {"type":"answer","id":"<event id>","token":"<event token>","status":"weak","verdict":"...","children":[{"q":"...","why":"...","options":["...","..."]}],"newRoot":null,"semantics":{"topics":[],"relates":[],"decision":"..."}}
   EOF
   ```
 
@@ -25,7 +25,7 @@ Limits: 500 nodes / 600000 serialized characters per graded subtree; at most 500
 Answer events contain `question`, `answer`, `previousAnswer` if rewritten, `level`, and focused `context` (ancestors and subtree included).
 
 - `verdict`: 1–2 sentences, up to 220 characters, explaining strengths or weaknesses and why. No polite preamble.
-- `children`: simpler, concrete follow-ups targeting the weakness, answerable with a fact, number, or yes/no. Counts: `ok` 0–1; `weak`/`verify` 1–3; `gap` 1–2 about finding an answer quickly (who, what to measure, timeframe). At level 4 or deeper, at most one, preferably none. Check the index and read duplicate candidates before adding a question. Options should be realistic author answers rather than hints at the correct answer.
+- `children`: simpler, concrete follow-ups targeting the weakness, answerable with a fact, number, or yes/no. Counts: `ok` 0–1; `weak`/`verify` 1–3; `gap` 1–2 about finding an answer quickly (who, what to measure, timeframe). At level 4 or deeper, at most one, preferably none. Run `G index --questions` and read plausible semantic duplicate candidates before adding a question. Options should be realistic author answers rather than hints at the correct answer.
 - `newRoot`: only when an answer reveals a serious issue in another area absent from the map. Supply `{"area","q","why","options"}` or null.
 
 Answers can combine multiple selected options and a free-text comment. Evaluate the entire answer; contradictory choices require clarification rather than silently choosing one.

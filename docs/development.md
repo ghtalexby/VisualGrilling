@@ -4,7 +4,7 @@ Run commands from the repository root. No dependency installation is required. A
 
 ## Context budget acceptance
 
-Run `node dev/check-context.mjs` against disposable state and retain the printed before/after character counts. The Stage 0 baseline remains in [the plan](plans/ContextBudget/context-budget.md). Acceptance targets are discussion and idea events at most 35% of baseline, answer size independent of unrelated branches apart from bounded selected related cards, and a one-answer incremental reread at most 40% of a full reread. Character counts are diagnostic UTF-16 units; instruction budgets are UTF-8 bytes.
+Run `node dev/check-context.mjs` against disposable state and retain the printed before/after character counts. The Stage 0 baseline remains in [the plan](plans/ContextBudget/context-budget.md). Acceptance targets are discussion and idea events at most 35% of baseline, answer size independent of unrelated branches apart from bounded selected related cards, and a one-answer incremental reread at most 40% of a full reread. Run `node dev/check-context.mjs --real-maps .grill` for optional read-only checks of the five saved acceptance maps (reread, knowledge, ui-preview, ux-completeness, attached-ideas). The standard check also covers long answers with shared vocabulary, a 9730-character answer fixture ceiling, and at most 2300 characters of answer navigation overhead without graph neighbours. Character counts are diagnostic UTF-16 units; instruction budgets are UTF-8 bytes.
 
 Check every omitted card remains reachable through the index and on-demand reads; validate node/branch/search/topic/related reads, incoming links, captured `--token` isolation, stale token rejection, and Host/header protection without queue or listening changes. Exercise duplicate rejection and deliberate `allowSimilar` across addition paths, verifying that rejected results change neither grades nor replies. Check semantic bounds, stale annotations, vocabulary limits, and byte-identical specification/knowledge evidence with semantic fields added.
 
@@ -238,3 +238,22 @@ Run `node dev/check-current-work.mjs` for delivery versus queued work, notes/sta
 Run `node dev/check-usage.mjs` for isolated rollout fixtures, partial writes, repeated totals, session rebinding, invalid data, missing providers, HTTP protection and restart. Run locale and current-work browser checks for the header. For real Codex acceptance, start from the intended session and compare the tooltip counters with its cumulative usage after another model response; the internal rollout may be flushed with a delay. Counts include work before map launch.
 
 Resume-copy checks are included in `check-maps.mjs` (absolute project/custom root paths, named and legacy maps, protected metadata) and `check-copy-browser.mjs` (clipboard contents, English instructions, confirmation and keyboard access). Manually hover the map title/name, check narrow layouts and touch visibility, and paste into a new session after the old listener has stopped.
+
+
+Focused-context regression measurements (saved local maps, read-only; mean serialized
+context characters for each question using its answer as the query):
+
+| Map | Answer before | Answer after | Discussion median / full stored nodes |
+|---|---:|---:|---:|
+| reread | 12202 | 4929 | 19.9% |
+| knowledge | 8522 | 3623 | 17.1% |
+| ui-preview | 7810 | 4071 | 19.9% |
+| ux-completeness | 7143 | 4105 | 27.2% |
+| attached-ideas | 5785 | 2304 | 24.5% |
+
+These are context-only projections, not token counts or full HTTP-event averages.
+Required branches and graph neighbours can still be large; they are not truncated
+just to meet a percentage. Lexical matches are compact navigation rows. The title-only
+index for these maps is 2207–4527 characters and is read before question creation,
+not on every grade. Real-agent semantic duplicate judgments remain a separate
+acceptance check; the deterministic 0.85 similarity guard does not detect paraphrases.

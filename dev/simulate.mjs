@@ -127,6 +127,10 @@ async function main() {
     log(`<- ${e.type}${e.id ? " " + e.id : ""}${txt ? ` «${txt.slice(0, 60)}»` : ""}`);
     await sleep(DELAY);
     const out = handlers[e.type](e);
+    const semantics = (id, text) => ({ topics: ["simulation"], decision: String(text || "").replace(/\s+/g, " ").slice(0, 200),
+      relates: contextCards(e).filter(n => n.id !== id && ["q", "idea"].includes(n.kind) && (n.id === focusCard(e)?.parentId || n.parentId === id)).slice(0, 2).map(n => ({ id: n.id, kind: "same-object" })) });
+    if (["answer", "idea"].includes(e.type) || e.type === "discuss" && out.assessment) out.semantics = semantics(e.id, out.assessment?.answer || e.answer || focusCard(e)?.text);
+    for (const answer of out.answers || []) answer.semantics = semantics(answer.id, e.message);
     try { log(`-> ${out.status || e.type}: ${G(["apply"], out)}`); }
     catch (err) { log(`apply не прошёл: ${err.message}`); }
     if (e.type === "finish") log(G(["report"]));

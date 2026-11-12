@@ -103,6 +103,10 @@ try {
     result = await run(["config"]).done;
     assert.equal(result.code, 1);
     assert.ok(result.stderr.includes(configFile));
+    const failedStart = await run(["start", "--no-open"]).done;
+    assert.equal(failedStart.code, 1);
+    assert.ok(failedStart.stderr.includes(configFile));
+    assert.ok(!failedStart.stderr.includes("Не удалось запустить сервер карты"));
   }
   for (const threshold of [1, 5, 500]) {
     fs.writeFileSync(configFile, JSON.stringify({ knowledge: { rereadThreshold: threshold } }));
