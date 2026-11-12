@@ -1,6 +1,6 @@
 # Discussion
 
-- `{"type":"discuss", ...}`: answer in the map language, using `message`, `images`, and `context.focus`/`related` plus the index. `scope` is question, project, or idea; root and ideas are never graded as questions. Inspect images with your image-reading tool; if unavailable say so without guessing. Quoted messages preserve `[Про вариант ответа «…»]` and `[Про вердикт «…»]` protocol prefixes. Images in node chats are relative to the map's `images/` directory. Inspect existing answers, descendants and pending work before drawing conclusions.
+- `{"type":"discuss", ...}`: answer in the map language, using `message`, `images`, and `context.focus`/`related` plus the index. `scope` is question, project, or idea; root and ideas are never graded as questions. Inspect images with your image-reading tool; if unavailable say so without guessing. Quoted messages preserve `[Про вариант ответа «…»]` and `[Про вердикт «…»]` protocol prefixes. Delivered `images` and images in context card chats are absolute file paths; open them directly. Inspect existing answers, descendants and pending work before drawing conclusions.
 
 ### Questions and answers from discussion
 

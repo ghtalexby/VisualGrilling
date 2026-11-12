@@ -85,3 +85,5 @@ Implementation/fixes committed84a9702. Fresh reviewer independently passed conte
 
 F4 fixed with semantic stripping before preview handling; prepared/unbuilt and built API regression verifies byte-identical spec.nodes/gradingNodes/delivery and preserves metadata. Targeted context/spec/preview/knowledge checks PASS. Root full24 suite on preceding84a9702 passed with0 failures; final verifier will rerun all24 on final tree. Preparing separate review2 fix commit.
 
+## Full review pass 3 — CHANGES_REQUESTED
+Fresh full reviewer found no confirmed runtime issue but F5 P2 stale relative-image instructions in discuss/idea/reread rules versus absolute delivered paths; F6 P3 G index CLI documented JSON instead of plain text. Parent confirmed both. Fresh fix_docs_3 assigned documentation-only correction and link/content checks. Context/reread/workers independently passed; count3. Mandatory until-clean requirement takes precedence over orchestrator default3-round cap; continuing fresh review after fixes. EOF whitespace normalized.

@@ -31,7 +31,7 @@ Common options: `--dir <directory>` selects the maps root (default `.grill` unde
 | `report` | — | Writes `report.md` in the map directory |
 | `node <id> [<id>…] [--token <readToken>]` | Up to 20 IDs | `{nodes:[…]}` full compact context cards |
 | `branch <id> [--token <readToken>]` | Card ID | `{nodes:[…]}` target, ancestors and subtree |
-| `index [--token <readToken>]` | — | `{index:"…"}` whole-map depth-first index |
+| `index [--token <readToken>]` | — | Plain-text whole-map depth-first index |
 | `search <text> [--token <readToken>]` / `search --topic <topic>` | Text or topic | `{matches:[{id,score,index}]}` ranked index lines |
 | `related <id> [--token <readToken>]` | Card ID | `{related:[{id,kinds}]}` incoming/outgoing neighbours |
 | `state` | — | Full protected `/api/state` JSON for identifying chat-command targets |
@@ -113,7 +113,7 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`. Context r
 
 Queued discussion messages append without a second event. A quote from the context menu or an image can replace an empty `message`; a quote is stored separately with `about`.
 
-Images are identified by file signature (PNG, JPEG, GIF, WebP; the client's declared type is ignored, SVG is rejected) and written to `<map directory>/images/<uuid>.<ext>`. Chat messages keep only these file names in `images`. The server deletes files no chat references on startup, chat reset, explicit branch removal and `init`; files referenced by a frozen specification context stay until a later cleanup.
+Images are identified by file signature (PNG, JPEG, GIF, WebP; the client's declared type is ignored, SVG is rejected) and written to `<map directory>/images/<uuid>.<ext>`. Persisted chat messages keep only these file names in `images`. Context card chats in worker deliveries and context reads expand image names to absolute file paths; discussion event `images` and reread `projectChat` images are also absolute paths. The server deletes files no chat references on startup, chat reset, explicit branch removal and `init`; files referenced by a frozen specification context stay until a later cleanup.
 
 ## `init`
 
@@ -139,7 +139,7 @@ Every work event below also includes `language`.
 
 `focus` delivers the target, ancestors and subtree for answer and question/idea discussion; custom-question preparation delivers its parent and ancestors; project discussion delivers root chat; idea analysis delivers the idea and its subtree. `related` holds selected distant cards. Answer and question events omit inline `index` and set `indexAvailable:true`; use `G index`. Captured answer/idea events also carry `context.readToken` for frozen on-demand reads. Discussion and idea include the inline index. Cards omitted from full context remain discoverable by index/ID. `existingQuestions`, discussion `nodes`, `history`, `messages` and duplicated branch snapshots are replaced by this envelope. The canonical discussion history is the focus card's `chat`, including message IDs used by `answers[].messageIds`; `message` remains the new user text and can be empty for image-only submissions.
 
-Full context is a compact evidence projection, not a raw state dump: omit null/empty fields and chat timestamps; answered cards omit `why` and `recommendation`, and retain options only when the answer is not an exact option. Full verdict history is reserved for the focus card and reassessment targets; other cards expose its count. Image paths in context are usable by the worker. Quoted messages retain `[Про вариант ответа «…»]` or `[Про вердикт «…»]` independently of page language. No required branch evidence is silently truncated.
+Full context is a compact evidence projection, not a raw state dump: omit null/empty fields and chat timestamps; answered cards omit `why` and `recommendation`, and retain options only when the answer is not an exact option. Full verdict history is reserved for the focus card and reassessment targets; other cards expose its count. Image paths in context are absolute file paths that the worker opens directly. Quoted messages retain `[Про вариант ответа «…»]` or `[Про вердикт «…»]` independently of page language. No required branch evidence is silently truncated.
 
 The index is depth-first with two-space indentation. Each line identifies ID, status, obsolete/conflict/pending/idea flags, question (140 characters), decision or answer (160 characters), topics and chat count. The 500-node bound fails explicitly rather than dropping lines. Related selection uses one-hop semantic neighbours first, then the top five lexical matches within a 20000-character budget; omitted eligible IDs appear in `relatedOmitted`. Lexical ranking lowercases Unicode letter/digit tokens of at least three characters, stems to five characters and weights each shared token by `log(1 + N / documentFrequency)`, with minimum total score 2. Search/index entries and semantic summaries guide retrieval; read full candidate cards before reusing evidence or issuing questions.
 
