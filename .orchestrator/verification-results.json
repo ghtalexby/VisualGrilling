@@ -1,0 +1,183 @@
+{
+  "head": "f4a017d",
+  "results": [
+    {
+      "name": "check-connection.mjs",
+      "code": 0,
+      "seconds": 2.526,
+      "output": "Connection checks passed: Codex transport, Claude channel, sibling maps, errors, deduplication, restart and API protection\n"
+    },
+    {
+      "name": "check-current-work.mjs",
+      "code": 0,
+      "seconds": 1.256,
+      "output": "Current work lifecycle checks passed\n"
+    },
+    {
+      "name": "check-discussion.mjs",
+      "code": 0,
+      "seconds": 1.37,
+      "output": "Discussion questions checks passed\n"
+    },
+    {
+      "name": "check-ideas.mjs",
+      "code": 0,
+      "seconds": 1.799,
+      "output": "Attached idea checks passed\n"
+    },
+    {
+      "name": "check-knowledge.mjs",
+      "code": 1,
+      "seconds": 0.357,
+      "output": "file:///<repository>/dev/check-knowledge.mjs:124\r\n    child.on(\"error\", reject); child.on(\"exit\", code => code === 0 ? resolve() : reject(new Error(error)));\r\n                                                                                        ^\r\n\r\nError: Error: ENOENT: no such file or directory, unlink '<temporary-project>\\.grill\\knowledge-ops\\lock.json'\r\n    at Object.unlinkSync (node:fs:1952:11)\r\n    at Object.locked (file:///<repository>/skills/grill/knowledge.mjs:64:14)\r\n    at file:///<repository>/[eval1]:3:19\r\n    at ModuleJob.run (node:internal/modules/esm/module_job:345:25)\r\n    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:270:26)\r\n    at async ModuleLoader.executeModuleJob (node:internal/modules/esm/loader:266:20)\r\n    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {\r\n  errno: -4058,\r\n  code: 'ENOENT',\r\n  syscall: 'unlink',\r\n  path: 'C:\\\\Users\\\\yxang\\\\AppData\\\\Local\\\\Temp\\\\grill-knowledge-mVyh3O\\\\.grill\\\\knowledge-ops\\\\lock.json'\r\n}\r\n\r\n    at ChildProcess.<anonymous> (file:///<repository>/dev/check-knowledge.mjs:124:89)\r\n    at ChildProcess.emit (node:events:519:28)\r\n    at ChildProcess._handle.onexit (node:internal/child_process:293:12)\r\n\r\nNode.js v22.19.0\r\n"
+    },
+    {
+      "name": "check-locale.mjs",
+      "code": 0,
+      "seconds": 5.268,
+      "output": "Locale checks passed: <temporary-project>\n"
+    },
+    {
+      "name": "check-context.mjs",
+      "code": 0,
+      "seconds": 15.154,
+      "output": "type\tcharacters\tfocus\trelated\tindex\nanswer\t9588\t5768\t3224\t0\ndiscuss\t13796\t5630\t3224\t4429\nquestion\t1418\t948\t2\t0\nidea\t7450\t241\t2\t6618\nreevaluate\t6093\t0\t5604\t0\nreread\t26329\t25454\t237\t2\nmore\t1376\t0\t1098\t0\nspec\t17770\t0\t17256\t0\npreview\t1446\t936\t0\t0\nknowledge\t30137\t0\t29497\t0\nfinish\t8607\t0\t8218\t0\nincremental reread\t8646\tfull 26329\nContext accounting, bounded history, restart and reset checks passed\n"
+    },
+    {
+      "name": "check-monitor.mjs",
+      "code": 0,
+      "seconds": 4.469,
+      "output": "Monitor checks passed: idle, wake, serial delivery, CLI, conflicts, stale events, restart, errors, rebinding and API protection\n"
+    },
+    {
+      "name": "check-maps.mjs",
+      "code": 0,
+      "seconds": 12.364,
+      "output": "map checks passed\n"
+    },
+    {
+      "name": "check-preview.mjs",
+      "code": 0,
+      "seconds": 6.583,
+      "output": "Preview API checks passed: recovery, publication, save, fork, stale, restore, snapshots, rejection\n"
+    },
+    {
+      "name": "check-spec.mjs",
+      "code": 0,
+      "seconds": 1.385,
+      "output": "Проверки спеки и основных API пройдены: <temporary-project>\n"
+    },
+    {
+      "name": "check-reread.mjs",
+      "code": 0,
+      "seconds": 4.272,
+      "output": "Reread checks passed\n"
+    },
+    {
+      "name": "check-ui-api.mjs",
+      "code": 0,
+      "seconds": 1.638,
+      "output": "UI protocol checks passed: <temporary-project>\n"
+    },
+    {
+      "name": "check-usage.mjs",
+      "code": 0,
+      "seconds": 4.649,
+      "output": "Session usage checks passed\n"
+    },
+    {
+      "name": "check-completeness.mjs",
+      "code": 0,
+      "seconds": 52.387,
+      "output": "completeness checks passed\n"
+    },
+    {
+      "name": "check-watch.mjs",
+      "code": 0,
+      "seconds": 23.483,
+      "output": "watch checks passed\n"
+    },
+    {
+      "name": "check-workers.mjs",
+      "code": 0,
+      "seconds": 26.355,
+      "output": "answer worker instructions: 11941 bytes\nworker checks passed\n"
+    },
+    {
+      "name": "check-completeness-browser.mjs",
+      "code": 0,
+      "seconds": 20.838,
+      "output": "Completeness browser checks passed\n"
+    },
+    {
+      "name": "check-copy-browser.mjs",
+      "code": 0,
+      "seconds": 5.811,
+      "output": "Copy browser checks passed\nBrowser profile cleanup deferred (ENOTEMPTY); retained <temporary-project>\n"
+    },
+    {
+      "name": "check-current-work-browser.mjs",
+      "code": 0,
+      "seconds": 7.405,
+      "output": "Current work browser checks passed\nBrowser profile cleanup deferred (ENOTEMPTY); retained <temporary-project>\n"
+    },
+    {
+      "name": "check-discussion-browser.mjs",
+      "code": 0,
+      "seconds": 6.273,
+      "output": "Discussion browser checks passed\nBrowser profile cleanup deferred (ENOTEMPTY); retained <temporary-project>\n"
+    },
+    {
+      "name": "check-ideas-browser.mjs",
+      "code": 0,
+      "seconds": 5.592,
+      "output": "Attached idea browser checks passed (English and Russian)\nBrowser profile cleanup deferred (ENOTEMPTY); retained <temporary-project>\n"
+    },
+    {
+      "name": "check-knowledge-browser.mjs",
+      "code": 0,
+      "seconds": 7.283,
+      "output": "Knowledge browser checks passed: documents, snapshots, link availability, retry, explicit skip, RU/EN\nBrowser profile cleanup deferred (ENOTEMPTY); retained <temporary-project>\n"
+    },
+    {
+      "name": "check-preview-browser.mjs",
+      "code": 0,
+      "seconds": 8.861,
+      "output": "Preview browser checks passed: circle, polling, Save, dirty guard, SVG, sandbox, RU/EN\n"
+    }
+  ],
+  "reruns": [
+    {
+      "name": "check-knowledge.mjs",
+      "code": 0,
+      "seconds": 2.292,
+      "output": "Knowledge checks passed (isolated rerun)"
+    }
+  ],
+  "summary": {
+    "uniqueChecks": 24,
+    "firstPass": 23,
+    "firstFail": 1,
+    "finalPassing": 24,
+    "browserChecks": 7,
+    "browserSkips": 0,
+    "markdownFilesChecked": 40,
+    "missingLinks": 0,
+    "diffCheck": "PASS",
+    "syntaxChecks": [
+      "skills/grill/grill.mjs",
+      "skills/grill/context.mjs",
+      "dev/simulate.mjs"
+    ],
+    "discussPercent": 34.83574476681059,
+    "ideaPercent": 22.78566185466112,
+    "incrementalPercent": 32.838315165786774,
+    "answerInstructionBytes": 11941
+  },
+  "limitations": [
+    "Initial concurrent check-knowledge failed with ENOENT at knowledge.mjs:64 while reclaiming a lock; isolated rerun passed. Lock implementation is unchanged from base. Initial result retained.",
+    "Browser functional assertions passed. Several Windows Chromium profile directories could not be removed (ENOTEMPTY) and were retained by the check harness.",
+    "Real-host evidence inspected from host-acceptance-results.json, not rerun by verifier: actual bounded foreground answer/apply/discuss/apply in Codex and Claude. Interactive monitor wake, Play, dispatcher and parallel maps not established by this verification.",
+    "Simulator evidence supplied by parent; independently reran all standalone checks, including recovery/security. No claim of real-model knowledge extraction or incremental reread acceptance."
+  ]
+}

@@ -1,6 +1,6 @@
 # Context budget: focused event context and a semantic map
 
-Status: stages 0–5 implemented; final repository review and real-host acceptance are tracked by the orchestrator.
+Status: stages 0–5 implemented and independently verified. Four full review passes ended clean; all 24 standalone checks have passing final results. See `.orchestrator/state.md` and its verification evidence for the isolated knowledge-test retry and bounded real-host acceptance scope.
 
 ## Goal
 

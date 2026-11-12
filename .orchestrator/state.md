@@ -2,29 +2,29 @@
 
 Project: VisualGrilling. Plan: docs/plans/ContextBudget/context-budget.md.
 Base: 6d078d384a425b8dfbe8f5618e43f56d8c145255. Branch: feat/context-budget.
-Iteration: 1. Phase: full review1 fix and checks. Limits: 5 iterations, 3 review rounds per unit; mandatory until-clean repository review takes precedence.
+Iteration: 1. Phase: complete. Limits: 5 iterations, 3 review rounds per unit; mandatory until-clean repository review takes precedence.
 Previous completed record archived as ux-completeness-completed.md with user approval. Initial working tree clean.
 Checks: all dev/check-*.mjs; disposable simulator --no-open --delay 200; restart recovery; host acceptance where available.
 
 ## Requirements
 | ID | Requirement | Source | Acceptance | Status | Evidence |
 |---|---|---|---|---|---|
-| R1 | Bounded delivery telemetry persisted and exposed read-only | Stage 0 | 200 entries, totals by type, no payload change | REVIEW | Stage0 independent review APPROVED; baseline/context/monitor/workers checks pass |
-| R2 | Reproducible 40+ card baseline across event types | Stage 0 | check-context, baseline recorded before payload edits | REVIEW | Stage0 independent review APPROVED; baseline/context/monitor/workers checks pass |
-| R3 | Compact projection and canonical discussion chat | Stage 1 | no duplicated chat, empty fields, timestamps; targeted histories | REVIEW | Implemented; independent final verification pending |
-| R4 | Server-injected captured knowledge snapshots | Stage 1 | valid versions injected, unknown rejected atomically, prior/manual sources preserved | REVIEW | Implemented; independent final verification pending |
-| R5 | Focused event context, index and lexical selection | Stage 2 | discuss/idea <=35% baseline; bounded related; complete coverage | REVIEW | Implemented; independent final verification pending |
-| R6 | Protected read-only node/branch/index/search | Stage 2 | max20 nodes, validation, no queue/listening effects | REVIEW | Implemented; independent final verification pending |
-| R7 | Atomic duplicate guard across all addition paths | Stage 2 | rejects matching IDs, allowSimilar supported | REVIEW | Implemented; independent final verification pending |
-| R8 | Semantic fields and validation across apply paths | Stage 3 | limits, valid links, stale/clear behavior | REVIEW | Implemented; independent final verification pending |
-| R9 | Bidirectional graph navigation and vocabulary | Stage 3 | neighbours first, related/topic search, capped vocabulary | REVIEW | Implemented; independent final verification pending |
-| R10 | Semantics excluded from evidence projections | Stages 1,3 | spec/knowledge/export identity | REVIEW | Implemented; independent final verification pending |
-| R11 | Incremental automatic reread and audit validation | Stage 4 | changed cards + neighbours, full manual/first, <=40% full budget | REVIEW | Implemented; independent final verification pending |
-| R12 | Changed answered-card knowledge threshold | Stage 4 | configurable default5, finish/manual preserved | REVIEW | Implemented; independent final verification pending |
-| R13 | Event-specific worker routing and instruction split | Stage 5 | answer worker <12KB, complete rules and routing | REVIEW | Stage5 independent review APPROVED; worker10262bytes and worker check passes |
-| R14 | Mode-specific workflows and installation | Stage 5 | monitor/dispatcher/parallel extracted, installer/checks synced | REVIEW | Stage5 independent review APPROVED; worker10262bytes and worker check passes |
-| R15 | Synchronized consumers/docs and measured budgets | All stages | simulator/contract/architecture/skills/checks agree, before-after recorded | REVIEW | Developer docs, instructions, simulator and all24 checks synchronized |
-| R16 | Security, atomicity, recovery and regression acceptance | Principles/verification | all checks plus disposable simulator/restart, independent review | REVIEW | Implemented; independent final verification pending |
+| R1 | Bounded delivery telemetry persisted and exposed read-only | Stage 0 | 200 entries, totals by type, no payload change | DONE | grill.mjs:635; check-context.mjs:390 retention/restart/reset PASS |
+| R2 | Reproducible 40+ card baseline across event types | Stage 0 | check-context, baseline recorded before payload edits | DONE | check-context.mjs:57,68; 40-question fixture and all11 event baseline PASS |
+| R3 | Compact projection and canonical discussion chat | Stage 1 | no duplicated chat, empty fields, timestamps; targeted histories | DONE | context.mjs:11; grill.mjs:584; context/discussion PASS |
+| R4 | Server-injected captured knowledge snapshots | Stage 1 | valid versions injected, unknown rejected atomically, prior/manual sources preserved | DONE | grill.mjs:315; check-context.mjs:239; source injection/rejection/preservation PASS |
+| R5 | Focused event context, index and lexical selection | Stage 2 | discuss/idea <=35% baseline; bounded related; complete coverage | DONE | context.mjs:24,69; check-context.mjs:88; budgets/coverage/branch independence PASS |
+| R6 | Protected read-only node/branch/index/search | Stage 2 | max20 nodes, validation, no queue/listening effects | DONE | grill.mjs:1190; check-context.mjs:98,258; security/nonmutation/frozen reads PASS |
+| R7 | Atomic duplicate guard across all addition paths | Stage 2 | rejects matching IDs, allowSimilar supported | DONE | context.mjs:124; grill.mjs:309,539,874,939,973,981,1130; duplicate checks PASS |
+| R8 | Semantic fields and validation across apply paths | Stage 3 | limits, valid links, stale/clear behavior | DONE | context.mjs:85; context checks bounds/stale/clear/atomicity PASS |
+| R9 | Bidirectional graph navigation and vocabulary | Stage 3 | neighbours first, related/topic search, capped vocabulary | DONE | context.mjs:32,41; check-context.mjs:118,162 reverse/topic/cap PASS |
+| R10 | Semantics excluded from evidence projections | Stages 1,3 | spec/knowledge/export identity | DONE | context.mjs:3; grill.mjs:229; check-context.mjs:138,176 evidence identity incl previews PASS |
+| R11 | Incremental automatic reread and audit validation | Stage 4 | changed cards + neighbours, full manual/first, <=40% full budget | DONE | grill.mjs:607,1142,1158; context/reread full/incremental/indirect audits PASS |
+| R12 | Changed answered-card knowledge threshold | Stage 4 | configurable default5, finish/manual preserved | DONE | grill.mjs:351,1160,1611; context/knowledge/workers threshold/finish/config PASS |
+| R13 | Event-specific worker routing and instruction split | Stage 5 | answer worker <12KB, complete rules and routing | DONE | worker.md:5; check-workers.mjs:13; routed answer bundle11941bytes PASS |
+| R14 | Mode-specific workflows and installation | Stage 5 | monitor/dispatcher/parallel extracted, installer/checks synced | DONE | SKILL.md; dev/link-skill.mjs:14; workers/monitor/maps PASS |
+| R15 | Synchronized consumers/docs and measured budgets | All stages | simulator/contract/architecture/skills/checks agree, before-after recorded | DONE | 40 changed Markdown files links PASS; contracts/simulator/syntax/diff PASS |
+| R16 | Security, atomicity, recovery and regression acceptance | Principles/verification | all checks plus disposable simulator/restart, independent review | DONE | Independent all24 checks final PASS,7 browsers no skips; review4 APPROVED; qualifications below |
 
 ## Work units
 - W0 R1,R2: measurement agent owns grill.mjs/check-context and stage0 docs. Review round0.
@@ -87,3 +87,17 @@ F4 fixed with semantic stripping before preview handling; prepared/unbuilt and b
 
 ## Full review pass 3 — CHANGES_REQUESTED
 Fresh full reviewer found no confirmed runtime issue but F5 P2 stale relative-image instructions in discuss/idea/reread rules versus absolute delivered paths; F6 P3 G index CLI documented JSON instead of plain text. Parent confirmed both. Fresh fix_docs_3 assigned documentation-only correction and link/content checks. Context/reread/workers independently passed; count3. Mandatory until-clean requirement takes precedence over orchestrator default3-round cap; continuing fresh review after fixes. EOF whitespace normalized.
+
+## Full review pass 4 — APPROVED
+Fresh reviewer independently inspected complete6d078d3..f4a017d scope and found no actionable defects. Independent context/reread/knowledge/workers and diff checks PASS; worker11941bytes. Review-fix-until-clean reached clean review after4 full passes (plus2 scoped stage reviews). Three nonclean iterations committed84a9702,1e70826,f4a017d. Final independent documentation/requirements verifier next; R1-R16 remain REVIEW until evidence returned.
+
+## Final independent verification — complete
+Iteration1 completed; R1-R16 DONE (16/16). Fresh verifier inspected all documentation and final integrated f4a017d code; no omitted requirements or new in-scope defects. Full review cycle:4 passes, final clean; additionally2 scoped early-stage clean reviews. Implementation commits84a9702,1e70826,f4a017d; no push or unrelated changes.
+
+Independent all24 unique standalone checks have passing final outcomes, including7 actual browser suites with no skips. Initial concurrent knowledge lock test failed with ENOENT at unchanged knowledge.mjs:64; isolated rerun passed. This pre-existing lock-reclamation race remains outside task scope and is recorded, not hidden. Some Windows Chromium profiles were retained after cleanup warnings; functional checks passed. Forty changed Markdown files have no missing local link targets; syntax/diff checks passed.
+
+Measured final sizes: discussion13796/39603=34.84%, idea7450/32696=22.79%, incremental reread8646/26329=32.84%; knowledge30137/71422. Shared+answer instructions11941bytes (<12000). All plan budgets pass.
+
+Evidence: verification-results.json (independent attempts), check-results.json (parent full24 run), host-acceptance-results.json (real Codex0.167.2 / Claude2.1.322 bounded foreground answer/apply/discuss/apply loops). Root simulator exercised gap/ok/verify,discussion,more,reread,finish/drain/report and403; own server stopped. Restart and frozen-read recovery covered in deterministic suites. Full interactive monitor wake, Play, dispatcher, parallel-map real-host behavior, real-model knowledge extraction and incremental reread were not independently re-established; no such acceptance claim is made.
+
+No remaining task implementation blockers or unresolved review findings. Optional UI topic display/deferred features remain outside scope. Final record is resumable here; source plan includes historical baseline and final measurements.
