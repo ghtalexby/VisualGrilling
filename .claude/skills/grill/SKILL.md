@@ -43,7 +43,7 @@ When opening a map, name it in a short localized message, for example: Map “ar
 
 ## Shared project knowledge
 
-Read [knowledge.md](knowledge.md). After start, run `G knowledge`, read its index and select relevant documents and primary sources for the launch topic. Every event refreshes this navigation. Grilling also authorizes managed knowledge writes through `apply knowledge`; it does not authorize implementation or Git publication. Handle the separate knowledge event after rereads and before finish. Do not stop serving a blocked knowledge job: users can answer its clarification cards, retry or explicitly skip saving during finish. Historical import is explicit via `G knowledge-import`; generated spec migration uses `G spec-migrate`.
+Use the [shared context-selection rules](worker.md#context-selection). After start, run `G knowledge`, read its index and select relevant documents and primary sources for the launch topic. Read [knowledge.md](knowledge.md) only for knowledge extraction or explicit import/migration. Every event refreshes this navigation. Grilling also authorizes managed knowledge writes through `apply knowledge`; it does not authorize implementation or Git publication. Handle knowledge when queued after rereads (default threshold: five changed answered cards) and always before finish. Do not stop serving a blocked knowledge job: users can answer its clarification cards, retry or explicitly skip saving during finish. Historical import is explicit via `G knowledge-import`; generated spec migration uses `G spec-migrate`.
 
 ## 2. Gather context and initial questions
 
@@ -71,22 +71,15 @@ Tell the user in one localized line that the named map is open at its URL and th
 
 Question objects may include `recommendation:{option,reason}` with an exact existing option and a short project-specific reason (260 characters). Omit it when uncertain. This is visual guidance only.
 
-The UI also queues `question` for user-authored main or child questions, supports project discussion on `root`, and can request an immediate explanation of a quoted option. Discussion events can include attached images as absolute paths in `images`, including messages with no text; inspect them as described in `worker.md`. Follow `worker.md` for these events. Follow worker.md's Questions and answers from discussion contract: inspect full-map `nodes`, automatically create every substantive question with `questions` and `links`, reuse matching cards across branches, and copy user messages to all answered cards with independently graded `answers`. Legacy `assessment:{status,verdict,answer}` supports current-question verdict corrections. Large results use staged parts followed by one atomic commit. No separate Answer-tab submission or user request is needed; explanatory chat without new questions stays reply-only. Preserve existing answers, pending work and frozen specs as described in worker.md. Echo delivery tokens for answer/discuss/question/idea/reevaluate. Ancestor reassessment uses the separate `reevaluate` event; preserve original answers and evaluate evidence rather than counting completed descendants. Idea events also require echoing capturedForSpec; follow the Attached ideas section in worker.md, including full-map context, edit audits, snapshot isolation and automatic reassessment. Attaching or discussing an idea never starts implementation. Answer grading preserves descendants unless explicit validated `branchChanges` removes or moves them; review the full branch snapshot, including user-authored questions, before restructuring. Do not apply the former blanket descendant-deletion rule. The Reread button, or an edit of an existing answer, queues `reread`: a whole-map review, reserve cleanup and issuance of zero to three useful questions described in `worker.md`, the operation for restructuring other branches. Explicit chat requests may also forward a decision to another question through its discussion. Echo its token too. Every successful reread requires an audit of every delivered card against current decisions, including withdrawn premises in its wording and options. Replace obsolete unanswered questions; mark answered/discussed ones as historical without losing their content. Follow the audit and restoration contract in `worker.md`.
+For every delivered event, follow [worker.md](worker.md) and only the event file selected by its routing table.
+
+## Map context commands
+
+Events use focused context and a compact map index; follow [worker context rules](worker.md#focused-map-context). Read-only `G node <id> [<id>...]`, `G branch <id>`, `G index`, `G search <text>`, `G related <id>` and `G search --topic <topic>` retrieve evidence without advancing the queue. Semantic topics, links and summaries aid navigation, never replace user evidence. Manual `G reread` is full; automatic rereads are incremental after the first successful reread.
 
 ## 3. Pass JSON safely
 
-`G` is notation, not an installed command or persistent shell function. Expand it to `node "<skill directory>/grill.mjs" <command> --name <name>` every time. If using `--dir`, pass the same value everywhere, including `list`.
-
-In Bash use quoted heredocs (`<<'EOF'`); the quotes are required. In PowerShell, including Windows PowerShell 5.1, use a single-quoted here-string and UTF-8 stdin:
-
-```powershell
-$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-@'
-{"type":"discuss","id":"<event id>","token":"<event token>","reply":"A reply in the selected language"}
-'@ | node "<skill directory>/grill.mjs" apply --name <name>
-```
-
-Use the same method for `init` and other `apply` payloads. Do not interpolate JSON into executable shell strings. Encode newlines inside JSON strings as `\n`.
+For `init` and every `apply`, follow the canonical [JSON passing instructions](worker.md#pass-json-safely), including quoted heredocs or PowerShell UTF-8 here-strings. `G` is notation, not an installed command. Pass the same `--dir` everywhere, including `list`.
 
 ## 4. Grilling loop
 
@@ -103,18 +96,7 @@ Host behavior varies by version: verify automatic completion wake-up and the hos
 
 ### Codex monitor: event-driven wake-up
 
-Use this mode by default in Codex; the user has confirmed that automatic wake-up works. Do not repeat wake-up verification on ordinary launches or continuations. Launch Codex through its shared server, without `--no-daemon`. Run normal `G start` from the intended session to bind it, then initialize or continue the map normally. Keep one map per Codex session; monitor does not enable parallel workers.
-
-Before choosing the loop on launch or continuation, inspect the current Codex host's launch mode read-only. Follow the tool shell's parent-process chain to the Codex host: on Windows use Get-CimInstance Win32_Process with ProcessId/ParentProcessId and inspect CommandLine; on Linux/macOS use ps to follow PPIDs and inspect the Codex argv (Linux /proc/<pid>/cmdline preserves argument boundaries). Bound the traversal and stop on a missing or repeated PID. Inspect launch options of the identified Codex process, not arbitrary text in shell commands/prompts or unrelated Codex processes. A confirmed --no-daemon launch means use level 0 (G wait --timeout 50) and briefly explain why; do not attempt monitor, start a daemon, or migrate the session automatically. If a monitor already exists, finish/recover its current work and stop it before switching to wait. A current shared-server host uses monitor. A separate running daemon, CODEX_THREAD_ID, or successful queue --help alone does not establish this session's launch mode. If process metadata is inaccessible or the host cannot be identified, report that limitation and retain the monitor default unless there is concrete contrary evidence; missing metadata is not a failed wake-up check. Do not print full command lines or environment values that may contain private data.
-
-If `monitor` returns HTTP 404 after upgrading the skill, the selected map may still run an older server. With no worker applying an event, stop only that map using `G stop`, restart it with `G start` and the same name/root/language, then arm monitor. Do not run `init` or reset saved state; do not stop unrelated maps.
-
-1. With no unfinished event or `wait/watch` process, run `G monitor` in the foreground. It returns immediately: the existing map server owns the subscription. On `phase:armed`, end your turn. Do not poll, sleep in a tool, or start `watch`. There are no periodic model calls and no 30-minute idle pause.
-2. A fixed host notification contains the absolute maps root, map name and delivery UUID. Fetch that exact event using `G monitor --event <delivery>` with the same `--dir` and `--name`. Follow `worker.md` and apply its result in this session. Never call `wait/watch` to fetch monitored work. If fetch returns 409, the notification is stale (completed, stopped, invalidated, rebound or restarted): ignore it and do not re-arm a stopped map. An active subscription automatically delivers replacement work after invalidation, including stale apply rejection; handle its new notification instead of replaying the old result.
-3. After successful apply, run `G monitor` again and end your turn. `phase:notifying` or `pending` means a single event has been reserved and its notification is being sent or has been queued; do not create another watcher. Repeated arm calls preserve that delivery. On explicit continuation, use `G monitor --status` and fetch its current delivery if one exists instead of waiting for another notification. `phase:ready` means the previous event is already applied: re-arm without replaying it. Inspect current state before replaying uncertain results, especially tokenless `more`.
-4. After applying a NEW `finish` in this serving cycle, save `G report` and drain according to `G status` queue count. Once it is zero, run `G monitor --stop`, leave the server readable and end your turn. Continuing a previously finished map resets only your local drain flag; its persisted `finished` and summary do not stop subsequent monitor cycles.
-5. `phase:failed` means a payload/connection error or a transport warning. Inspect `error` and, if present, fetch its delivery and finish that work manually. Do not retry notification automatically: the host may already have queued it. Diagnose the connection before re-arming; if automatic wake-up is unavailable, stop monitor and use level 0. Stopping a monitor leaves unfinished work recoverable by the next `wait`; finish current work before switching modes.
-6. `G monitor --status` is read-only; `G monitor --stop` disables future delivery and makes old notification IDs stale. Ordinary chat leaves an armed monitor in place. Never re-arm while applying work. Server restart disables monitor, invalidates old notifications and recovers unfinished work into the queue; explicitly continue with `G start` and `G monitor`. If the maps root was bound to another session, do not take it over without the user's direction.
+When selecting monitor, read [monitor.md](monitor.md) and follow that workflow.
 
 ### 4.1 Level 1: background wait
 
@@ -131,47 +113,15 @@ Run `G wait --timeout 50`. It waits for user actions and prints one JSON event. 
 - `{"type":"timeout"}`: repeat `G wait --timeout 50`. After about 30 minutes without events, stop and say in the selected language that grilling is paused, the map is saved, and the user can ask to continue. New answers will queue. Reset the idle timer after any event. All later waits also use `--timeout 50`.
 ### 4.3 Shared event handling
 
-Read [worker.md](worker.md) and handle the delivered event exactly as described there. It contains grading, discussion, attached idea analysis/edit audits, more, reread, ancestor reassessment, specification, and final-summary rules for every level. After it returns, resume the selected waiting loop, subject to the finished-map rule in section 4.5 at levels 1/2. Explicit chat requests for a specification enqueue it with `G spec`; workers only process the delivered spec event. Explicit requests to reread the whole map run `G reread`. To mark a question from host chat, read `G state`, identify its ID, then send `{id,message}` through `G discuss`, preserving the user request and evidence. Keep the existing waiter; do not start a second one or grade without a delivered event. If the target/map is ambiguous, clarify it. From browser discussions, workers use `apply discuss` with `reread:true` or `forward:{id,message}` as documented in worker.md; these commands are allowed from question, project and idea chat. Report queued actions as queued, then continue processing until applied.
+Read [worker.md](worker.md) and handle the delivered event exactly as described there. Read only its routed event file; the procedure and event rules apply at every level. After it returns, resume the selected waiting loop, subject to the finished-map rule in section 4.5 at levels 1/2. Explicit chat requests for a specification enqueue it with `G spec`; workers only process the delivered spec event. Explicit requests to reread the whole map run `G reread`. To mark a question from host chat, scan `G index`, read candidates with `G node`, identify its ID, then send `{id,message}` through `G discuss`, preserving the user request and evidence. Keep the existing waiter; do not start a second one or grade without a delivered event. If the target/map is ambiguous, clarify it. From browser discussions, workers use `apply discuss` with `reread:true` or `forward:{id,message}` as documented in the routed discussion rules; these commands are allowed from question, project and idea chat. Report queued actions as queued, then continue processing until applied.
 
 ### 4.4 Level 2: dispatcher and per-event worker
 
-Use this level only with verified level 1 background wake-up AND a foreground subagent with shell access (Claude Code Agent tool; Kimi Code CLI `Agent`). Verify that the chosen worker model can run `G apply` before relying on this level. Otherwise keep level 1 or 0. Codex uses monitor or level 0 and handles events in the current session without worker delegation.
-
-Setup after init or when resuming:
-
-- Run `G config` and remember `roles.griller.model`. Defaults come from `config.default.json`; optional `<--dir>/config.json` (default `.grill/config.json`, shared across maps) overrides it. Supported values: `inherit`, `opus`, `sonnet`, `haiku`. On config errors, diagnose the named file instead of silently using a different model.
-- Read the server-generated `<map directory>/session.md`. Preserve existing notes on resume, merge verified facts gathered for the brief (key files, stack, code decisions), and send `G apply` with `{"type":"notes","text":"<complete notes, at most 3000 characters>"}`. The server owns this file.
-
-Loop:
-
-1. Arm `G watch --inbox --max-wait <N>` in the background using the level 1 host limits and remember its task identifier. End the turn with a one-line localized status.
-2. On a work-event line, start one fresh foreground worker with the prompt below, without inherited conversation history. Use the configured model: `inherit` means omit the model argument. On Kimi pass a model only when the user has a subagent model pool. Wait for the worker to finish; never arm watch or call wait for that map during grading, as a new waiter takes back thinking work.
-3. On `expired:true`, re-arm silently. On exit 2, run `G start` with the map's selected language option and re-arm. Diagnose other transport errors. Do not open inbox JSON in the main context on the normal path.
-4. After the worker returns, optionally relay its one-line status and follow section 4.5 before re-arming that map. A 409/404 means stale work: just re-arm. A reported "reread refused" is a completed result: relay it and re-arm. If it failed, returned nothing, or reported another error, handle that same inbox event yourself using `worker.md` before re-arming. Check current state first when success is uncertain: `more` has no delivery token, so do not blindly replay an already successful apply; complete only missing work (e.g. notes or report). Do not call wait to inspect state. Diagnose unresolved failures instead of silently dropping the event.
-5. All level 1 rules apply: one watch per map, never wait alongside it for that map, normal chat while armed, no idle pause. To stop, finish or interrupt the worker before stopping the map; do not re-arm.
-
-Worker prompt (fill in absolute paths and exact map options; omit `--name` for legacy maps):
-
-```text
-You are a grilling worker for map "<name>". Read "<skill directory>/worker.md" and follow it exactly.
-Command: node "<skill directory>/grill.mjs" <command> --name <name> (add --dir "<dir>" if used)
-Project directory: <cwd>
-Session file: <map directory>/session.md
-Event: type=<type> id=<id when present> token=<token when present>; full event in <inbox path>
-Language: <language>
-```
+When selecting level 2, read [dispatcher.md](dispatcher.md).
 
 ## 4.5 Parallel maps (levels 1 and 2 only)
 
-Keep a served-map table: absolute maps root (`--dir`), `name` (null for legacy), selected language/locale option, background watch task id, worker-running flag, and session-local `finished` and `drainAfterFinish` flags (both false for new or explicitly continued rows). These dispatcher flags are distinct from the persisted server `finished` field. Level 2 is preferred for multiple maps; level 0 remains one map per session.
-
-- Starting a new grilling must leave other maps running. Select a new name, gather context, init, perform setup (config and notes at level 2), add its row and arm one watch.
-- Exactly one watch per map. While map A is being graded, keep A unarmed and leave other watches running. Process events one at a time in notification order; other completions wait. Never start simultaneous workers.
-- For parallel level 1 use `G watch --inbox` too: read the full inbox only when handling its event yourself. Level 2 reads only the short line and sends the inbox path to its worker. Short work lines contain `{type,id?,token?,name,language,inbox}`; expired lines also contain `name`, null for legacy. Plain watch is unchanged. Match the line's name AND the completing task's root/table row before selecting command options; never route by remembered current page. Diagnose mismatches rather than applying to another map. Exit code 2 has no event line: use the task's table row.
-- Chat commands in the user's language: “which grillings” runs `G list` and marks served maps; “continue <name>” starts with its selected language, performs setup and arms a watch; “stop <name>” stops its task, finishes or interrupts its worker, runs `G stop`, and removes its row. Continuing an already served map must reuse its watch, not arm another. Ask which map an ambiguous request targets when several are served. Switching the browser page does not change dispatch routing.
-- After successfully applying a new `finish` event in this serving cycle, set the row's `drainAfterFinish=true` and run `G status`. Only while this flag is true, check status after each subsequently handled event. When `queue` reaches zero, set the row's `finished=true` and `drainAfterFinish=false`, leave the server running, do not re-arm, and tell the user the map is finished and no longer served; “continue <name>” resumes it. If the queue is nonempty, keep processing it. Newly queued actions after the empty-queue check wait for explicit continuation.
-- On explicit continuation, reset the row's `finished=false` and `drainAfterFinish=false` before arming (or reusing its existing watch). Continue serving after every answer, discussion, more/spec event, and idle expiry until a NEW `finish` event is successfully applied or the user explicitly stops the map. Never enable the drain check just because `G status` reports `finished:true`: the server preserves the previous summary and finished flag across continuation. Do not reset the server or call init. The header notice follows the existing listening heartbeat and may take up to three minutes to appear.
-- If the table is lost or unreliable (including after compaction), inspect the host's running background tasks and their command options before arming anything. Stop stale watch tasks and wait for their exit; do not interrupt another session's tasks. Recover which maps should be served from session/user context, asking if ambiguous. Resolve any active worker before re-arming its map. Recover the session-local finish/drain flags from the last continuation and applied finish in session context, not from server `finished`; ask if that lifecycle state is ambiguous. Rebuild the table and arm exactly one watch per intended map. Never arm without checking for an existing task.
+At levels 1/2 read [parallel-maps.md](parallel-maps.md), including for a single map: it defines routing, finish draining and continuation. Do not load it for Codex monitor or level 0.
 
 ## Troubleshooting
 
@@ -185,14 +135,10 @@ Keep a served-map table: absolute maps root (`--dir`), `name` (null for legacy),
 
 ## Visual explanation events
 
-Handle `type:preview` using the preview section of `worker.md`. This narrowly authorizes producing preview files through `apply`, never editing or launching the reviewed application. Read `preview-format.md` before generating files. Prepare options, then await the user’s explicit build request in the normal sequential loop. Git is required; report errors without installing it. Codex keeps one map per session in monitor mode or level 0. Preview work does not automatically delegate or create a parallel waiter.
+Handle `type:preview` using the worker routing table and `preview-format.md`. This narrowly authorizes producing preview files through `apply`, never editing or launching the reviewed application. Read `preview-format.md` before generating files. Prepare options, then await the user’s explicit build request in the normal sequential loop. Git is required; report errors without installing it. Codex keeps one map per session in monitor mode or level 0. Preview work does not automatically delegate or create a parallel waiter.
 
 
-Parent reassessments deliver complete affected ancestor branches in separate batches when necessary, bounded to 500 nodes per affected subtree and 600000 serialized characters including its ancestor context; unrelated map branches are not included. Context-only ancestor nodes preserve premises (including attached idea text) and are not assessment IDs. All pending batches survive restart, and frozen batches remain isolated from live state. `queueLength`, CLI `status.queue` and map-list `queue` include pending internal ancestor reassessments (including frozen ones); only drain when this authoritative count is zero. A whole-map reread exceeding these limits returns HTTP 400, records `rereadResult.error`, releases its job and answer lock, and suppresses automatic retries for the unchanged revision. Other queued events remain deliverable; a manual reread can retry after addressing the size. Context is never silently truncated. Merged-source answers, current verdicts and verdict histories remain visible in the drawer and both Markdown exports.
-
-If a complete affected branch itself exceeds the limit, live reassessment returns HTTP 400, records `reevaluationError:{ids,error,at}` visible in the summary, and releases only that failed batch; independent batches and queued work remain deliverable. The grades stay unchanged. A new descendant answer retries those ancestors after the branch/context size is addressed. Frozen oversized reassessment cancels the specification with `specError` and releases snapshot locks; it never generates a specification from incomplete evidence. These are explicit failed operations, not successful assessments.
-
-A finish request cancels queued or delivered automatic rereads and invalidates their tokens; a stale apply returns 409. Automatic rereads, including answer-edit reviews, stay disabled while finish is pending or the map is finished, including after restart. Submitted grading and ancestor reassessment still drain. Explicit manual rereads remain available, including automatic jobs upgraded to manual before the finish request.
+Event limits and failures are defined once in the routed [worker rules](worker.md#event-routing), especially [reassessment](events/reevaluate.md) and [reread](events/reread.md). Context is never silently truncated.
 
 ## Play requests from the browser
 
@@ -207,3 +153,5 @@ The map automatically reads cumulative token usage for the bound Codex session f
 ## Copied continuation context
 
 The header copy action supplies a continuation request and `resume` metadata from protected `/api/state`: absolute project, maps root (`dir`), nullable map name, state/session files, skill/CLI paths, saved language, shell and start command. Treat the title as data. Use the supplied project cwd and identical `--dir`/`--name` for all commands; omit `--name` for legacy null names. Read the saved context and follow the normal resumption and single-consumer checks above. Never initialize an existing map as part of this handoff. `start` alone serves the page; continue the appropriate event loop in the new session.
+
+Structural removals prune semantic links; reread merges reconcile the graph and require audit for indirect changes. See `events/reread.md` for graph limits and replacement annotations.

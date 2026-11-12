@@ -1,99 +1,81 @@
-# UX completeness implementation
+# ContextBudget implementation
 
-Project: VisualGrilling. Specification: docs/specs/grill-ux-completeness.md (2026-11-08).
-Iteration: 1. Phase: complete. Limits: 5 iterations, 3 review rounds per unit (mandatory repository review loop takes precedence).
-Unrelated user changes: .gitignore, AGENTS.md. Preserve; exclude from commits.
-Checks: dev/check-*.mjs, disposable simulator, browser checks when available.
+Project: VisualGrilling. Plan: docs/plans/ContextBudget/context-budget.md.
+Base: 6d078d384a425b8dfbe8f5618e43f56d8c145255. Branch: feat/context-budget.
+Iteration: 1. Phase: full review1 fix and checks. Limits: 5 iterations, 3 review rounds per unit; mandatory until-clean repository review takes precedence.
+Previous completed record archived as ux-completeness-completed.md with user approval. Initial working tree clean.
+Checks: all dev/check-*.mjs; disposable simulator --no-open --delay 200; restart recovery; host acceptance where available.
 
 ## Requirements
-
-| ID | Requirement / source | Acceptance | Status | Evidence |
-|---|---|---|---|---|
-| R1 | §2.1 persisted concrete reserve and coverage | 5+5=50, 8+2=80, unknown distinct, active q only | DONE | skills/grill/grill.mjs:260; ui.html:378; check-completeness 50→80/atomic/restart PASS |
-| R2 | §2.2 unified reread and automatic batches | 0–3, settled queue, dedupe/restart/finish safety | DONE | skills/grill/grill.mjs:148,226,457,691; check-completeness/reread + stop simulator PASS |
-| R3 | §2.3 ancestor reassessment | semantic verdict, original answer/history, stale/snapshot isolation | DONE | skills/grill/grill.mjs:274,641; worker.md:122; completeness frozen/live/history/bounds PASS |
-| R4 | §2.4 chat read state | persisted exact seen reply, active tab, counts/root chat | DONE | skills/grill/grill.mjs:1006; ui.html:658; API receipt race/restart + browser focus PASS |
-| R5 | §2.5 explain question | independent request, drafts and error preservation | DONE | skills/grill/ui.html:689; completeness-browser busy/409/draft checks PASS |
-| R6 | §2.6 multi-select | combined answer, exclusive unknown, length/drafts/errors | DONE | skills/grill/ui.html:382,677; worker.md:155; completeness-browser multiselect/length/drafts PASS |
-| R7 | §2.6 copying | question/answer/verdict/message exact block and error | DONE | skills/grill/ui.html:381,804; independent Chromium exact Unicode/multiline copy all 4 blocks PASS |
-| R8 | §2.7 ideas | atomic idempotent queued analysis, stale edits | DONE | skills/grill/grill.mjs:974; worker.md:177; check-ideas/completeness/restart + simulator PASS |
-| R9 | §2.8 filters | zero selectable, ideas counted, ancestors only, hidden drawer draft | DONE | skills/grill/ui.html:399,459,761; completeness/ideas Chromium filters/counts/drafts PASS |
-| R10 | §2.9 camera | all/branch fit, panel geometry, manual 10%, explicit edge decisions | DONE | skills/grill/ui.html:913,928; docs/architecture.md:210; Chromium fit/clamp/branch PASS |
-| R11 | §3 contracts/exports/docs/locales | synchronized worker/simulator/docs and history exports | DONE | skills/grill/SKILL.md; worker.md; docs/contract.md; locales/en.json; simulator; exports grill.mjs:525/ui.html:575; all checks PASS |
-| R12 | §4–5 preservation/security/regression | token/atomic/snapshot/security tests + fresh review | DONE | skills/grill/grill.mjs:120,191,320,580,691,866,1102; ui.html:221; all 13 checks PASS + fresh review3 APPROVED |
+| ID | Requirement | Source | Acceptance | Status | Evidence |
+|---|---|---|---|---|---|
+| R1 | Bounded delivery telemetry persisted and exposed read-only | Stage 0 | 200 entries, totals by type, no payload change | REVIEW | Stage0 independent review APPROVED; baseline/context/monitor/workers checks pass |
+| R2 | Reproducible 40+ card baseline across event types | Stage 0 | check-context, baseline recorded before payload edits | REVIEW | Stage0 independent review APPROVED; baseline/context/monitor/workers checks pass |
+| R3 | Compact projection and canonical discussion chat | Stage 1 | no duplicated chat, empty fields, timestamps; targeted histories | REVIEW | Implemented; independent final verification pending |
+| R4 | Server-injected captured knowledge snapshots | Stage 1 | valid versions injected, unknown rejected atomically, prior/manual sources preserved | REVIEW | Implemented; independent final verification pending |
+| R5 | Focused event context, index and lexical selection | Stage 2 | discuss/idea <=35% baseline; bounded related; complete coverage | REVIEW | Implemented; independent final verification pending |
+| R6 | Protected read-only node/branch/index/search | Stage 2 | max20 nodes, validation, no queue/listening effects | REVIEW | Implemented; independent final verification pending |
+| R7 | Atomic duplicate guard across all addition paths | Stage 2 | rejects matching IDs, allowSimilar supported | REVIEW | Implemented; independent final verification pending |
+| R8 | Semantic fields and validation across apply paths | Stage 3 | limits, valid links, stale/clear behavior | REVIEW | Implemented; independent final verification pending |
+| R9 | Bidirectional graph navigation and vocabulary | Stage 3 | neighbours first, related/topic search, capped vocabulary | REVIEW | Implemented; independent final verification pending |
+| R10 | Semantics excluded from evidence projections | Stages 1,3 | spec/knowledge/export identity | REVIEW | Implemented; independent final verification pending |
+| R11 | Incremental automatic reread and audit validation | Stage 4 | changed cards + neighbours, full manual/first, <=40% full budget | REVIEW | Implemented; independent final verification pending |
+| R12 | Changed answered-card knowledge threshold | Stage 4 | configurable default5, finish/manual preserved | REVIEW | Implemented; independent final verification pending |
+| R13 | Event-specific worker routing and instruction split | Stage 5 | answer worker <12KB, complete rules and routing | REVIEW | Stage5 independent review APPROVED; worker10262bytes and worker check passes |
+| R14 | Mode-specific workflows and installation | Stage 5 | monitor/dispatcher/parallel extracted, installer/checks synced | REVIEW | Stage5 independent review APPROVED; worker10262bytes and worker check passes |
+| R15 | Synchronized consumers/docs and measured budgets | All stages | simulator/contract/architecture/skills/checks agree, before-after recorded | REVIEW | Developer docs, instructions, simulator and all24 checks synchronized |
+| R16 | Security, atomicity, recovery and regression acceptance | Principles/verification | all checks plus disposable simulator/restart, independent review | REVIEW | Implemented; independent final verification pending |
 
 ## Work units
-- W1 server: R1,R2,R3,R4(server),R8; grill.mjs and new dev/check-completeness.mjs. Fresh implementer.
-- W2 UI: R4–R7,R9,R10; ui.html/locales/en.json, new browser checks. Fresh implementer. Agree server fields first.
-- W3 synchronization: R11; skills instructions, docs, simulator, existing checks. Starts after server contract.
-- Integrated review: fresh read-only reviewer, then distinct fixer if needed; independent full-spec verifier.
-
-## Decisions
-Technical camera choice: branch focus disabled without selection; focus clears filter/isolation so complete selected branch is laid out while other branches stay visible. Previews only appear as required context under status filtering. Manual zoom after sub-10% fit returns to at least 10%.
-Other protocol limits and migration decisions to be documented after server design.
+- W0 R1,R2: measurement agent owns grill.mjs/check-context and stage0 docs. Review round0.
+- W5 R13,R14: instruction_split agent owns skill Markdown, events/, link-skill/check-workers and README install notes. Disjoint concurrent execution with W0. Review round0.
+- W1-4 R3-R12: sequential runtime work after verified baseline; scope to assign.
+- Full scope synchronization/review and independent verification after integration. Fresh read-only reviewers without inherited history; distinct fixers.
 
 ## History
-- Startup: read applicable AGENTS and docs/spec. No code edits yet.
+- User authorized implementation on new branch and archive of old completed orchestration state.
+- Branch created; W0 and W5 running concurrently. Plan defaults adopted; optional UI topic display excluded.
 
 ## Questions/blockers
-None. User authorized full implementation; no deployment/push requested.
+None currently. Real host semantic/loop acceptance must be distinguished from simulated transport checks.
 
-- Baseline before implementation: node dev/check-spec.mjs, check-ui-api.mjs, check-preview.mjs passed on 2026-11-08. Node v22.19.0 supports CDP browser harness.
-- Protocol design in progress: reserve null/array bounded 100, exact chat message IDs/read acknowledgements, tokenized ancestor reevaluate with frozen/live separation. Implementers coordinating consumers.
+### Wave 1 evidence
+Stage0 baseline fixture characters: answer 9730; discuss 39603; question 3751; idea 32696; reevaluate 7507; reread 30826; more 1376; spec 17770; preview 1446; knowledge 71422; finish 8607. Measurement files frozen; fresh review_measurement round1 running.
+Design decision: preserve complete internal context projection for revisions/frozen grading; use separate compact delivery projection. Knowledge snapshot injection must validate unknown current-session versions before existing blocked-result catch. Incremental audit remains question-only, with final candidate comparison covering indirect mutations. Lexical/duplicate thresholds will be explicit documented constants.
+Stage5 routing implemented; worker+answer presently11743 bytes, headroom requested for subsequent context guidance. Not yet independently reviewed.
 
-- Repository has a tracked .claude/skills/grill junction to skills/grill. Git reports both paths for the same physical edits; task commits must synchronize both tracked copies. Do not alter/remove junction.
-- Preview browser regression passed during implementation. Ideas browser old assertion fails as expected after ideas begin contributing to status counts; synchronization agent updating expectation.
+### Wave 2
+W0 review round1 APPROVED: independent check-context/monitor/workers passed, no findings. R1/R2 ready for final verifier (remain REVIEW until verification). Stage0 author additional current-work/maps checks passed.
+W5 implementation complete: answer instruction bundle10262bytes; author check-workers twice, link installer and Markdown links passed. Fresh review_split round1 active.
+W1-4 runtime_implementation owns runtime/checks/simulator sequentially; docs_sync concurrently owns developer docs only. Runtime evidence stays separate from lossy delivery. No simultaneous writes to shared files.
 
-- Integrated disposable simulator smoke passed: node dev/simulate.mjs --no-open --delay 200 --name ux-smoke-1794129991609 --port 0; graded gap/ok/verify, root discussion, reread consumed 3 reserve candidates, compatibility more, spec, finish/report, missing-header 403. Server stopped; named disposable runtime retained.
-
-- W2 implementation ready: root independently ran check-completeness-browser PASS in actual Chromium. W1/W3 finishing protocol checks/docs.
-- Integrated regression checks PASS: check-spec, check-reread, check-ui-api, check-ideas, check-workers, check-maps, check-locale, check-watch. Existing check-preview still needs deliberate captured ancestor-event ordering adjustment (assigned server agent). Scoped git diff --check clean; unrelated AGENTS EOF whitespace ignored.
-
-
-- W1/W2/W3 frozen. Fresh read-only reviewer review1 assigned full integrated scope. Author tests and root tests pass; root check-preview + ideas-browser + preview-browser reruns passed. Review round 1 for W1/W2/W3.
-
-- Specification blob hash: 4f691df221fe22de7e319079c7847d0da3e228c3. Root check-completeness passed including restart, exact read receipts, stale ancestor tokens, frozen/live isolation, auto/no-loop/finish. All 13 standalone API/browser checks have passed during integration. Review1 still evaluating full task.
+W5 review round1 APPROVED; no semantic loss findings. skill_sync now updates routed instructions for stages1-4, preserving <12KB answer budget. Full integration review still required.
 
 
-## Review pass 1 (CHANGES_REQUESTED)
-- F1 P2: grill.mjs boundBranch whole-map reassessment/reread starves queue for valid maps over 500 total nodes; independent seeded probe reproduced wait400 → finish200 → wait400.
-- F2 P2: reevaluation work absent from queueLength/status drain count; finish+child grading stops dispatcher before parent review. Independent normal API probe reproduced.
-- F3 root confirmation: mergedFrom retains verdictHistory but UI/report/Markdown omit removed-source historical verdicts; §2.3/§3 require accessible history. Inspected report loops and nodePanel/toMarkdown.
-- Fresh distinct fixer fix1 assigned all confirmed findings, tests and synchronized docs. R2/R3/R11/R12 remain REVIEW pending fixes. Review count1; no clean claim.
+Runtime interim stage1-3 measurement (not final acceptance): answer9588, discuss14095(35.59% baseline; budget pending), idea7450, knowledge30137. Captured on-demand reads use context.readToken/--token and must fail closed on stale/missing snapshot. Stage4 underway. Docs/instructions synchronizing exact shapes directly with runtime owner.
+
+### Integration
+Stages1-4 runtime core implemented; runtime owner adds deep context regressions and budget assertions. docs_sync completed eight developer/agent docs, local links/diff checks pass. skill_sync completed focused/read-token/semantics/incremental/knowledge instructions; worker+answer11932bytes. Consumer_compatibility owns existing dev/check-* except check-context and simulator, replacing old payload assumptions without weakening negative coverage.
+Stage0 and Stage5 each have one clean scoped review; full integrated review not yet performed. Real Codex/Claude context workflow acceptance remains unverified and must be reported separately.
+
+Consumer migration progress: discussion/workers/knowledge/spec/monitor/connection/current-work/usage/locale checks pass. Legacy image focus-path regression identified and sent runtime owner. Remaining idea/preview/completeness/reread/watch/maps checks in progress. Real host acceptance uses Codex0.167.2 and Claude2.1.322 disposable foreground two-event loops; explicitly excludes monitor wake/dispatcher claims.
+
+### Pre-review acceptance
+- Full runtime implementation frozen; check-context author PASS. Final measured discuss13796/39603=34.84%, idea7450/32696=22.79%, incremental8646/full26329=32.84%, knowledge30137/71422.
+- Root disposable simulator context-smoke-1111 PASS: gap/ok/verify, root discussion, more, reread, finish/queue drain, Markdown report3030chars, missing-header403. Own server stopped.
+- Both real host foreground loops PASS: Codex0.167.2, Claude2.1.322. Actual answer/apply/discuss/apply, distant evidence read, stale semantic hints rejected, no duplicate questions, queue0. Claude needed session-local Bash,Read permission allowlist for heredoc. No global changes. Evidence host-acceptance-results.json; interactive wake/Play not covered.
+- Fresh full integrated reviewer review_integrated_1 started (full-review pass1). Browser consumer teardown fixes ongoing only; runtime/docs/instructions frozen.
+
+Correction to suite count: 16 existing API/CLI checks + check-context + 7 browser checks = all24 standalone check files, plus simulator syntax. All passed before integrated review. Browser harness baseline drift fixes: session usage wrapper child-order assertion and VM DOM stub; bounded Chromium shutdown retains locked temp profiles with warning rather than masking functional assertions. No UI changes.
+
+## Full review pass 1 — CHANGES_REQUESTED
+Fresh reviewer independently ran context/reread/discussion/knowledge/spec/workers/monitor/maps and diff checks, all passed, but reproduced three uncovered issues:
+- F1 P2: whole-map size bound still rejects focused discuss/idea and incremental reread with unrelated long histories; inspect grill.mjs490/580/601.
+- F2 P2: reread merge/close changes evidence without semanticsStale, leaving old decision marked current.
+- F3 P2: merges/removals leave dangling relates; merge targets must remap, self/duplicates disappear, removals prune, atomic live/frozen scope preserved.
+Parent confirmed relevant code paths. Fresh distinct fixer fix_integrated_1 assigned all findings plus regressions/docs. Full review count1; requirement statuses remain REVIEW, no clean claim. Required review-fix-checks-commit will commit this nonclean iteration after fixes/checks, then new independent reviewer.
 
 
-- Fresh fixer fix1 addressed F1–F3, including oversized single-branch recovery, frozen batched restart, premise ancestor context, status/list drain count and merged-history presentation/export. Relevant author checks pass. Root full13 suite running/passing.
-- Real Claude Code semantic smoke (claude --print, no tools, isolated temp cwd, default configured model) passed supplied worker fixtures: resolved duplicate-charge risk → ok; unanswered throughput assumption despite answered unrelated children → verify; duplicate reserve candidate discarded and useful candidate issued. No files/tools or host wake-up behavior tested. Session 9977bb55-4d70-44b8-8714-170b5462fb36. This is a small semantic smoke, not proof of model completeness.
-
-- Review1 fix/check phase complete: all 13 root-run standalone API/browser checks passed; scoped diff whitespace clean. Base commit16d524f8e0cd3c5cbb1b584eea10f43f85739479. Preparing one task commit for non-clean review iteration1, then fresh review2.
-
-
-- Task implementation and review1 fixes committed as b1b58a1. Unrelated .gitignore/AGENTS remain unstaged. Fresh read-only review2 assigned full base 16d524f..HEAD scope without previous findings. Review round2 W1/W2/W3.
-
-- Final b1b58a1 simulator smoke passed on disposable ux-final-1794130769027: child grading queued and applied ancestor review, idea creation auto-analyzed, reread consumed reserve, frozen idea/spec events, finish/report. Server stopped; only smoke-generated specification removed. Earlier smoke also covered gap/ok/verify, root chat, compatibility more and403.
-
-
-## Review pass 2 (CHANGES_REQUESTED)
-- F4 P1 lifecycle: queued edit-triggered automatic reread survives finish; already delivered automatic reread remains applicable after finish request because content revision omits lifecycle. Independent public API probe confirms finish→edited answer→automatic reread with finished:true. Explicit manual reread must remain allowed.
-- Fresh distinct fixer fix2 assigned cancellation/commit boundary, queue drain preservation, lifecycle regression and docs. Review2 independently passed completeness API/browser; no other concrete findings.
-
-- Fix2 frozen: automatic rereads canceled at finish request/recovery/dispatch/apply boundaries; manual requests/upgrades and answer/ancestor drain preserved. Root simulator ux-stop-1794131152924 passed in-flight cancel (old apply409), after-finish edit without issuing reserve, explicit manual reread issued3. Other root suite checks passed; completeness result recorded by orchestration tool.
-
-- All13 checks PASS after fix2; scoped whitespace check clean. Preparing review2 fix commit and fresh full-scope review3.
-
-
-- Review2 fix committed c4dee79. Fresh reviewer review3 assigned entire original-base..HEAD implementation without prior findings. Round3 W1/W2/W3. User mandatory until-clean procedure takes precedence over default orchestrator round cap if more work is required.
-
-
-## Review pass 3 (APPROVED)
-- Fresh reviewer independently inspected full original-base..c4dee79 scope and full specification; no confirmed correctness/security/preservation/compliance findings.
-- Independent checks completeness API/browser, spec, reread and full task diff whitespace passed.
-- Fresh verifier assigned every R1–R12 against complete docs and actual code plus full13 suite. Requirements remain REVIEW until verifier evidence.
-
-## Final independent verification
-- Iteration 1 completed; R1–R12 DONE (12/12 grouped requirements). Fresh verifier inspected the complete specification, actual c4dee79 code and contracts; no omitted implementation requirements or new confirmed defects.
-- Independent all 13 dev/check-*.mjs commands exit 0; all 3 Chromium harnesses ran (no skips). Additional in-memory Chromium probe confirmed exact Unicode/newline copy for question, answer, verdict and chat. Full base..HEAD diff whitespace clean.
-- Review-fix-until-clean completed in 3 fresh review passes: pass 1 F1–F3 fixed in b1b58a1; pass 2 F4 fixed in c4dee79; pass 3 APPROVED. Two non-clean iterations have separate commits. No push, rebase or unrelated commits.
-- Evidence scope: deterministic API/browser tests, three disposable simulator flows, and a real Claude Code worker semantic smoke. No exhaustive model-quality claim; full interactive host wake-up/skill launch and simultaneous real browsers were not independently exercised. Host waiting architecture itself was unchanged.
-- No remaining implementation findings or blockers. User .gitignore (9 added lines) and AGENTS.md (2 added lines) remain untouched/unstaged. Smoke servers stopped; disposable named state retained, generated smoke spec files removed.
-- Resume record: source spec hash 4f691df221fe22de7e319079c7847d0da3e228c3; implementation base 16d524f8e0cd3c5cbb1b584eea10f43f85739479, final code c4dee79a9e8c6b9ab172988815624b083bb815b2.
+### Review1 fixes verified
+Fresh fixer addressed F1-F3; targeted context/reread/discussion/ideas/spec/workers PASS including oversized unrelated histories and focus, stale merge/close, graph remap/prune/union>8 rejection, explicit replacement, indirect incremental audits, live/frozen deletions and idea edits. Budgets unchanged; worker11941bytes. All runtime/docs/check files frozen.
+Root final all24 check suite running, per-check results in check-results.json. Preparing review1 implementation/fix commit after targeted relevant checks passed; final full-suite result will be recorded separately.

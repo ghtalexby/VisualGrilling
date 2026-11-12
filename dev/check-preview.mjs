@@ -1,3 +1,4 @@
+import { contextCards } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -53,10 +54,10 @@ try {
   const first = await apply(e, { files: circlePreview, purpose: "Circle" });
   let n = await api("preview?id=" + id); assert.equal(n.commit, first.commit); assert.equal(n.stale, 0);
   await api("reread", {}); const reread = await wait();
-  await api("apply", { type: "reread", token: reread.token, brief: "Updated premise", audit: reread.nodes.map(n => ({ id: n.id, action: "keep", reason: "Only the project premise changes" })) });
+  await api("apply", { type: "reread", token: reread.token, brief: "Updated premise", audit: contextCards(reread).map(n => ({ id: n.id, action: "keep", reason: "Only the project premise changes" })) });
   assert.equal((await api("preview?id=" + id)).stale, 1);
   await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 180 } });
-  assert.equal((await api("state")).queueLength, 1);
+  assert.equal((await api("state")).queueLength, 0);
   await api("spec", {}); const spec = await wait(), snapshot = spec.nodes.find(n => n.id === id);
   assert.match(snapshot.snapshot, /^[a-f0-9]{64}$/);
   await api("preview/save", { id, commit: n.commit, epoch: n.epoch, state: { diameter: 200 } });
@@ -75,7 +76,7 @@ try {
   await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Invalid parent", branchChanges: { add: [{ key: "$child", parentId: id, q: "A preview cannot parent a question", options: ["A", "B"] }] } }, 400);
   await api("question", { id: "bad-preview-child", parentId: id, q: "A preview cannot parent a custom question" }, 404);
   assert.deepEqual((await api("state")).nodes, beforeInvalidMove);
-  await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "Branch A", options: ["A", "B"] }, { q: "Branch B", options: ["A", "B"] }] });
+  await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Accepted", children: [{ q: "Capacity branch", options: ["A", "B"] }, { q: "Encryption branch", options: ["A", "B"] }] });
   let state = await api("state"), copies = state.nodes.filter(p => p.forkOf === n.projectId); assert.equal(copies.length, 2);
   const copy = await api("preview?id=" + copies[0].id); assert.equal(copy.versions.length, 2);
   await api("preview/restore", { id: copy.id, commit: copy.commit, epoch: copy.epoch, target: first.commit });
@@ -125,7 +126,7 @@ try {
   assert.equal((await api("state")).nodes.filter(n => n.forkOf === ancestorNode.projectId).length, 2);
   const deletedCopy = (await api("state")).nodes.find(n => n.forkOf === ancestorNode.projectId);
   await api("preview/delete", { id: deletedCopy.id, confirm: true });
-  e = await wait(); assert.equal(e.type, "reread"); await api("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Preserve current decisions" })) });
+  e = await wait(); assert.equal(e.type, "reread"); await api("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Preserve current decisions" })) });
   await api("answer", { id: deletedCopy.sourceId, answer: "A later answer" }); e = await wait();
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted" });
   assert.equal((await api("state")).nodes.filter(n => n.forkOf === ancestorNode.projectId && n.sourceId === deletedCopy.sourceId).length, 0);
@@ -161,7 +162,7 @@ try {
   e = await wait(); await apply(e, { files: circlePreview, purpose: "Discussion visual" });
   const discussionProject = await api("preview?id=" + discussionPreview.id);
   await api("discuss", { id: "root", message: "Compare two paths" }); e = await wait();
-  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Two follow-ups", questions: [0, 1].map(i => ({ key: "$path" + i, parentId: unanswered.id, q: "Discussion path " + i, options: ["A", "B"] })), links: ["$path0", "$path1"] });
+  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Two follow-ups", questions: [0, 1].map(i => ({ key: "$path" + i, parentId: unanswered.id, q: ["Discussion capacity", "Discussion encryption"][i], options: ["A", "B"] })), links: ["$path0", "$path1"] });
   const discussionCopies = (await api("state")).nodes.filter(n => n.forkOf === discussionProject.projectId);
   assert.equal(discussionCopies.length, 2);
   assert.notEqual(discussionCopies[0].projectId, discussionCopies[1].projectId);

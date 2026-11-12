@@ -1,3 +1,4 @@
+import { applySemantics } from "./context.mjs";
 // Build a discussion transaction without mutating live state or frozen specifications.
 export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, clean }) {
   const next = structuredClone(nodes), byId = new Map(next.map(n => [n.id, n]));
@@ -8,14 +9,13 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
     return clean(value, limit);
   };
   for (const key of ["questions", "links", "answers"]) if (body[key] !== undefined && (!Array.isArray(body[key]) || body[key].length > 500)) bad("Некорректный список результата обсуждения");
-  const known = new Set(nodes.filter(n => n.kind === "q" && !n.obsolete).map(n => n.q.toLocaleLowerCase()));
   for (const o of body.questions || []) {
     if (!o || !/^\$[a-zA-Z0-9-]{1,40}$/.test(o.key) || refs.has(o.key)) bad("Нужен уникальный ключ нового вопроса");
     const title = text(o.q, 220);
-    if (!title || known.has(title.toLocaleLowerCase())) bad("Вопрос пуст или уже существует на карте");
+    if (!title) bad("Вопрос пуст или уже существует на карте");
     const q = mkQ(o, o.parentId);
     if (!q || q.options.length < 2 || byId.has(q.id)) bad("Новому вопросу нужны текст, уникальный ID и варианты");
-    known.add(title.toLocaleLowerCase()); refs.set(o.key, q.id); byId.set(q.id, q); next.push(q); added.push(q);
+    refs.set(o.key, q.id); byId.set(q.id, q); next.push(q); added.push(q);
   }
   const resolve = id => refs.get(id) || id;
   let priority = Math.max(0, ...nodes.map(n => n.prio || 0));
@@ -50,7 +50,8 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
     const at = Date.now(), provenance = { id: sourceId, q: source.text || source.q || "", messageIds: [...a.messageIds], at };
     if (n.answer && n.answer !== answer) edited.push(n.id);
     if (n.answer) n.answerHistory = [...(n.answerHistory || []), { answer: n.answer, status: n.status, verdict: n.verdict, source: n.answerSource || null, at }];
-    n.answer = answer; n.answerSource = provenance;
+    n.answer = answer; n.answerSource = provenance; n.semanticsStale = true;
+    applySemantics(next, n.id, a.semantics, clean);
     recordVerdict(n, a.status, verdict); targets.add(n.id); touched.add(n.id);
   }
   return { nodes: next, links, edited, touched: [...touched], added: added.length };

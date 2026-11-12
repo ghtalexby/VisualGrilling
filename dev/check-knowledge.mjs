@@ -1,3 +1,4 @@
+import { contextCards } from "./context-fixture.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -124,6 +125,7 @@ try {
   }));
   await Promise.all(racers);
 
+  fs.writeFileSync(path.join(maps, "config.json"), JSON.stringify({ knowledge: { rereadThreshold: 1 } }));
   await start();
   assert.equal((await fetch(url + "api/knowledge")).status, 403);
   await api("init", { title: "Knowledge", questions: [{ q: "Define profile" }, { q: "Another topic" }] });
@@ -132,7 +134,7 @@ try {
   let event = await wait(); assert.ok(event.knowledge.index);
   await api("apply", { type: "answer", id, token: event.token, status: "ok", verdict: "User definition" });
   await api("reread", {}); event = await wait(); assert.equal(event.type, "reread");
-  await api("apply", { type: "reread", token: event.token, audit: event.nodes.map(n => ({ id: n.id, action: "keep", reason: "Current" })) });
+  await api("apply", { type: "reread", token: event.token, audit: contextCards(event).map(n => ({ id: n.id, action: "keep", reason: "Current" })) });
   event = await wait(); assert.equal(event.type, "knowledge"); assert.equal(event.reason, "reread");
   await api("apply", { type: "knowledge", token: event.token, files: [] });
   await api("apply", { type: "knowledge", token: event.token, files: [] }, 409);

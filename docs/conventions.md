@@ -21,13 +21,13 @@ When adding an endpoint:
 
 | When changing | Also update |
 |---|---|
-| Event fields in `payload()` or the `apply()` / `/api/init` format | `SKILL.md`, `worker.md`, `docs/contract.md`, `dev/simulate.mjs` |
+| Event fields in `payload()` or the `apply()` / `/api/init` format | `SKILL.md`, `worker.md`, `events/*`, `docs/contract.md`, `dev/simulate.mjs` |
 | `clean()` limits | The limits table in `docs/contract.md`; numbers in `SKILL.md` where relevant |
 | Statuses (`LABEL`, `ORDER`, `counts()`) | Their duplicates in `ui.html` (`STATUS`, `ORDER`, `counts()`), `.s-<status>` CSS classes, and color tokens |
 | UI source phrases, locale validation, or language selection | `locales/en.json`, `i18n.mjs`, `SKILL.md`, `docs/contract.md`, simulator options, and locale checks |
 | The `report()` format | The similar UI `toMarkdown()` implementation if matching output is needed |
-| Reserve, coverage, ancestor reassessment, read receipts, or reread rules/event/transaction | `worker.md`, `SKILL.md`, `docs/contract.md`, `dev/simulate.mjs`, `dev/check-reread.mjs`, UI lock and result states |
-| Worker event rules or delegation | `worker.md`, `SKILL.md`, contract, simulator and `check-workers.mjs` |
+| Reserve, coverage, ancestor reassessment, read receipts, or reread rules/event/transaction | `worker.md`, `events/*`, `SKILL.md`, `docs/contract.md`, `dev/simulate.mjs`, `dev/check-reread.mjs`, UI lock and result states |
+| Worker event rules or delegation | `worker.md`, `events/*`, `SKILL.md`, selected mode files, contract, simulator, installer and `check-workers.mjs` |
 | Config keys or models | `config.default.json`, config validation, `SKILL.md`, contract and worker checks |
 | CLI commands | The header comment in `grill.mjs`, its `commands` object, `SKILL.md`, `docs/contract.md` |
 | Repository structure or scripts | `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/overview.md`, `docs/development.md` |
@@ -59,3 +59,7 @@ Completeness changes must keep reserve transactions, automatic issuance and froz
 ## Project knowledge
 
 See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.
+
+## Context and semantic projections
+
+Keep `context.mjs`, delivery callers, read-only context endpoints, simulator consumers and `dev/check-context.mjs` synchronized. Never replace required evidence with semantic summaries or silently truncate focus branches. Preserve frozen read-token isolation. Keep semantic fields out of specification/knowledge evidence and version hashes; shared duplicate validation and semantics validation must complete before any apply mutation. Reread audit coverage must include fully delivered and changed questions in incremental mode, and every question in full mode. Synchronize extraction thresholds with config validation, knowledge checks and instructions. Preserve Stage 0 baseline measurements while recording later budgets separately.

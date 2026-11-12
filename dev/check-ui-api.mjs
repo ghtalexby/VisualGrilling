@@ -1,3 +1,4 @@
+import { contextCards, focusCard, discussionChat } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Exercise UI protocol extensions against a real server in a disposable project.
 import assert from "node:assert/strict";
@@ -157,7 +158,7 @@ try {
   await discuss(e);
   await request("discuss", { id: "root", message: "Follow-up" });
   e = await wait();
-  assert.deepEqual(e.images, []); assert.deepEqual(e.history[0].images, [path.join(map, "images", picture)]);
+  assert.deepEqual(e.images, []); assert.deepEqual(discussionChat(e)[0].images, [path.join(map, "images", picture)]);
   await discuss(e);
   await stop(); await start();
   assert.deepEqual(stored(), [picture]);
@@ -199,7 +200,7 @@ try {
   await request("answer", { id: main.id, answer: "Revise the parent" });
   // Grade the queued child first, then inspect the full mixed branch.
   await grade(await wait()); e = await wait();
-  assert.ok(e.branchSnapshot.some(n => n.id === child.id && n.createdBy === "user" && n.chat.length === 2));
+  assert.ok(e.context.focus.some(n => n.id === child.id && n.createdBy === "user" && n.chat.length === 2));
   const before = (await state()).nodes;
   await grade(e, { branchChanges: { move: [{ id: child.id, parentId: other.id }] } }, 400);
   await grade(e, { branchChanges: { move: [{ id: child.id, parentId: auto.id }, { id: auto.id, parentId: child.id }] } }, 400);
@@ -229,11 +230,11 @@ try {
   await request("spec", {});
   await request("discuss", { id: child.id, message: "Discussion after capture" });
   e = await wait(); assert.equal(e.id, child.id); assert.equal(e.capturedForSpec, true);
-  assert.ok(!JSON.stringify(e.branchSnapshot).includes("Discussion after capture"));
+  assert.ok(!JSON.stringify(e.context.focus).includes("Discussion after capture"));
   await grade(e);
   await request("answer", { id: child.id, answer: "Answer after capture" });
   e = await wait(); assert.equal(e.id, main.id);
-  assert.ok(!JSON.stringify(e.branchSnapshot).includes("Answer after capture"));
+  assert.ok(!JSON.stringify(e.context.focus).includes("Answer after capture"));
   assert.ok(e.protectedIds.includes(child.id));
   await grade(e, { branchChanges: { remove: [grouping] } }, 400);
   await grade(e, { branchChanges: { remove: [child.id] } }, 409);
@@ -246,7 +247,7 @@ try {
   await request("apply", { type: "spec", token: e.token, markdown: "# Captured implementation" });
   await request("apply", { type: "spec", token: e.token, markdown: "# Repeated" }, 409);
   e = await wait(); assert.equal(e.answer, "Answer after capture"); await grade(e);
-  e = await wait(); assert.equal(e.type, "discuss"); assert.equal(e.pendingAnswer, null); await discuss(e);
+  e = await wait(); assert.equal(e.type, "discuss"); assert.equal(focusCard(e).pending, undefined); await discuss(e);
 
   // Client request IDs and node IDs occupy separate queue namespaces.
   await request("answer", { id: main.id, answer: "Remove a descendant" });
@@ -258,10 +259,10 @@ try {
   e = await wait(); assert.equal(e.type, "question"); assert.equal(e.id, child.id);
   await request("apply", { type: "question", id: e.id, token: e.token, question: { options } });
   e = await wait(); assert.equal(e.type, "reread");
-  await request("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Nothing to change" });
+  await request("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Nothing to change" });
 
   await request("more", {}); await request("more", {});
-  assert.equal((await state()).queueLength, 2); await wait();
+  assert.equal((await state()).queueLength, 1); await wait();
   await request("apply", { type: "more", questions: [{ q: "More", options, recommendation }] });
   assert.deepEqual((await state()).nodes.find(n => n.q === "More").recommendation, recommendation);
   await request("finish", {}); assert.equal((await wait()).type, "finish");

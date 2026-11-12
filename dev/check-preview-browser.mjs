@@ -108,6 +108,15 @@ try {
   await menu(q.id);assert.equal(await js('document.querySelector("[data-ctx=preview]").textContent'),"Создать превью");
   console.log("Preview browser checks passed: circle, polling, Save, dirty guard, SVG, sandbox, RU/EN");
 } finally {
+  // Close Chromium normally so its profile-owning subprocesses exit on Windows.
+  if (ws?.readyState === WebSocket.OPEN) {
+    await Promise.race([cdp("Browser.close").catch(() => {}), sleep(2000)]);
+    if (browser?.exitCode === null) await Promise.race([new Promise(resolve => browser.once("exit", resolve)), sleep(2000)]);
+  }
   ws?.close(); await end(browser); await end(server);
-  fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+  try { fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+  catch (error) {
+    if (!["EBUSY", "ENOTEMPTY", "EPERM"].includes(error.code)) throw error;
+    console.warn(`Browser profile cleanup deferred (${error.code}); retained ${cwd}`);
+  }
 }

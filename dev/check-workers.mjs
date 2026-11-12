@@ -1,3 +1,4 @@
+import { contextCards, focusCard } from "./context-fixture.mjs";
 // Exercise the real CLI in a disposable project, never in a user's map.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -7,6 +8,29 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
+const skillRoot = path.dirname(cli);
+const instruction = file => fs.readFileSync(path.join(skillRoot, file), "utf8");
+const workerRules = instruction("worker.md");
+const eventFiles = ["answer", "discuss", "question", "reread", "reevaluate", "idea", "spec", "finish"].map(name => `events/${name}.md`);
+for (const file of [...eventFiles, "knowledge.md", "preview-format.md"]) {
+  assert.ok(instruction(file).trim(), `Missing rules: ${file}`);
+  assert.ok(workerRules.includes(`](${file})`), `Missing worker route: ${file}`);
+}
+for (const file of ["monitor.md", "dispatcher.md", "parallel-maps.md"]) {
+  assert.ok(instruction(file).trim(), `Missing workflow: ${file}`);
+  assert.ok(instruction("SKILL.md").includes(`](${file})`), `Missing mode route: ${file}`);
+}
+const answerInstructionBytes = Buffer.byteLength(workerRules) + Buffer.byteLength(instruction("events/answer.md"));
+assert.ok(answerInstructionBytes < 12000, `Answer instructions exceed budget: ${answerInstructionBytes} bytes`);
+// Every local Markdown link in the split instruction package must resolve.
+for (const file of ["SKILL.md", "worker.md", "knowledge.md", "preview-format.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles]) {
+  for (const match of instruction(file).matchAll(/\]\(([^)]+)\)/g)) {
+    const target = match[1].split("#")[0];
+    if (!target || /^[a-z]+:/i.test(target)) continue;
+    assert.ok(fs.existsSync(path.resolve(skillRoot, path.dirname(file), target)), `${file}: missing link ${target}`);
+  }
+}
+console.log(`answer worker instructions: ${answerInstructionBytes} bytes`);
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-workers-check-"));
 const dir = path.join(cwd, "maps");
 const children = new Set();
@@ -63,19 +87,32 @@ const init = { title: "Worker check", brief: "Product brief", arch: "Node archit
 try {
   let result = await run(["config"]).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } } });
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } }, knowledge: { rereadThreshold: 5 } });
   fs.mkdirSync(dir, { recursive: true });
   const configFile = path.join(dir, "config.json");
   for (const model of ["sonnet", "opus", "haiku", "inherit"]) {
     fs.writeFileSync(configFile, JSON.stringify({ ignored: true, roles: { ignored: {}, griller: { model, ignored: 1 } } }));
     result = await run(["config"]).done;
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } } });
+    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } }, knowledge: { rereadThreshold: 5 } });
   }
   fs.writeFileSync(configFile, JSON.stringify({ roles: { griller: { ignored: 1 } } }));
   assert.equal(JSON.parse((await run(["config"]).done).stdout).roles.griller.model, "inherit");
   for (const text of ['{"roles":{"griller":{"model":"bad"}}}', '{', 'null', '{"roles":[]}', '{"roles":{"griller":{"model":null}}}']) {
     fs.writeFileSync(configFile, text);
+    result = await run(["config"]).done;
+    assert.equal(result.code, 1);
+    assert.ok(result.stderr.includes(configFile));
+  }
+  for (const threshold of [1, 5, 500]) {
+    fs.writeFileSync(configFile, JSON.stringify({ knowledge: { rereadThreshold: threshold } }));
+    result = await run(["config"]).done;
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).knowledge.rereadThreshold, threshold);
+    assert.equal(JSON.parse(result.stdout).roles.griller.model, "inherit");
+  }
+  for (const threshold of [0, 501, 1.5, "5", null]) {
+    fs.writeFileSync(configFile, JSON.stringify({ knowledge: { rereadThreshold: threshold } }));
     result = await run(["config"]).done;
     assert.equal(result.code, 1);
     assert.ok(result.stderr.includes(configFile));
@@ -98,7 +135,7 @@ try {
   fs.writeFileSync(configFile, '{"roles":{"griller":{"model":"sonnet"}}}');
   result = await run(["config"], copiedCli).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } } });
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } }, knowledge: { rereadThreshold: 5 } });
   fs.unlinkSync(configFile);
   assert.equal((await watch("--inbox").done).code, 2);
   await start();
@@ -152,8 +189,10 @@ try {
   assert.notEqual(inbox().token, fullDiscussion.token);
   assert.deepEqual({ ...inbox(), token: fullDiscussion.token, knowledge: fullDiscussion.knowledge }, fullDiscussion);
   assert.match(inbox().message, /Explain this option/);
-  assert.ok(Array.isArray(inbox().options));
-  assert.equal(inbox().branchSnapshot[0].id, discussionId);
+  assert.equal(focusCard(inbox()).q, "First?");
+  assert.equal(inbox().history, undefined);
+  assert.equal(inbox().messages, undefined);
+  assert.equal(focusCard(inbox()).id, discussionId);
   await request("apply", { type: "discuss", id: discussionId, token: discussionLine.token, reply: "Here is the explanation." });
   assert.equal((await request("state")).nodes.find(n => n.id === discussionId).discuss, null);
   assert.equal((await request("state")).nodes.find(n => n.id === discussionId).status, "open");
@@ -239,26 +278,24 @@ try {
   assert.equal(targetAnswer.id, target.id);
   await request("apply", { type: "answer", id: target.id, token: targetAnswer.token, status: "ok", verdict: "Initial grade." });
   const targetEvent = await event(watch(), "discuss");
-  assert.equal(targetEvent.pendingAnswer, null);
+  assert.equal(focusCard(targetEvent).pending, undefined);
   assert.equal(targetEvent.id, target.id);
   assert.match(targetEvent.message, /needs measurement/);
-  assert.equal(targetEvent.branchSnapshot[0].id, target.id);
+  assert.equal(focusCard(targetEvent).id, target.id);
   await request("apply", { type: "discuss", id: target.id, token: targetEvent.token, reply: "Marked verify.",
     assessment: { status: "verify", verdict: "Measurement needed.", answer: "Decision subject to measurement." } });
   const commandReview = await event(watch(), "reread");
-  assert.equal(commandReview.nodes.find(n => n.id === target.id).status, "verify");
+  assert.equal(contextCards(commandReview).find(n => n.id === target.id).status, "verify");
   await request("apply", { type: "reread", token: commandReview.token, summary: "Checked.", reserve: [],
-    audit: commandReview.nodes.map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
+    audit: contextCards(commandReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
   // CLI reread reuses the same deduplicated manual request path.
   assert.equal((await run(["reread"]).done).code, 0);
   assert.equal((await run(["reread"]).done).code, 0);
   const cliReview = await event(watch(), "reread");
   await request("apply", { type: "reread", token: cliReview.token, summary: "Checked again.", reserve: [],
-    audit: cliReview.nodes.map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
+    audit: contextCards(cliReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
   assert.equal((await request("state")).nodes.find(n => n.id === source.id).status, "open");
   await request("more", {});
-  const memory = await event(watch(), "knowledge");
-  await request("apply", { type: "knowledge", token: memory.token, files: [] });
   const more = await event(watch("--inbox"), "more");
   assert.deepEqual(Object.keys(more).sort(), ["inbox", "language", "name", "type"]);
   assert.equal(inbox().type, "more");

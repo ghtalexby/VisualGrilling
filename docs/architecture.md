@@ -55,6 +55,8 @@ Files live in `.grill/` or `.grill/<name>/`:
 
 ## State model
 
+`contextStats` records event sizes at the shared delivery boundary used by wait/watch and monitor reservation, including ancestor reviews and captured work. It persists the last 200 measurements and cumulative totals by event type; restart preserves it and `init` resets it. Measurements use the final event including `knowledge` and `language`, without modifying its content. `/api/state` exposes these read-only diagnostics. Repeated reads of a reserved monitor event do not count again; recovery/redelivery does. See the section definitions in [contract.md](contract.md).
+
 ```js
 S = {
   version, title, brief, arch, notes, locale, reserve, reserveRevision, autoRereadRevision, reevaluation,
@@ -63,7 +65,7 @@ S = {
   questionRequests: [/* persisted custom question preparation */],
   summary, finished, morePending, finishPending,
   specOwner, specFile, specUpdatedAt, specError, specJob,
-  rereadJob, rereadResult
+  rereadJob, rereadResult, rereadSeen
 }
 ```
 
@@ -88,6 +90,14 @@ A question (`kind: "q"`):
 - New main questions get `max(prio)+1`, through `more` or `newRoot`.
 - `/api/state` omits `queue`, exposing `queueLength` and `listening` instead.
 
+## Focused event context
+
+`state.json` remains the sole source of truth. `context.mjs` derives compact delivery cards, the depth-first index, lexical ranking and semantic graph from the current or explicitly frozen nodes. Answer, question, discussion and idea events send full focus evidence and selected related cards, with other cards discoverable through an inline index or `G index`. Protected read-only `node`, `branch`, `index`, `search` and `related` commands fetch more context without consuming events or changing listening state.
+
+Topics, typed outgoing links, decision summaries and discussion digests guide retrieval only. Incoming links are computed, not written to destination cards. The graph and vocabulary never establish user decisions; frozen specifications, knowledge provenance and exports exclude semantic fields. New user evidence marks annotations stale until a result supplies updated semantics. Question additions pass the shared atomic similarity guard; intentional overlap requires reading the match and declaring `allowSimilar`.
+
+Successful rereads persist evidence digests in `rereadSeen`. First and manually requested reviews retain full evidence and audit coverage. Later automatic reviews deliver changed cards and graph neighbours in full, with an index for the remainder; every fully delivered or modified question requires an audit. Unchanged, unaudited questions default to keep. Project-chat changes, reserve, coverage and ideas remain available. Reread knowledge extraction is deferred until the configured number of answered cards have changed (default five); finish still requires extraction. Knowledge source snapshots are injected from the captured job at save time, avoiding a second serialized copy in each event and agent result.
+
 ## Answer lifecycle
 
 1. `POST /api/answer {id, answer}` sets `node.pending = {answer, stage:"queued"}` and queues `{type:"answer", id}`. Resubmission while queued replaces the text without adding an event; while thinking it returns 409. `/api/cancel` withdraws queued answers only. Answers captured by a specification are additionally locked until grading.
@@ -100,7 +110,7 @@ A question (`kind: "q"`):
 The discussion tab sends messages and can settle a question directly. The root also has chat, opened through its project-question context menu; it never becomes a graded question:
 
 1. `/api/discuss {id, message}` appends to `node.chat`, sets `discuss:"queued"`, and queues an event. Further queued messages append without a new event; thinking returns 409.
-2. `wait` returns messages since the last agent reply in `message`, earlier messages in `history`, and sets `discuss:"thinking"`.
+2. `wait` returns messages since the last agent reply in `message`, the complete canonical thread in the focus card's `chat`, and sets `discuss:"thinking"`.
 3. `apply {type:"discuss", id, token, reply, assessment?}` appends an agent reply and clears `discuss`. An optional question assessment records status/verdict and seeds a missing answer from the accepted decision; existing answers and children survive. It validates the delivered branch revision, queues ancestor/idea reassessment, and leaves frozen spec snapshots unchanged. Reply-only results preserve grades. Explicit commands may also include `reread:true` or `forward:{id,message}`: after validation, the same apply saves the reply and queues a manual whole-map review or the requested other-question discussion. Forwarded decisions are evaluated in a subsequent delivery with the target branch context. If the thread is no longer thinking, return 409 so stale replies cannot consume newer messages.
 
 Right-click an answer option to discuss or select it. Right-click a verdict (`[data-verdict]`) to discuss it. Existing text selection keeps the browser's copy menu; selection is captured on `pointerdown` because macOS may select a word on right-click. Discussion attaches `panel.quote = {about, text}` as `quote` and `about`.
@@ -113,7 +123,7 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 
 ## Reread
 
-The header Reread button and summary control call `/api/reread`; editing an existing answer queues the same job automatically. The agent reads the whole map after submitted work settles and returns one transaction. This is the only operation that crosses branches: `branchChanges` stays limited to the graded subtree and `init` still wipes answers.
+The header Reread button and summary control call `/api/reread`; editing an existing answer queues the same job automatically. After submitted work settles, first/manual rereads review the whole map; later automatic rereads review changed evidence and semantic neighbours with the rest indexed. The agent returns one transaction: `branchChanges` stays limited to the graded subtree and `init` still wipes answers.
 
 The Reread button disables immediately on submission and shows a spinner until the queued or running job completes. Both controls share the submission guard. Request errors appear in a dismissible floating alert without opening or switching the drawer and restore the control; reduced-motion preferences keep the spinner static.
 
@@ -121,7 +131,7 @@ All action errors and input validation messages use the same floating alert, inc
 
 The browser translates known terse errors into explanations with a recovery action: unavailable cards/versions, queue limits, preview failures, image restrictions, duplicate submissions and file-access failures. The same explanations appear in persisted result panels, without rewriting stored diagnostics. The API helper explains connection failures, rejects malformed success responses, and replaces raw server failures or HTML responses with guidance; meaningful validation and conflict messages remain intact. CLI diagnostics and server protocol strings are unchanged. Error phrases and their English translations are maintained together in `ui.html` and `locales/en.json`.
 
-The server validates the candidate on a clone, independently confirms that every previous answer survives, keeps one copy in `state.before-reread.json`, then commits. It cannot judge meaning, so chain coherence is the agent's check; an unsure agent returns `error`, which unlocks the map unchanged. A manual job locks answers while an agent is listening, and any delivered job locks them until its result. Recovery uses the same mechanism as other tokenized work, so a crash needs no timeout. The map's idea is the brief, shown on the root card and rewritable by this transaction. Rules and formats are in `worker.md` and [contract.md](contract.md).
+The server validates the candidate on a clone, independently confirms that every previous answer survives, keeps one copy in `state.before-reread.json`, then commits. It cannot judge meaning, so chain coherence is the agent's check; an unsure agent returns `error`, which unlocks the map unchanged. A manual job locks answers while an agent is listening, and any delivered job locks them until its result. Recovery uses the same mechanism as other tokenized work, so a crash needs no timeout. The map's idea is the brief, shown on the root card and rewritable by this transaction. Rules and formats are in `events/reread.md` and [contract.md](contract.md).
 
 ## Recovery
 
@@ -166,9 +176,9 @@ Browser -> queue -> watch --inbox -> inbox.json
                          +-- one line --+
 ```
 
-Level 2 requires verified background completion wake-up and a foreground subagent with shell access. Each event gets a fresh worker reading `worker.md`, `session.md` and inbox; the dispatcher reads only the compact line. A worker must finish before the dispatcher re-arms: a new waiter requeues thinking work. There is no lease; a second session can still steal events. Hosts without these capabilities retain level 1/0, using the same worker rules in the main session.
+Level 2 requires verified background completion wake-up and a foreground subagent with shell access. Each event gets a fresh worker reading `worker.md`, its routed event rules, `session.md` and inbox; the dispatcher reads only the compact line. A worker must finish before the dispatcher re-arms: a new waiter requeues thinking work. There is no lease; a second session can still steal events. Hosts without these capabilities retain level 1/0, using the same worker rules in the main session.
 
-`S.notes` is a bounded complete replacement, independent of queued work. The server writes session context at startup, init, notes updates and locale changes; init clears notes. Model configuration is dispatcher-only: installed `config.default.json`, overridden by project `<--dir>/config.json`, never a per-map file.
+`S.notes` is a bounded complete replacement, independent of queued work. The server writes session context at startup, init, notes updates and locale changes; init clears notes. Model selection is dispatcher-only; the server also reads the knowledge extraction threshold from the same configuration: installed `config.default.json`, overridden by project `<--dir>/config.json`, never a per-map file.
 
 On restart, saved custom-language dictionaries retain their existing translations and use English for newly missing UI phrases. Explicit locale files and API locale updates still require complete dictionaries. An explicit startup language/locale replaces the saved locale before its validation. Locale checks cover older dictionaries and replacement on restart.
 
@@ -243,7 +253,7 @@ See [knowledge.md](knowledge.md) for the shared index, editable record schema, p
 
 Discussion links are structured card references, rendered with escaped text. Hidden targets open in temporary isolation; missing targets produce an error. The independent Obsolete preference uses a map-directory identity and localStorage. Rendering takes the union of active status matches and requested historical cards, then adds context ancestors; context never contributes to active status counts.
 
-Replacing an existing answer with different discussion text also queues an automatic whole-map reread, as a direct Answer-tab edit does, so decisions in other branches can be reconsidered. The replacement is already graded, so this reread is settled (not cancelable as a withdrawn pending answer). Identical text does not trigger an edit reread; finish-pending/finished maps retain the existing automatic-reread suppression.
+Replacing an existing answer with different discussion text also queues an automatic reread, as a direct Answer-tab edit does, so decisions in other branches can be reconsidered. The replacement is already graded, so this reread is settled (not cancelable as a withdrawn pending answer). Identical text does not trigger an edit reread; finish-pending/finished maps retain the existing automatic-reread suppression.
 
 The connection line uses process-local delivery identity (`type`, target, token and frozen/live scope), projected as `currentWork:{type}` or null. All delivery paths, including frozen idea/ancestor work, register it before saving the new version. Each save validates that the same job/token is still executing; completion, cancellation and requeue therefore clear it without treating staged discussion or notes as completion. New wait clears the marker before recovery; restart never restores active execution from disk. Pending more-question work is recovered alongside the other jobs. The label has no time limit and is not a process-liveness guarantee. Offline HTTP still takes precedence.
 
@@ -254,3 +264,5 @@ The header shows whole-session Codex token usage, not usage attributable to one 
 `GET /api/state` adds `sessionUsage: null | {provider:"codex",scope:"session",input_tokens,cached_input_tokens,output_tokens,reasoning_output_tokens,total_tokens}`. This is read-only telemetry, not persisted map state; it does not change events, init or apply. The existing maps-root session binding selects the session, so sibling maps show the same total. Explicit start rebinds the session. A resumed session includes its earlier work; child-agent sessions are not aggregated.
 
 `usage.mjs` reads the latest valid `event_msg/token_count` aggregate from that exact UUID's rollout under `<Codex home>/sessions/YYYY/MM/DD`. Start records the resolved `CODEX_HOME` (default `~/.codex`) in the private connection binding for server restarts. Older bindings use the server environment/default. Only numeric counters reach the browser, never transcript content, session paths or credentials. Reads are asynchronous, coalesced and cached for one second, limited to the final 4 MiB; file discovery retries at most every ten seconds and does not traverse symlink directories. If no complete supported aggregate occurs in that window, data is unavailable. The rollout schema is internal and may change; this adapter deliberately fails closed instead of estimating. No App Server connection or additional model process is started. Claude Code usage is not yet supported.
+
+Context limits apply to delivered focused evidence, not unrelated indexed histories. Incremental rereads bound delivered questions, neighbours, ideas and new project chat; full rereads retain the whole-map limit. Structural transactions reconcile semantic links independently in each candidate tree: prune deleted targets, redirect merged targets, union outgoing links, remove self-links/duplicates and validate the final eight-link bound. Reread audits cover indirect graph changes before commit.

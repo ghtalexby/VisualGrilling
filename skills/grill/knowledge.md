@@ -1,16 +1,14 @@
 # Project knowledge worker protocol
 
-Read this file before handling `knowledge`, and use its context-selection rules for every event.
+Read this file before handling `knowledge`, with the shared worker procedure.
 
 ## Context selection
 
-At launch run `G knowledge` after start. Every delivered event contains `knowledge.index`, the absolute path of `.grill/knowledge-index.json`, plus its revision, document/map counts and warnings. Read the index, select documents by the launch/event topic and read their actual current contents and primary sources. The index is navigation, not evidence. The server refreshes content hashes, headings, excerpts and link availability before delivery, including new, moved and manually edited documents. Source code is not listed: inspect it separately when a claim needs verification. Build/cache directories such as `target`, `build` and `dist` outside `docs/` are excluded before traversal; `.gitignore` is not used to hide authored documentation. An unreadable remaining directory is reported with its path while readable documents remain indexed. Report scan/parse warnings; never treat unavailable context as an empty knowledge base or claim a successful knowledge save with incomplete context.
-
-The project working directory is the knowledge boundary; `--dir` selects map storage only. Shared knowledge lives in `docs/vgril/`, outside bounded per-map agent notes. Do not publish, commit or push knowledge unless the user asks. The user decides where these documents belong in version control.
+Use the shared [worker context-selection rules](worker.md#context-selection).
 
 ## Extraction
 
-The server queues `knowledge` after each successful manual/automatic reread and before finish. Its nodes include all current questions, historical cards, answers and discussions. Compare the full delivered evidence with existing knowledge and relevant external documents. Repeated evidence must update the existing stable ID, not create another entry. Reuse an existing document path even if the term's spelling changed.
+The server queues `knowledge` after successful rereads when the `knowledge.rereadThreshold` changed-answer threshold is met (default five), and always before finish. Its nodes include all current questions, historical cards, answers and discussions. Compare the full delivered evidence with existing knowledge and relevant external documents. Repeated evidence must update the existing stable ID, not create another entry. Reuse an existing document path even if the term's spelling changed.
 
 Organize by architectural topic, not a copy of the source tree. Use a shared glossary for common terms and topic glossaries for local meanings. Merge compatible local definitions when promoting a common term, retaining superseded records and their sources. Preserve incompatible meanings and ask people. Keep decisions, hypotheses, ideas, technical descriptions and notes distinct. `ok` is a question grade, not factual verification or acceptance of an agent suggestion. A decision requires explicit user acceptance in an answer/discussion. Silence never counts.
 
@@ -23,7 +21,7 @@ One record per Markdown file, in a topical directory, for example `docs/vgril/se
 ````markdown
 <!-- vgril:1 -->
 ```json
-{"id":"settings-profile","type":"term","scope":"settings","status":"current","supersedes":[],"conflicts":[],"author":{"name":"Name","session":"session-id","date":"2026-11-09"},"sources":[{"path":".grill/settings/state.json","map":"settings","card":"n123","session":"session-id","version":"sha256","snapshot":"exact serialized node"}]}
+{"id":"settings-profile","type":"term","scope":"settings","status":"current","supersedes":[],"conflicts":[],"author":{"name":"Name","session":"session-id","date":"2026-11-09"},"sources":[{"path":".grill/settings/state.json","map":"settings","card":"n123","session":"session-id","version":"sha256"}]}
 ```
 
 # Profile
@@ -31,7 +29,7 @@ One record per Markdown file, in a topical directory, for example `docs/vgril/se
 Definition, evidence, limitations and links in the map language.
 ````
 
-Types: `term|technical|decision|hypothesis|idea|note`. Statuses: `current|superseded|conflict`. Keep stable `id`, `scope`, `supersedes` and `conflicts` ID arrays. Preserve prior sources when revising a record. Every source has `path`, SHA-256 `version`, and an exact `snapshot` (at most 30000 characters). Current map sources use the delivered `sources` array verbatim, adding `path:sourcePath`, `map`, and `session`. This embeds evidence in the shareable document even when `.grill` is absent. Label local map links as local-only; display absent sources honestly. For external documents use their project-relative path, SHA-256 of the complete UTF-8 text, and an exact quoted excerpt. Do not invent a historical author; use `author:null` when unknown.
+Types: `term|technical|decision|hypothesis|idea|note`. Statuses: `current|superseded|conflict`. Keep stable `id`, `scope`, `supersedes` and `conflicts` ID arrays. Preserve prior sources when revising a record. Saved sources have `path`, SHA-256 `version`, and an exact `snapshot` (at most 30000 characters). For current-map entries use delivered `sources:[{card,version}]`, adding `path:sourcePath`, `map`, and `session`; omit `snapshot` in your output, as in the example. On apply the server injects the exact captured snapshot for matching current-session versions and rejects unknown versions with 400. Never reconstruct it from live state or semantic summaries. Preserve prior sources and manual refinements, including their snapshots. Saved files embed evidence even when `.grill` is absent; semantic annotations are excluded from source snapshots and version hashes. Label local map links as local-only; display absent sources honestly. For external documents use their project-relative path, SHA-256 of the complete UTF-8 text, and an exact quoted excerpt. Do not invent a historical author; use `author:null` when unknown.
 
 For a newly introduced term, use the event's effective Git `author`, session and date. Never use the last committer. If absent, ask on the board how to record the author, then reuse that explicit answer only within this map session. Read that answer from the next delivered snapshot. Do not assign the importer's name to old terms. Imported unknown authors stay null and may be clarified on the board without inventing history.
 

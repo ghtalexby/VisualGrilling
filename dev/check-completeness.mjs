@@ -1,3 +1,4 @@
+import { contextCards } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Verify reserve accounting, automatic dispatch, semantic ancestor review and exact read receipts.
 import assert from "node:assert/strict";
@@ -32,7 +33,7 @@ const state = () => api("state"), wait = () => api("wait?timeout=5");
 const node = async id => (await state()).nodes.find(n => n.id === id);
 
 const question = q => ({ q, options: ["A", "B"] });
-const reread = (e, extra = {}, status = 200) => api("apply", { type: "reread", token: e.token, audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Current" })), ...extra }, status);
+const reread = (e, extra = {}, status = 200) => api("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Current" })), ...extra }, status);
 const grade = async (id, answer, extra = {}) => {
   await api("answer", { id, answer }); const e = await wait(); assert.equal(e.type, "answer");
   await api("apply", { type: "answer", id, token: e.token, status: "weak", verdict: "Original weakness", ...extra }); return e;
@@ -43,8 +44,8 @@ try {
   await api("init", { title: "Legacy", questions: [question("Legacy?")] });
   assert.equal((await state()).coverage.percent, null);
   assert.equal((await state()).reserve, null);
-  const reserve = Array.from({ length: 5 }, (_, i) => ({ id: `candidate-${i}`, ...question(`Hidden ${i}?`) }));
-  await api("init", { title: "Coverage", questions: Array.from({ length: 5 }, (_, i) => question(`Shown ${i}?`)), reserve });
+  const reserve = Array.from({ length: 5 }, (_, i) => ({ id: `candidate-${i}`, ...question(`Hidden ${1000 + i}?`) }));
+  await api("init", { title: "Coverage", questions: Array.from({ length: 5 }, (_, i) => question(`Shown ${1000 + i}?`)), reserve });
   assert.equal((await state()).coverage.percent, 50);
   await api("reread", {}); let e = await wait(); assert.equal(e.reserve.length, 5);
   await reread(e, { add: Array.from({ length: 4 }, (_, i) => ({ key: `$q${i}`, parentId: "root", ...question(`Bad ${i}?`) })) }, 400);
@@ -73,7 +74,7 @@ try {
   assert.equal((await api("idea", { id: "create-once", text: "Automatic idea" })).id, idea.id);
   await stop(); await start(); e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.id, idea.id);
   await api("apply", { type: "idea", id: e.id, token: e.token, status: "ok", verdict: "Supported" });
-  assert.equal((await state()).queueLength, 1); // Knowledge from the preceding reread still needs extraction.
+  assert.equal((await state()).queueLength, 0); // No answered cards changed, so reread needs no knowledge extraction.
   // A weak parent is reviewed semantically after its child; its own answer stays verbatim.
   await api("init", { title: "Parents", questions: [question("Parent?"), question("Keep map open?")], reserve: [] });
   const parent = (await state()).nodes.find(n => n.q === "Parent?");
@@ -181,7 +182,7 @@ try {
   assert.equal((await state()).queueLength, 0);
   // Merging removes the source card but preserves every historical verdict in the report.
   await api("reread", {}); e = await wait();
-  await reread(e, { audit: e.nodes.map(n => ({ id: n.id, action: "merge", reason: "Same evidence" })),
+  await reread(e, { audit: contextCards(e).map(n => ({ id: n.id, action: "merge", reason: "Same evidence" })),
     merge: [{ ids: [drainParent.id, drainChild.id], keep: drainChild.id, answer: "Parent answer\nEvidence", status: "ok", verdict: "Combined" }] });
   assert.ok(!(await state()).nodes.some(n => n.id === drainParent.id));
   assert.match(await api("report"), /Original weakness/);

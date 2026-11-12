@@ -1,3 +1,4 @@
+import { contextCards } from "./context-fixture.mjs";
 // Exercise the real CLI in a disposable project, never in a user's map.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -85,9 +86,8 @@ try {
   assert.equal(discussed.discuss, null);
   assert.equal(discussed.chat.at(-1).text, "The answer was checked.");
   const automatic = await event(watch(), "reread");
-  await request("apply", { type: "reread", token: automatic.token, reserve: [], audit: automatic.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport fixture" })) });
-  const knowledge = await event(watch(), "knowledge");
-  await request("apply", { type: "knowledge", token: knowledge.token, files: [] });
+  await request("apply", { type: "reread", token: automatic.token, reserve: [], audit: contextCards(automatic).map(n => ({ id: n.id, action: "keep", reason: "Transport fixture" })) });
+  assert.equal((await request("state")).knowledgePending, null);
   const began = performance.now();
   w = run(["watch", "--timeout", "5", "--max-wait", "8"]);
   const expired = await event(w, "timeout");

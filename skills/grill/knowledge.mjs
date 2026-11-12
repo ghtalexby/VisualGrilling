@@ -1,3 +1,4 @@
+import { evidenceNode } from "./context.mjs";
 // Project knowledge: editable Markdown, content versions and recoverable writes.
 import fs from "node:fs";
 import path from "node:path";
@@ -131,7 +132,7 @@ export function knowledge(project, maps) {
                     if (normalized.job) { const { stage, token, ...job } = normalized.job; normalized.job = job; }
                     if (normalized.chat) normalized.chat = normalized.chat.map(({ readAt, ...m }) => m);
                     if (pending) normalized.pending = { answer: pending.answer, at: pending.at };
-                    versionMatches = [digest(JSON.stringify(node)), digest(JSON.stringify(normalized))].includes(s.version);
+                    versionMatches = [digest(JSON.stringify(node)), digest(JSON.stringify(normalized)), digest(JSON.stringify(evidenceNode(node)))].includes(s.version);
                   }
                 } else {
                   const source = read(s.path); available = source.text !== null; versionMatches = source.version === s.version;

@@ -28,7 +28,7 @@ From this repository's root, run the command for your agent:
 | Claude Code | `npm run link:global` | `~/.claude/skills/grill` |
 | Codex | `npm run link:codex:global` | `~/.agents/skills/grill` |
 
-The installer links to `skills/grill`, so keep this repository in place. It preserves occupied directories and unrelated links and reports an error. To install for just one project, copy the entire `skills/grill` directory to `<project>/.claude/skills/grill` for Claude Code or `<project>/.agents/skills/grill` for Codex.
+The installer links to `skills/grill`, so keep this repository in place. It validates the instruction package, preserves occupied directories and unrelated links, and reports an error. To install for just one project, copy the entire `skills/grill` directory to `<project>/.claude/skills/grill` for Claude Code or `<project>/.agents/skills/grill` for Codex. Include `events/`, `worker.md`, `knowledge.md`, `preview-format.md`, and the waiting-mode files `monitor.md`, `dispatcher.md`, and `parallel-maps.md`; copying only `SKILL.md` is insufficient.
 
 After installation, restart Claude Code or Codex and open the project you want to review.
 
@@ -81,7 +81,7 @@ Run `node dev/check-watch.mjs` to check background-wait transport and recovery, 
 
 ## Per-event workers
 
-On hosts with verified background wake-up and foreground subagents, the main session dispatches each map event to a fresh worker. Other hosts retain the existing waiting loop. Shared event instructions live in `skills/grill/worker.md`.
+On hosts with verified background wake-up and foreground subagents, the main session dispatches each map event to a fresh worker. Other hosts retain the existing waiting loop. Workers read [worker.md](skills/grill/worker.md) and only its routed rules file for the delivered event. Event rules live in `skills/grill/events/`, with knowledge and preview rules in their existing protocol files. The answer worker instruction budget is under 12 KB, checked by `dev/check-workers.mjs`.
 
 The default worker model is `inherit` in `skills/grill/config.default.json`. Set `{"roles":{"griller":{"model":"sonnet"}}}` in the target project's `.grill/config.json` to override it (`inherit`, `opus`, `sonnet`, `haiku`). From that project, run `node "<skill directory>/grill.mjs" config` to inspect the merged settings; `--dir` selects a different config/maps root. No server is needed.
 

@@ -2,7 +2,21 @@
 
 Run commands from the repository root. No dependency installation is required. A fresh checkout includes `package.json`, npm helper scripts, `dev/fixtures/init.json`, and `test-project/.gitkeep`; runtime `.grill/` directories and local skill links are ignored.
 
+## Context budget acceptance
+
+Run `node dev/check-context.mjs` against disposable state and retain the printed before/after character counts. The Stage 0 baseline remains in [the plan](plans/ContextBudget/context-budget.md). Acceptance targets are discussion and idea events at most 35% of baseline, answer size independent of unrelated branches apart from bounded selected related cards, and a one-answer incremental reread at most 40% of a full reread. Character counts are diagnostic UTF-16 units; instruction budgets are UTF-8 bytes.
+
+Check every omitted card remains reachable through the index and on-demand reads; validate node/branch/search/topic/related reads, incoming links, captured `--token` isolation, stale token rejection, and Host/header protection without queue or listening changes. Exercise duplicate rejection and deliberate `allowSimilar` across addition paths, verifying that rejected results change neither grades nor replies. Check semantic bounds, stale annotations, vocabulary limits, and byte-identical specification/knowledge evidence with semantic fields added.
+
+For reread, establish a full baseline, edit one answer, then verify changed cards and graph neighbours are delivered, untouched questions default to keep and changing an unaudited question fails atomically. Manual reread remains full. Verify threshold boundaries and configuration errors, successful extraction resetting the changed-card baseline, and mandatory knowledge before finish. Current-map metadata without snapshots must save exact server-captured snapshots; wrong versions must fail without rewriting files. Preserve prior sources and manual edits.
+
+Run all `dev/check-*.mjs` suites applicable to the host, including context, discussion, knowledge, reread, workers, monitor and maps, plus `node dev/simulate.mjs --no-open --delay 200 --name context-budget-sim`. Restart only the disposable map server and verify queued event recovery. Record browser prerequisites or skips separately. `check-workers.mjs` checks the split instruction files and the answer worker's combined shared/event instructions under 12000 UTF-8 bytes.
+
+Real-host acceptance remains separate from deterministic checks: on Codex and Claude Code verify an actual map event follows the selected waiting mode, loads only its event rules, retrieves plausible distant candidates before grading/issuing questions, and continues after apply. Exercise a withdrawn premise through a linked distant card, avoid treating `decision`/`chatDigest` as accepted evidence, and confirm semantic duplicate judgments and knowledge provenance. Earlier host transport verification does not establish acceptance of this new context workflow. Report hosts not exercised as unverified.
+
 ## npm scripts
+
+Run `node dev/check-context.mjs` for per-event serialized-character measurements on a disposable fixture with 40 questions and two chat messages per card. It requests all eleven event types and checks accounting, the 200-entry bound, cumulative totals, restart recovery, reset and protected state access. No user maps are changed. The Stage 0 baseline and section meanings are recorded in [the context budget plan](plans/ContextBudget/context-budget.md) and [contract.md](contract.md); later-stage budgets compare focused discussion/idea with that baseline and incremental reread with a full run.
 
 | Script | Behavior |
 |---|---|
@@ -29,7 +43,7 @@ Run commands from the repository root. No dependency installation is required. A
 - `думаю` (I think), `наверное` (probably), `предполага` (assume stem), `интересно` (interesting), `скорее` (likely) → `verify`; two children.
 - Otherwise → `weak`; two children. At level 4 or deeper, at most one child.
 
-The simulator acknowledges discussions with the message and history length. `[reread]` requests a whole-map review; `[forward:<question-id>] <message>` forwards a request to another question (use `[resolve] <decision>` as the message to exercise grading). A question discussion beginning with `[resolve] ` simulates an accepted decision and automatically applies an ok assessment when no answer is pending. Generated questions are marked `[sim …]`.
+The simulator acknowledges discussions with the message and canonical focus-chat length. `[reread]` requests a whole-map review; `[forward:<question-id>] <message>` forwards a request to another question (use `[resolve] <decision>` as the message to exercise grading). A question discussion beginning with `[resolve] ` simulates an accepted decision and automatically applies an ok assessment when no answer is pending. Generated questions are marked `[sim …]`.
 
 Options: `--inbox` (implies `--watch`, reads the event file from the short line), `--watch` (use `watch` instead of `wait`), `--keep`, `--no-open`, `--delay <ms>` (default 1500 before apply), `--port`, `--name <name>`, `--lang en|ru`, `--locale <file.json>`. Two simulators with different names exercise parallel maps. Ctrl+C stops only the simulator; use `npm run stop` to stop servers.
 
@@ -128,7 +142,7 @@ Keep this table and relevant fixture questions synchronized when restoring or ex
 
 Run `node dev/simulate.mjs --inbox --no-open --delay 200 --name sim-workers` on a disposable map and exercise answers (gap/ok/verify), discussion, more, finish/report and spec. The simulator sends initial notes after init. Compare with plain wait and watch modes.
 
-Real Claude Code/Kimi validation remains separate from transport checks: verify a foreground Agent with the selected model can run `apply`, including any permission prompts. Verify background completion wake-up first. In Kimi record whether a subagent model pool exists. Then verify initial session brief/notes, one fresh worker per event, only short event/status lines in main chat, `.grill/config.json` selecting Sonnet, durable notes reused by the next worker, all event types, and dispatcher fallback after an interrupted worker. Also check levels 0/1 read `worker.md`. Simulator success does not establish host/model behavior.
+Real Claude Code/Kimi validation remains separate from transport checks: verify a foreground Agent with the selected model can run `apply`, including any permission prompts. Verify background completion wake-up first. In Kimi record whether a subagent model pool exists. Then verify initial session brief/notes, one fresh worker per event, only short event/status lines in main chat, `.grill/config.json` selecting Sonnet, durable notes reused by the next worker, all event types, and dispatcher fallback after an interrupted worker. Also check levels 0/1 read `worker.md` and only the routed event rules. Install the complete skill directory, including `events/`, `monitor.md`, `dispatcher.md` and `parallel-maps.md`; copying only the entrypoint is insufficient. Simulator success does not establish host/model behavior.
 
 ## Parallel-map validation
 
@@ -215,7 +229,7 @@ The simulator accepts `[questions]` to add six linked cards and `[answers:<id>,<
 
 Large discussion results use numbered staged parts and one final commit; intermediate `committed:false` is not success. Oversized context or aggregate results must produce an explicit error rather than hiding questions. With Obsolete off, test empty status matches, several historical ancestors, Show all, isolation and drafts; with it on, test the union with Open and saved preferences after reload. Equal names in different project directories have different map keys.
 
-An oversized full-map discussion context returns HTTP 400, records `node.discussError`, and releases only that failed delivery so unrelated queued work can continue. The UI shows the error; all user messages remain saved. After addressing the context limit, send another message to retry the thread (all messages since the last agent reply are delivered together). Resetting the chat clears the error. This is a failed discussion, never a successful partial result.
+An oversized focused discussion context returns HTTP 400, records `node.discussError`, and releases only that failed delivery so unrelated queued work can continue. The UI shows the error; all user messages remain saved. After addressing the context limit, send another message to retry the thread (all messages since the last agent reply are delivered together). Resetting the chat clears the error. This is a failed discussion, never a successful partial result.
 
 Run `node dev/check-current-work.mjs` for delivery versus queued work, notes/staged discussion, stale tokens, cancellation, restart, and more-question recovery. `node dev/check-current-work-browser.mjs` checks task labels in RU/EN, elapsed listening, reload, offline precedence, both animations, narrow layout and reduced motion. Existing event suites also assert active delivery types through the shared knowledge fixture.
 

@@ -1,3 +1,4 @@
+import { contextCards, focusCard, discussionChat } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Exercise the whole-map reread against a real server in a disposable project.
 import assert from "node:assert/strict";
@@ -34,9 +35,9 @@ async function wait() {
       assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status, verdict: n.verdict }; }) });
   }
 }
-const auditFor = (e, body = {}) => e.nodes.map(n => ({ id: n.id, action: body.close?.some(o => o.id === n.id) ? "close" : body.merge?.some(o => o.ids.includes(n.id)) ? "merge" : body.remove?.includes(n.id) ? "remove" : "keep", reason: "Transport fixture review" }));
+const auditFor = (e, body = {}) => contextCards(e).map(n => ({ id: n.id, action: body.close?.some(o => o.id === n.id) ? "close" : body.merge?.some(o => o.ids.includes(n.id)) ? "merge" : body.remove?.includes(n.id) ? "remove" : "keep", reason: "Transport fixture review" }));
 const reread = (e, body = {}, expected = 200) => request("apply", { type: "reread", token: e.token, summary: "Checked", audit: auditFor(e, body), ...body }, expected);
-const by = (s, q) => s.nodes.find(n => n.q === q);
+const by = (s, q) => (s.context ? contextCards(s) : s.nodes).find(n => n.q === q);
 async function stop() {
   if (!server || server.exitCode !== null) return;
   const ended = new Promise(r => server.once("exit", r));
@@ -77,6 +78,7 @@ try {
   e = await wait(); assert.equal(e.type, "discuss");
   await request("apply", { type: "discuss", id: other, token: e.token, reply: "Noted" });
   e = await wait(); assert.equal(e.type, "reread");
+  assert.equal(e.context.mode, "full");
   assert.ok(by(e, "Other?").chat.some(m => m.text === "Discussion counts as input"));
   assert.equal(by(e, "Count?").answer, "Two blue buttons");
   assert.equal((await state()).rereadPending.stage, "thinking");
@@ -199,7 +201,7 @@ try {
   await request("answer", { id: other, answer: "Edited once" });
   s = await state(); assert.equal(s.rereadPending.locked, false);
   await request("answer", { id: count, answer: "Edited twice" });
-  assert.equal((await state()).queueLength, 4);
+  assert.equal((await state()).queueLength, 3);
   e = await wait(); assert.equal(e.type, "answer");
   await request("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked" });
   e = await wait(); assert.equal(e.type, "answer");
@@ -355,11 +357,11 @@ try {
     await request("answer", { id, answer: "Cannot grade retired premises" }, 409);
   }
   assert.equal(by(s, "Still relevant detail?").parentId, answeredOld);
-  assert.equal(s.rereadResult.audit.length, e.nodes.length);
+  assert.equal(s.rereadResult.audit.length, contextCards(e).length);
   await request("answer", { id: by(s, "Still relevant detail?").id, answer: "Current child answer" });
   let childEvent = await wait();
-  assert.ok(childEvent.branch[0].obsolete);
-  assert.equal(childEvent.existingQuestions.includes("Why not implement?"), false);
+  assert.ok(childEvent.context.focus.find(n => n.id === answeredOld).obsolete);
+  assert.equal(childEvent.existingQuestions, undefined);
   await request("apply", { type: "answer", id: childEvent.id, token: childEvent.token, status: "ok", verdict: "Current detail checked" });
   await request("more", {}); let moreEvent = await wait();
   assert.ok(moreEvent.mainQuestions.find(n => n.q === "Why not implement?").obsolete);
@@ -374,11 +376,11 @@ try {
   await stop(); await start();
   assert.ok((await state()).nodes.find(n => n.id === answeredOld).obsolete);
   await request("reread", {}); e = await wait();
-  assert.ok(e.nodes.find(n => n.id === discussedOld).obsolete);
+  assert.ok(contextCards(e).find(n => n.id === discussedOld).obsolete);
   assert.equal((await reread(e)).changed, false);
   // A later explicit user decision can restore a historical card without changing its old answer.
   await request("discuss", { id: answeredOld, message: "Restore this question; it applies again." });
-  e = await wait(); assert.ok(e.obsolete); await request("apply", { type: "discuss", id: answeredOld, token: e.token, reply: "Reread will review this." });
+  e = await wait(); assert.ok(focusCard(e).obsolete); await request("apply", { type: "discuss", id: answeredOld, token: e.token, reply: "Reread will review this." });
   await request("reread", {}); e = await wait();
   await reread(e, { audit: auditFor(e).map(a => a.id === answeredOld ? { ...a, action: "restore", reason: "Explicit user request in discussion.", sources: [answeredOld] } : a) });
   assert.equal((await state()).nodes.find(n => n.id === answeredOld).obsolete, undefined);
@@ -394,7 +396,7 @@ try {
   await request("init", { title: "Provenance", questions: ["Source A?", "Source B?", "Still open?"].map(q => ({ q, options })) });
   const provenanceIds = (await state()).nodes.filter(n => n.kind === "q").slice(0, 2).map(n => n.id);
   await request("discuss", { id: "root", message: "Original user wording" }); e = await wait();
-  await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Saved to both cards", answers: provenanceIds.map(id => ({ id, messageIds: [e.messages.at(-1).id], status: "ok", verdict: "Confirmed" })) });
+  await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Saved to both cards", answers: provenanceIds.map(id => ({ id, messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "Confirmed" })) });
   await request("reread", {}); e = await wait();
   await reread(e, { merge: [{ ids: provenanceIds, keep: provenanceIds[0], answer: "Combined synthesis", status: "ok", verdict: "Combined evidence" }] });
   const combined = (await state()).nodes.find(n => n.id === provenanceIds[0]);
@@ -407,11 +409,25 @@ try {
   await request("reread", {}); e = await wait();
   await reread(e, { close: [{ id: editIds[1], source: editIds[0], verdict: "Old decision settles this" }] });
   await request("discuss", { id: "root", message: "New incompatible decision" }); e = await wait();
-  await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Updated; reviewing dependencies", answers: [{ id: editIds[0], messageIds: [e.messages.at(-1).id], status: "ok", verdict: "User changed decision" }] });
+  await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Updated; reviewing dependencies", answers: [{ id: editIds[0], messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "User changed decision" }] });
   assert.equal((await state()).rereadPending.stage, "queued");
   e = await wait(); assert.equal(e.type, "reread");
-  assert.equal(e.nodes.find(n => n.id === editIds[0]).answer, "New incompatible decision");
-  assert.equal(e.nodes.find(n => n.id === editIds[1]).answer, "Old user decision");
+  assert.equal(contextCards(e).find(n => n.id === editIds[0]).answer, "New incompatible decision");
+  assert.equal(e.context.mode, "incremental");
+  assert.equal(contextCards(e).some(n => n.id === editIds[1]), false);
+  assert.ok(e.context.index.includes(editIds[1]));
+  assert.equal((await request("node?id=" + editIds[1])).nodes[0].answer, "Old user decision");
+  const untouched = (await state()).nodes.find(n => n.id === editIds[1]);
+  // Changing an indexed card requires its own audit even after an explicit read.
+  const unaudited = await reread(e, { semantics: [{ id: editIds[1], decision: "Unaudited navigation edit" }] }, 400);
+  assert.match(unaudited.error, /Изменённой карточке нужна проверка/);
+  assert.deepEqual((await state()).nodes.find(n => n.id === editIds[1]), untouched);
+  await reread(e);
+  assert.deepEqual((await state()).nodes.find(n => n.id === editIds[1]), untouched);
+  await request("reread", {}); e = await wait();
+  assert.equal(e.context.mode, "full");
+  assert.equal(contextCards(e).length, 3);
+  await reread(e, { audit: auditFor(e).slice(1) }, 400);
   await reread(e);
   console.log("Reread checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

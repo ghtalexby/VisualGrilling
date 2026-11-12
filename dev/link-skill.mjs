@@ -11,6 +11,15 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SKILL = path.join(ROOT, "skills", "grill");
+// Link the whole package: event rules and mode workflows are loaded on demand.
+const required = ["SKILL.md", "worker.md", "knowledge.md", "preview-format.md", "monitor.md", "dispatcher.md", "parallel-maps.md",
+  ...["answer", "discuss", "question", "reread", "reevaluate", "idea", "spec", "finish"].map(name => `events/${name}.md`)];
+for (const file of required) {
+  if (!fs.existsSync(path.join(SKILL, file))) {
+    console.error(`Неполный скилл: отсутствует ${path.join(SKILL, file)}`);
+    process.exit(1);
+  }
+}
 const args = process.argv.slice(2);
 if (args.some(a => !["--codex", "--global"].includes(a))) {
   console.error("Использование: node dev/link-skill.mjs [--codex] [--global]");

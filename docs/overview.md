@@ -19,7 +19,7 @@ The interaction takes place on a browser map:
 4. Answer on the map with multiple options and a free-text comment in one answer. Answers are queued; you can submit several without waiting.
 5. The agent repeats event retrieval → grade → apply (monitor delivery in Codex, or wait/watch in other modes), assigning Closed / Weak / Gap / Verify, explaining the verdict, and adding follow-up questions. Code claims are checked against files. The discussion tab lets you clarify or dispute a verdict; when a user decision is established, the agent automatically updates the question grade without asking for another submission. From any map discussion, you can also ask to reread the whole map or mark another named question; the agent queues the corresponding action without requiring a button click.
 6. Summary lets you reread the map or prepare your own main question. The square Stop beside the agent status (enabled while the agent is connected) and Finish and get the summary in the summary panel both send `finish`; the agent supplies a verdict, three risks, three checks for the week, and saves `.grill/<name>/report.md`.
-7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues the same review.
+7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues an automatic incremental review after the first full review.
 8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
 A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 and Codex monitor mode require separate sessions. Use the header switcher to visit sibling maps. Finishing drains queued actions, then stops listening while leaving the page readable.
@@ -48,10 +48,15 @@ Queued and Reviewing are visual processing states stored in `node.pending`, not 
 
 ```text
 skills/grill/          working skill; edit this copy
-  SKILL.md             map setup and waiting/dispatch loops
-  worker.md            shared grading and event-handling rules
-  config.default.json  default griller model (inherit)
+  SKILL.md             map setup and waiting-mode selection
+  worker.md            shared procedure and event routing
+  events/              rules loaded only for the current event
+  monitor.md           Codex event monitor workflow
+  dispatcher.md        level 2 foreground worker dispatch
+  parallel-maps.md     multi-map routing for levels 1/2
+  config.default.json  griller model (inherit) and knowledge threshold
   grill.mjs            HTTP server and CLI bridge
+  context.mjs          evidence projection, index and semantic navigation
   ui.html              self-contained vanilla JavaScript map template
   i18n.mjs             locale validation and page rendering
   locales/en.json      English translations; keys are Russian source phrases
@@ -71,7 +76,7 @@ Use `npm run link:codex` for the test workspace or `npm run link:codex:global` t
 
 ## Ideas on the project map
 
-Use the root menu to attach an idea; the draft becomes a persistent card only after Attach. Creation immediately queues analysis in the context of the entire map, including when the agent is disconnected. Discuss it in the drawer or select Analyze idea to request reassessment. The agent can conclude without new questions when existing answers suffice. Ideas use the familiar five grades and an explanation; ideas match status filters and their counters, but do not count toward question coverage.
+Use the root menu to attach an idea; the draft becomes a persistent card only after Attach. Creation immediately queues analysis with full branch evidence and indexed access to the entire map, including when the agent is disconnected. Discuss it in the drawer or select Analyze idea to request reassessment. The agent can conclude without new questions when existing answers suffice. Ideas use the familiar five grades and an explanation; ideas match status filters and their counters, but do not count toward question coverage.
 
 Text edits preserve history and automatically reassess the branch; changes to descendant answers also trigger reassessment. Editing during work invalidates old results. Deletion removes the whole branch only after confirmation and waits for work affecting it. Generated specs include only closed idea branches with their risks. If idea text changes during spec generation, the old request is canceled and a new snapshot follows reassessment. Closing an idea never starts implementation.
 

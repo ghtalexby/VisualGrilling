@@ -1,3 +1,4 @@
+import { contextCards } from "./context-fixture.mjs";
 // Real map server and CLI, with a fake Codex transport: never calls a model.
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -155,9 +156,8 @@ try {
   assert.deepEqual(await api("monitor"), { phase: "ready", delivery: null, error: null }, "Nested enqueue inside apply must not re-arm or expose a completed delivery");
   assert.equal(calls().length, beforeReread);
   await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "reread");
-  await api("apply", { type: "reread", token: e.token, reserve: [], audit: e.nodes.map(n => ({ id: n.id, action: "keep", reason: "Transport test" })) });
-  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "knowledge");
-  await api("apply", { type: "knowledge", token: e.token, files: [] });
+  await api("apply", { type: "reread", token: e.token, reserve: [], audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport test" })) });
+  assert.equal((await api("state")).knowledgePending, null);
   await arm(); assert.equal((await api("monitor")).phase, "armed");
   // A save-only browser mutation must also replace a now-stale finish delivery.
   await api("finish", {}); status = await pending(); e = await event(status.delivery);

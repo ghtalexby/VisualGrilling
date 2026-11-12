@@ -1,3 +1,4 @@
+import { contextCards, focusCard } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Exercise attached ideas, frozen evaluations and editing races in a disposable project.
 import assert from "node:assert/strict";
@@ -33,7 +34,7 @@ async function stop() {
 const state = () => api("state"), wait = () => api("wait?timeout=5");
 const node = async id => (await state()).nodes.find(n => n.id === id);
 const result = (e, extra = {}, expected = 200) => api("apply", { type: "idea", id: e.id, token: e.token, capturedForSpec: e.capturedForSpec, status: "ok", verdict: "Evidence checked", ...extra }, expected);
-const audit = e => e.nodes.filter(n => n.kind === "q" && n.parentId === e.id).map(n => ({ id: n.id, action: "keep", reason: "Still relevant" }));
+const audit = e => contextCards(e).filter(n => n.kind === "q" && n.parentId === e.id).map(n => ({ id: n.id, action: "keep", reason: "Still relevant" }));
 let seq = 0;
 const attach = async text => (await api("idea", { id: "idea-" + ++seq, text })).id;
 const analyze = async id => { await api("idea/analyze", { id }); const e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.id, id); return e; };
@@ -54,11 +55,11 @@ try {
   const initial = await wait(); assert.equal(initial.type, "idea"); assert.equal(initial.id, id);
   await result(initial, { status: "open" });
   await api("reread", {}); const reread = await wait();
-  await api("apply", { type: "reread", token: reread.token, brief: "Unrelated brief correction", audit: reread.nodes.map(n => ({ id: n.id, action: "keep", reason: "Still valid" })) });
+  await api("apply", { type: "reread", token: reread.token, brief: "Unrelated brief correction", audit: contextCards(reread).map(n => ({ id: n.id, action: "keep", reason: "Still valid" })) });
   assert.equal((await node(id)).analysis.stage, "queued", "A changed reread reassesses the automatically analyzed attachment");
   const afterReread = await wait(); assert.equal(afterReread.type, "idea");
   await result(afterReread, { status: "open" });
-  assert.equal((await state()).queueLength, 1);
+  assert.equal((await state()).queueLength, 0);
   await api("answer", { id, answer: "Cannot grade an idea as a question" }, 404);
   await api("discuss", { id, message: "Keep this chat" });
   let e = await wait(); assert.equal(e.scope, "idea"); assert.equal(e.question, (await node(id)).text);
@@ -74,7 +75,7 @@ try {
   await api("answer", { id: child.id, answer: "Measured 50 trials" });
   await api("spec", {});
   e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.capturedForSpec, true);
-  assert.equal(e.branch[0].kind, "idea"); assert.equal(e.branch[0].text, (await node(id)).text);
+  assert.equal(e.context.focus.find(n => n.id === id).kind, "idea"); assert.equal(e.context.focus.find(n => n.id === id).text, (await node(id)).text);
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "verify", verdict: "Needs replication" });
   const frozen = await wait(); assert.equal(frozen.type, "idea"); assert.equal(frozen.capturedForSpec, true);
   await stop(); await start(); await result(frozen, {}, 409);
@@ -114,7 +115,7 @@ try {
   await api("apply", { type: "spec", token: oldSpec.token, markdown: "# stale" }, 409);
   assert.equal((await state()).specPending.stage, "refresh");
   await stop(); await start();
-  e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.idea.text, "Latest idea");
+  e = await wait(); assert.equal(e.type, "idea"); assert.equal(focusCard(e).text, "Latest idea");
   await result(e, { audit: audit(e) });
   e = await wait(); assert.equal(e.type, "spec"); assert.equal(e.nodes.find(n => n.id === id).text, "Latest idea");
   await api("apply", { type: "spec", token: e.token, markdown: "# latest" });
@@ -135,7 +136,7 @@ try {
   for (const language of ["ru", "en"]) new vm.Script(page(ui, locale({ language })).match(/<script>([\s\S]*?)<\/script>/)[1]);
   const nodes = (await state()).nodes;
   nodes.find(n => n.id === id).text = "<script>untrusted</script>";
-  const ctx = vm.createContext({ S: { nodes }, STATUS: { ok: "Closed", open: "Open", verify: "Verify" }, ORDER: [], counts: () => ({}), kids: id => nodes.filter(n => n.parentId === id), esc: s => String(s).replaceAll("<", "&lt;").replaceAll(">", "&gt;"), qs: () => [], vis: n => n.status });
+  const ctx = vm.createContext({ $: () => ({ addEventListener() {} }), S: { nodes }, STATUS: { ok: "Closed", open: "Open", verify: "Verify" }, ORDER: [], counts: () => ({}), kids: id => nodes.filter(n => n.parentId === id), esc: s => String(s).replaceAll("<", "&lt;").replaceAll(">", "&gt;"), qs: () => [], vis: n => n.status });
   vm.runInContext(ui.slice(ui.indexOf("const ideaStatus="), ui.indexOf("function render(){")), ctx);
   assert.match(vm.runInContext(`nodeHTML(S.nodes.find(n=>n.id==="${id}"))`, ctx), /&lt;script&gt;/);
   vm.runInContext(ui.slice(ui.indexOf("function toMarkdown(){"), ui.indexOf("function summaryPanel(){")), ctx);

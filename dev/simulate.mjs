@@ -13,6 +13,7 @@
 //     --name     use test-project/.grill/<name>; without it, use .grill directly
 //     --delay    simulated thinking time before apply, in milliseconds
 
+import { contextCards, focusCard, discussionChat } from "./context-fixture.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -52,11 +53,11 @@ function grade(e) {
   const n = { ok: e.level < 3 ? 1 : 0, weak: 2, verify: 2, gap: 1 }[status];
   const maxKids = e.level >= 4 ? Math.min(n, 1) : n;
   const children = Array.from({ length: maxKids }, (_, i) => ({
-    q: `[sim L${e.level + 1}.${i + 1}] Чем подтверждается «${e.answer.slice(0, 50)}»?`,
+    q: `[sim ${e.id}] ${i === 0 ? "Какие измерения подтверждают решение" : "Какие ограничения опровергают допущение"}?`,
     why: `Подвопрос к «${e.question.slice(0, 60)}».`,
     options: ["Есть данные", "Есть косвенные признаки", "Нечем"],
     recommendation: { option: "Есть данные", reason: "[sim] Проверяемое подтверждение." },
-  }));
+  })).filter(child => !contextCards(e).some(n => n.kind === "q" && n.q === child.q));
   // Occasionally exercise the newRoot branch.
   const newRoot = status === "gap" && Math.random() < 0.3
     ? { area: "Риски", q: `[sim] Новый главный вопрос из ответа на «${e.question.slice(0, 40)}»`, why: "Проверка newRoot.", options: ["Да", "Нет"] }
@@ -75,27 +76,27 @@ const handlers = {
     assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status === "open" ? "weak" : n.status, verdict: "[sim] Preserve grade: transport fixture does not establish new evidence." }; }) }),
   idea: e => {
     const ids = new Set([e.id]);
-    for (let size = -1; size !== ids.size;) { size = ids.size; for (const n of e.nodes) if (ids.has(n.parentId)) ids.add(n.id); }
-    const branch = e.nodes.filter(n => n.kind === "q" && ids.has(n.id));
+    for (let size = -1; size !== ids.size;) { size = ids.size; for (const n of contextCards(e)) if (ids.has(n.parentId)) ids.add(n.id); }
+    const branch = contextCards(e).filter(n => n.kind === "q" && ids.has(n.id));
     const active = branch.filter(n => !n.obsolete);
     return { type: "idea", id: e.id, token: e.token, capturedForSpec: e.capturedForSpec,
       status: active.some(n => ["open", "gap"].includes(n.status)) ? "open" : "verify",
       verdict: "[sim] Transport only; a real agent must assess this idea.",
       audit: branch.map(n => ({ id: n.id, action: "keep", reason: "[sim] Preserve history; no semantic review." })),
-      children: branch.length ? [] : [{ q: "[sim] What evidence supports this idea?", options: ["Measured evidence", "Needs checking"] }] };
+      children: branch.length ? [] : [{ q: `[sim ${e.id}] Evidence?`, options: ["Measured evidence", "Needs checking"] }] };
   },
-  discuss: e => ({ ...(e.message === "[questions]" ? { questions: Array.from({ length: 6 }, (_, i) => ({ key: "$discussion" + i, parentId: "root", q: `[sim ${e.token}] Discussion question ${i + 1}?`, options: ["Yes", "No"] })), links: Array.from({ length: 6 }, (_, i) => "$discussion" + i) } : {}), ...(e.message.match(/^\[answers:([^\]]+)\]/) ? { answers: e.message.match(/^\[answers:([^\]]+)\]/)[1].split(",").map((id, i) => ({ id, messageIds: [e.messages.at(-1).id], status: i ? "verify" : "ok", verdict: "[sim] Independent target assessment" })) } : {}), type: "discuss", id: e.id, token: e.token, ...(e.message === "[reread]" ? { reread: true } : {}), ...(e.message.match(/^\[forward:([^\]]+)\] ([\s\S]+)$/) ? { forward: { id: e.message.match(/^\[forward:([^\]]+)\]/)[1], message: e.message.replace(/^\[forward:[^\]]+\] /, "") } } : {}), ...(e.scope === "question" && !e.obsolete && e.pendingAnswer === null && e.message.startsWith("[resolve] ") ? { assessment: { status: "ok", verdict: "[sim] Решение принято в обсуждении.", answer: e.message.slice(10) } } : {}), reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${e.history.length}. Картинок: ${e.images.length}. Уточнение сохранено.` }),
+  discuss: e => ({ ...(e.message === "[questions]" ? { questions: Array.from({ length: 6 }, (_, i) => ({ key: "$discussion" + i, parentId: "root", q: `[sim ${e.token}] ${["Capacity", "Deployment", "Encryption", "Retention", "Billing", "Staffing"][i]}?`, options: ["Yes", "No"] })), links: Array.from({ length: 6 }, (_, i) => "$discussion" + i) } : {}), ...(e.message.match(/^\[answers:([^\]]+)\]/) ? { answers: e.message.match(/^\[answers:([^\]]+)\]/)[1].split(",").map((id, i) => ({ id, messageIds: [discussionChat(e).at(-1).id], status: i ? "verify" : "ok", verdict: "[sim] Independent target assessment" })) } : {}), type: "discuss", id: e.id, token: e.token, ...(e.message === "[reread]" ? { reread: true } : {}), ...(e.message.match(/^\[forward:([^\]]+)\] ([\s\S]+)$/) ? { forward: { id: e.message.match(/^\[forward:([^\]]+)\]/)[1], message: e.message.replace(/^\[forward:[^\]]+\] /, "") } } : {}), ...(e.scope === "question" && !focusCard(e).obsolete && !focusCard(e).pending && e.message.startsWith("[resolve] ") ? { assessment: { status: "ok", verdict: "[sim] Решение принято в обсуждении.", answer: e.message.slice(10) } } : {}), reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${discussionChat(e).length}. Картинок: ${e.images.length}. Уточнение сохранено.` }),
   question: e => ({ type: "question", id: e.id, token: e.token, question: { why: "[sim] User question", area: "Project", options: ["Есть данные", "Нужно проверить", "Не знаю"], recommendation: { option: "Нужно проверить", reason: "[sim] Сначала проверить допущение." } } }),
   more: e => ({ type: "more", questions: [1, 2, 3].map(i => ({
     area: ["Рост", "Команда", "Юридическое"][i - 1],
-    q: `[sim more ${++moreRound}] Дополнительный главный вопрос №${i} (на карте уже ${e.mainQuestions.length})`,
+    q: `[sim ${1000 + ++moreRound}] ${["Масштабирование нагрузки", "Компетенции сотрудников", "Лицензирование продукта"][i - 1]}?`,
     why: "Проверка события more.", options: ["Вариант A", "Вариант B"],
   })) }),
   // Transport check only: closes one open card from an answer in another branch. It does not judge meaning.
   reread: e => {
-    const rootOf = n => { let p = n; while (p.parentId !== "root") p = [...e.nodes, ...(e.ideas || [])].find(x => x.id === p.parentId); return p.id; };
-    const source = e.nodes.find(n => n.answer && !n.obsolete), target = source && e.nodes.find(n => !n.obsolete && !n.answer && n.status === "open" && !n.conflictOf.length && rootOf(n) !== rootOf(source));
-    const audit = e.nodes.map(n => ({ id: n.id, action: n === target ? "close" : "keep", reason: "[sim] Проверка транспорта, не семантическая оценка." }));
+    const rootOf = n => { let p = n; while (p && p.parentId !== "root") p = [...contextCards(e), ...(e.ideas || [])].find(x => x.id === p.parentId); return p?.id || n.parentId; };
+    const source = contextCards(e).find(n => n.answer && !n.obsolete), target = source && contextCards(e).find(n => !n.obsolete && !n.answer && n.status === "open" && !n.conflictOf?.length && rootOf(n) !== rootOf(source));
+    const audit = contextCards(e).map(n => ({ id: n.id, action: n === target ? "close" : "keep", reason: "[sim] Проверка транспорта, не семантическая оценка." }));
     const candidates = (e.reserve || []).slice(0, 3);
     const reserve = (e.reserve || []).slice(candidates.length);
     const add = candidates.map((n, i) => ({ ...n, key: "$reserve" + i, reserveId: n.id }));
