@@ -90,6 +90,29 @@ export function knowledge(project, maps) {
     if (!bounded(record.id, 100) || !["term", "technical", "decision", "hypothesis", "idea", "note"].includes(record.type) || !["current", "superseded", "conflict"].includes(record.status) || !bounded(record.scope, 200) || !Array.isArray(record.sources) || !record.sources.length) fail("Некорректные метаданные знаний");
     return record;
   }
+  function edit(file, sourcePath, session) {
+    if (file?.body === undefined) return file;
+    if (file.text !== undefined || typeof file.body !== "string" || file.body.length > limit) fail("Некорректное тело документа знаний");
+    const previous = read(file.path);
+    if (!previous.text || previous.version !== file.expected) fail(`Конфликт версии: ${file.path}`);
+    const record = parse(previous.text);
+    const block = previous.text.match(/^<!-- vgril:1 -->\r?\n```json\r?\n[\s\S]*?\r?\n```\r?\n/)[0];
+    if (file.meta !== undefined) {
+      if (!file.meta || typeof file.meta !== "object" || Array.isArray(file.meta) || Object.keys(file.meta).some(k => !["status", "supersedes", "conflicts"].includes(k))) fail("Некорректные метаданные знаний");
+      Object.assign(record, file.meta);
+    }
+    if (file.sourcesAdd !== undefined) {
+      if (!Array.isArray(file.sourcesAdd) || file.sourcesAdd.length > 500 || file.sourcesAdd.some(s => !s || !bounded(s.card, 80) || !bounded(s.version, 100) || Object.keys(s).some(k => !["card", "version"].includes(k)))) fail("Некорректные источники знаний");
+      for (const source of file.sourcesAdd) {
+        if (!record.sources.some(s => s.path === sourcePath && s.session === session && s.card === source.card && s.version === source.version)) record.sources.push({ ...source, path: sourcePath, session });
+      }
+    }
+    const prefix = file.meta === undefined && !file.sourcesAdd?.length ? block : "<!-- vgril:1 -->\n```json\n" + JSON.stringify(record, null, 2) + "\n```\n";
+    const text = prefix + file.body;
+    if (text.length > limit) fail("Документ знаний слишком большой");
+    parse(text);
+    return { path: file.path, expected: file.expected, text };
+  }
   function scan() {
     const documents = [], warnings = [], mapList = [];
     let visited = 0;
@@ -268,5 +291,5 @@ export function knowledge(project, maps) {
       return { path: target, migrated: true, retained: state.specFile, version: digest(text) };
     });
   }
-  return { index, read, parse, commit, author, safe, locked, reconcile, migrateSpec };
+  return { index, read, parse, edit, commit, author, safe, locked, reconcile, migrateSpec };
 }

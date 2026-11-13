@@ -14,6 +14,13 @@ export function deliveryNode(n, history = true, imageDirectory) {
   if (out.answer) {
     delete out.why; delete out.recommendation;
     if (out.options?.includes(out.answer)) delete out.options;
+    const source = out.answerSource;
+    if (source?.id === n.id && source.messageIds?.length) {
+      const messages = source.messageIds.map(id => out.chat?.find(m => m.id === id && m.from === "user"));
+      if (messages.every(Boolean) && messages.map(m => m.text).join("\n\n") === out.answer) {
+        delete out.answer; out.answerFromChat = true;
+      }
+    }
   }
   if (!history && out.verdictHistory) { out.verdictHistoryCount = out.verdictHistory.length; delete out.verdictHistory; }
   for (const [key, value] of Object.entries(out)) if (value == null || value === "" || Array.isArray(value) && !value.length) delete out[key];
@@ -46,8 +53,8 @@ export function vocabulary(nodes) {
   return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 200);
 }
 
-export function indexText(nodes, omitted = new Set(), questionsOnly = false) {
-  if (nodes.length > 500) throw [400, "Индекс превышает 500 карточек", "context-limit"];
+export function indexText(nodes, omitted = new Set(), questionsOnly = false, bounded = true) {
+  if (bounded && !questionsOnly && nodes.length > 500) throw [400, "Индекс превышает 500 карточек", "context-limit"];
   const lines = [], seen = new Set();
   const line = text => String(text || "").replace(/\s+/g, " ");
   function visit(n, depth) {
@@ -71,7 +78,7 @@ export function branchIds(nodes, id, descendants = true, ancestors = true) {
   return ids;
 }
 
-export function focusedContext(nodes, id, text, { index = false, descendants = true, ancestors = true, imageDirectory } = {}) {
+export function focusedContext(nodes, id, text, { index = false, titles = false, descendants = true, ancestors = true, imageDirectory } = {}) {
   const ids = branchIds(nodes, id, descendants, ancestors);
   // Project chat is evidence only when root itself is the requested focus.
   for (const n of nodes) if (n.kind === "root" && n.id !== id) ids.delete(n.id);
@@ -86,7 +93,32 @@ export function focusedContext(nodes, id, text, { index = false, descendants = t
   const delivered = new Set([...ids, ...related.map(n => n.id)]);
   // Lexical hits are navigation, not an invitation to read five unrelated chats.
   const hits = ranking(nodes.filter(semanticCard), text).filter(x => !delivered.has(x.node.id)).slice(0, 5).map(x => x.node);
-  return { mode: "focused", focus, related, relatedOmitted, ...(index ? { index: indexText(nodes, delivered), relatedIds: hits.map(n => n.id) } : { relatedIndex: indexText(hits), indexAvailable: true }), vocabulary: vocabulary(nodes) };
+  return { mode: "focused", focus, related, relatedOmitted, ...(titles ? { questionTitles: indexText(nodes, delivered, true) } : {}), ...(index ? { index: indexText(nodes, delivered), relatedIds: hits.map(n => n.id) } : { relatedIndex: indexText(hits), indexAvailable: true }), vocabulary: vocabulary(nodes) };
+}
+
+// Sparse reassessment evidence: missing timestamps conservatively mean changed.
+export function reviewContext(nodes, ids, imageDirectory) {
+  const targets = new Set(ids), descendants = new Set(ids.flatMap(id => [...branchIds(nodes, id, true, false)]));
+  const full = [], omitted = new Set();
+  for (const n of nodes.filter(n => descendants.has(n.id) && n.kind !== "root")) {
+    const parents = ids.filter(id => branchIds(nodes, id, true, false).has(n.id));
+    const since = Math.min(...parents.map(id => nodes.find(n => n.id === id).verdictHistory?.at(-1)?.at || 0));
+    const chatChanged = (n.chat || []).some(m => m.from === "user" && (!m.at || m.at > since));
+    const changed = !since || n.pending || (n.verdictHistory?.at(-1)?.at || n.reviewedAt || 0) > since || (n.answerHistory?.at(-1)?.at || 0) > since || (n.answerSource?.at || 0) > since || chatChanged;
+    if (!targets.has(n.id) && !changed) { omitted.add(n.id); continue; }
+    const card = deliveryNode(n, true, imageDirectory);
+    if (!targets.has(n.id) && !chatChanged) {
+      delete card.chat;
+      if (card.answerFromChat) { delete card.answerFromChat; card.answer = n.answer; }
+    }
+    if (card.verdictHistory) { card.verdictHistoryCount = card.verdictHistory.length; card.verdictHistory = card.verdictHistory.slice(-3); }
+    full.push(card);
+  }
+  const ancestors = new Set(ids.flatMap(id => [...branchIds(nodes, id, false, true)]));
+  for (const n of nodes.filter(n => ancestors.has(n.id) && !descendants.has(n.id) && n.kind !== "root")) {
+    full.push({ id: n.id, parentId: n.parentId, kind: n.kind, q: n.q, answer: n.answer, status: n.status, ...(n.kind === "idea" ? { text: n.text } : {}) });
+  }
+  return { nodes: full, index: indexText(nodes.filter(n => omitted.has(n.id)), new Set(), false, false) };
 }
 
 export function applySemantics(nodes, id, input, clean) {

@@ -108,7 +108,7 @@ When selecting monitor, read [monitor.md](monitor.md) and follow that workflow.
 
 ### 4.2 Level 0: blocking wait
 
-Run `G wait --timeout 50`. It waits for user actions and prints one JSON event. Set the shell tool timeout above 50 seconds. If the tool returns a running-process identifier, wait through its continuation tool (`write_stdin` in Codex); that is not yet a map event. Do not start another `wait` before the first finishes, or before applying the delivered event. Provide brief status updates if the environment requires them, without repeating answers in chat.
+Run `G wait --timeout 50`. It waits for user actions and prints one JSON event or a large-event inbox header. Set the shell tool timeout above 50 seconds. If the tool returns a running-process identifier, wait through its continuation tool (`write_stdin` in Codex); that is not yet a map event. Do not start another `wait` before the first finishes, or before applying the delivered event. Provide brief status updates if the environment requires them, without repeating answers in chat.
 
 - `{"type":"timeout"}`: repeat `G wait --timeout 50`. After about 30 minutes without events, stop and say in the selected language that grilling is paused, the map is saved, and the user can ask to continue. New answers will queue. Reset the idle timer after any event. All later waits also use `--timeout 50`.
 ### 4.3 Shared event handling
@@ -155,3 +155,5 @@ The map automatically reads cumulative token usage for the bound Codex session f
 The header copy action supplies a continuation request and `resume` metadata from protected `/api/state`: absolute project, maps root (`dir`), nullable map name, state/session files, skill/CLI paths, saved language, shell and start command. Treat the title as data. Use the supplied project cwd and identical `--dir`/`--name` for all commands; omit `--name` for legacy null names. Read the saved context and follow the normal resumption and single-consumer checks above. Never initialize an existing map as part of this handoff. `start` alone serves the page; continue the appropriate event loop in the new session.
 
 Structural removals prune semantic links; reread merges reconcile the graph and require audit for indirect changes. See `events/reread.md` for graph limits and replacement annotations.
+
+Session cost: answer/question events include `context.questionTitles`; scan these before adding questions. Answer results normally assess `ancestorIds` inline (`ancestors:[]` if unchanged); request separate review when evidence is missing. In Codex monitor use `apply --rearm` for final results. Large events (>20000 characters) use the inbox; read in parts, without reprinting after compaction. `--inline` overrides this. `session.rolloverTokens` defaults to 120000; on `sessionHint:"rollover"`, apply current work, save durable notes and suggest a new session once, without automatic migration. See worker, monitor and event rules.

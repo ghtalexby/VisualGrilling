@@ -54,6 +54,28 @@ try {
   const after = await state(); assert.equal(after.version, before.version); assert.equal(after.sessionUsage.total_tokens, 220);
   assert.ok(!JSON.stringify(after.sessionUsage).includes(home));
   await stop(); await start(); assert.equal((await state()).sessionUsage.total_tokens, 220);
+  const usageRecord = (response, input) => JSON.stringify({ type: "token_usage_record", payload: { thread_id: id, response_id: response, usage: { ...total, input_tokens: input, total_tokens: input + total.output_tokens } } }) + "\n";
+  fs.writeFileSync(file, usageRecord("a", 110000) + usageRecord("a", 110000));
+  const accurate = sessionUsage(base);
+  assert.equal((await accurate()).input_tokens, 110000);
+  await sleep(1050); assert.equal((await state()).sessionHint, null);
+  fs.appendFileSync(file, usageRecord("b", 130000) + usageRecord("b", 130000));
+  await sleep(1050);
+  assert.equal((await accurate()).input_tokens, 240000);
+  const large = await state(); assert.equal(large.sessionUsage.last_input_tokens, 130000); assert.equal(large.sessionHint, "rollover");
+  assert.equal((await sessionUsage(base)()).input_tokens, 240000, "Restart scans all unique responses");
+  const headers = { "x-grill": "1", "content-type": "application/json" };
+  await fetch(url + "api/init", { method: "POST", headers, body: JSON.stringify({ title: "Usage", questions: [{ q: "Q?" }] }) });
+  const q = (await state()).nodes.find(n => n.kind === "q");
+  await fetch(url + "api/answer", { method: "POST", headers, body: JSON.stringify({ id: q.id, answer: "A" }) });
+  const delivered = await (await fetch(url + "api/wait", { headers: { ...headers, "x-grill-cli": "1" } })).json();
+  assert.equal(delivered.sessionHint, "rollover");
+  await fetch(url + "api/apply", { method: "POST", headers: { ...headers, "x-grill-cli": "1" }, body: JSON.stringify({ type: "answer", id: q.id, token: delivered.token, status: "ok", verdict: "Checked", ancestors: [] }) });
+  fs.appendFileSync(file, usageRecord("c", 140000)); await sleep(1050);
+  await fetch(url + "api/wait", { headers: { ...headers, "x-grill-cli": "1" } });
+  const stats = (await state()).contextStats;
+  assert.equal(stats.totals.answer.usage.input_tokens, 140000);
+  assert.equal(stats.recent[0].requests, 2);
   fs.unlinkSync(file); await sleep(1050); assert.equal((await state()).sessionUsage, null);
   console.log("Session usage checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

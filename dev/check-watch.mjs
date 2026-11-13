@@ -118,6 +118,21 @@ try {
   await start();
   assert.equal((await event(watch(), "answer")).answer, "Recover after restart");
   await request("stop", {}); await server.done;
+  await start();
+  await request("init", { title: "Large delivery", questions: Array.from({ length: 180 }, (_, i) => ({ q: `Question ${i}: ` + "Long distinct navigation title ".repeat(5), options: ["A", "B"] })) });
+  await request("stop", {}); await server.done;
+  const largeStatePath = path.join(dir, "check", "state.json"), largeState = JSON.parse(fs.readFileSync(largeStatePath));
+  largeState.nodes = [largeState.nodes[0], ...Array.from({ length: 180 }, (_, i) => ({ id: "large" + i, parentId: "root", kind: "q", status: "open", q: `Question ${i}: ` + "Long distinct navigation title ".repeat(5) }))];
+  fs.writeFileSync(largeStatePath, JSON.stringify(largeState)); await start();
+  const largeId = "large0";
+  await request("answer", { id: largeId, answer: "Large titles" });
+  const header = await event(watch(), "answer");
+  assert.ok(header.characters > 20000); assert.ok(header.sections.some(s => s.key === "context"));
+  const saved = JSON.parse(fs.readFileSync(header.inbox, "utf8"));
+  assert.equal(saved.token, header.token); assert.ok(saved.context.questionTitles);
+  const inline = await event(watch("--inline"), "answer"); assert.ok(inline.context); assert.equal(inline.inbox, undefined);
+  const waitHeader = await event(run(["wait", "--timeout", "5"]), "answer"); assert.ok(waitHeader.inbox);
+  await request("stop", {}); await server.done;
   console.log("watch checks passed");
 } finally {
   clearTimeout(watchdog);

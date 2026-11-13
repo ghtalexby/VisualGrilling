@@ -264,6 +264,7 @@ context characters for each question using its answer as the query):
 These are context-only projections, not token counts or full HTTP-event averages.
 Required branches and graph neighbours can still be large; they are not truncated
 just to meet a percentage. Lexical matches are compact navigation rows. The title-only
-index for these maps is 2207–4527 characters and is read before question creation,
-not on every grade. Real-agent semantic duplicate judgments remain a separate
+index for these maps is 2207–4527 characters and is now inline in answer/question events to avoid another history reread. Real-agent semantic duplicate judgments remain a separate
 acceptance check; the deterministic 0.85 similarity guard does not detect paraphrases.
+
+Session-cost checks extend context, completeness, discussion, monitor, watch, usage and knowledge scripts. A comparable real 12-answer session is a separate acceptance step: record calls/event, usage differences, separate reevaluation ratio and truncated outputs in the session-cost plan; deterministic transport tests do not establish model-call savings.

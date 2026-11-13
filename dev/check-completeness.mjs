@@ -91,11 +91,48 @@ try {
   assert.deepEqual((await node(parent.id)).verdictHistory.map(h => h.verdict), ["Original weakness", "Evidence still needs verification"]);
   assert.match(await api("report"), /Original weakness/);
   await assess(e, "Duplicate", "ok", 409);
+  // Inline assessment is atomic; an empty list suppresses only this answer's review.
+  await api("answer", { id: child.id, answer: "Concrete evidence" });
+  e = await wait(); assert.deepEqual(e.ancestorIds, [parent.id]);
+  const inlineResult = { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Measured" };
+  const beforeInline = (await node(parent.id)).verdictHistory.length;
+  await api("apply", { ...inlineResult, ancestors: [{ id: "root", status: "ok", verdict: "Invalid" }] }, 400);
+  assert.ok((await node(child.id)).pending);
+  assert.equal((await node(parent.id)).verdictHistory.length, beforeInline);
+  await api("apply", { ...inlineResult, ancestors: [{ id: parent.id, status: "ok", verdict: "Original weakness resolved" }] });
+  assert.equal((await node(parent.id)).status, "ok");
+  assert.equal((await state()).queueLength, 0);
+  await grade(child.id, "Concrete evidence", { ancestors: [] });
+  assert.equal((await state()).queueLength, 0);
+  await grade(child.id, "Concrete evidence", { reviewAncestors: true });
+  e = await wait(); assert.equal(e.type, "reevaluate"); await assess(e);
+  // Two queued sibling answers coalesce into one legacy review after both grades.
+  await grade(parent.id, "Original user answer", { children: [question("Second proof?")] });
+  const sibling = (await state()).nodes.find(n => n.q === "Second proof?");
+  await api("answer", { id: child.id, answer: "Concrete evidence" });
+  await api("answer", { id: sibling.id, answer: "Second evidence" });
+  for (const id of [child.id, sibling.id]) {
+    e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.id, id);
+    await api("apply", { type: "answer", id, token: e.token, status: "ok", verdict: "Confirmed" });
+  }
+  e = await wait(); assert.deepEqual(e.ids, [parent.id]); await assess(e);
+  await grade(child.id, "Concrete evidence"); await assess(await wait(), "Needs verification", "verify");
+  // Sibling evidence changing after delivery invalidates even an unchanged inline verdict.
+  await api("answer", { id: child.id, answer: "Concrete evidence" }); e = await wait();
+  await api("discuss", { id: sibling.id, message: "This proof is now disputed" });
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Stale", ancestors: [] }, 409);
+  assert.ok((await node(child.id)).pending);
+  e = await wait(); assert.equal(e.type, "answer");
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Fresh" });
+  e = await wait(); assert.equal(e.type, "discuss");
+  await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Recorded" });
+  await assess(await wait(), "Needs verification", "verify");
   // Frozen parent reviews use frozen evidence and do not update the live parent.
   await api("answer", { id: child.id, answer: "Frozen evidence" }); await api("spec", {});
   e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.capturedForSpec, true);
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Measured" });
   e = await wait(); assert.equal(e.type, "reevaluate"); assert.equal(e.capturedForSpec, true);
+  assert.ok((await api("node?id=" + parent.id + "&token=" + e.readToken)).nodes.length);
   await api("discuss", { id: "root", message: "Later live discussion" });
   assert.ok(!e.nodes.find(n => n.id === "root")?.chat?.length);
   await stop(); await start(); await assess(e, "Old token", "ok", 409);
@@ -198,7 +235,7 @@ try {
   const parentNode = id => ({ id, parentId: "root", kind: "q", q: id, status: "weak", answer: "Original", verdict: "Weak" });
   const many = Array.from({ length: 501 }, (_, i) => ({ id: "large" + i, parentId: "root", kind: "q", q: "Q" + i, status: "open" }));
   await seed([parentNode("p"), parentNode("other"), ...many]);
-  e = await wait(); assert.deepEqual(e.ids, ["p"]); assert.equal(e.nodes.length, 2);
+  e = await wait(); assert.deepEqual(e.ids, ["p"]); assert.equal(e.nodes.length, 1); // Root is not reassessment evidence.
   await stop(); await start(); await assess(e, "Stale", "ok", 409);
   e = await wait(); await assess(e); assert.equal((await state()).queueLength, 1);
   e = await wait(); assert.deepEqual(e.ids, ["other"]); await assess(e);

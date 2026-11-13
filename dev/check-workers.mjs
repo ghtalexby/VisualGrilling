@@ -88,14 +88,14 @@ const init = { title: "Worker check", brief: "Product brief", arch: "Node archit
 try {
   let result = await run(["config"]).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } }, knowledge: { rereadThreshold: 5 } });
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
   fs.mkdirSync(dir, { recursive: true });
   const configFile = path.join(dir, "config.json");
   for (const model of ["sonnet", "opus", "haiku", "inherit"]) {
     fs.writeFileSync(configFile, JSON.stringify({ ignored: true, roles: { ignored: {}, griller: { model, ignored: 1 } } }));
     result = await run(["config"]).done;
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } }, knowledge: { rereadThreshold: 5 } });
+    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
   }
   fs.writeFileSync(configFile, JSON.stringify({ roles: { griller: { ignored: 1 } } }));
   assert.equal(JSON.parse((await run(["config"]).done).stdout).roles.griller.model, "inherit");
@@ -140,7 +140,7 @@ try {
   fs.writeFileSync(configFile, '{"roles":{"griller":{"model":"sonnet"}}}');
   result = await run(["config"], copiedCli).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } }, knowledge: { rereadThreshold: 5 } });
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
   fs.unlinkSync(configFile);
   assert.equal((await watch("--inbox").done).code, 2);
   await start();
@@ -157,7 +157,7 @@ try {
   const full = await event(watch(), "answer");
   assert.equal(fs.existsSync(path.join(map, "inbox.json")), false);
   const line = await event(watch("--inbox"), "answer");
-  assert.deepEqual(line, { type: "answer", id, token: line.token, name: "check", language: "en", inbox: path.join(map, "inbox.json") });
+  assert.deepEqual(line, { type: "answer", id, token: line.token, name: "check", language: "en", inbox: path.join(map, "inbox.json"), characters: line.characters, sections: line.sections });
   assert.notEqual(inbox().token, full.token);
   assert.deepEqual({ ...inbox(), token: full.token, knowledge: full.knowledge }, full);
   await request("answer", { id: secondId, answer: "Queued answer" });
@@ -190,7 +190,7 @@ try {
   await request("discuss", { id: discussionId, message: "Explain this option", quote: "A quoted option", about: "option" });
   const fullDiscussion = await event(watch(), "discuss");
   const discussionLine = await event(watch("--inbox"), "discuss");
-  assert.deepEqual(discussionLine, { type: "discuss", id: discussionId, token: discussionLine.token, name: "check", language: "en", inbox: path.join(map, "inbox.json") });
+  assert.deepEqual(discussionLine, { type: "discuss", id: discussionId, token: discussionLine.token, name: "check", language: "en", inbox: path.join(map, "inbox.json"), characters: discussionLine.characters, sections: discussionLine.sections });
   assert.notEqual(inbox().token, fullDiscussion.token);
   assert.deepEqual({ ...inbox(), token: fullDiscussion.token, knowledge: fullDiscussion.knowledge }, fullDiscussion);
   assert.match(inbox().message, /Explain this option/);
@@ -302,7 +302,7 @@ try {
   assert.equal((await request("state")).nodes.find(n => n.id === source.id).status, "open");
   await request("more", {});
   const more = await event(watch("--inbox"), "more");
-  assert.deepEqual(Object.keys(more).sort(), ["inbox", "language", "name", "type"]);
+  assert.deepEqual(Object.keys(more).sort(), ["characters", "inbox", "language", "name", "sections", "type"]);
   assert.equal(inbox().type, "more");
   await request("apply", { type: "more", questions: [] });
   const savedInbox = read("inbox.json");

@@ -48,6 +48,11 @@ for (const id of ["focus", "root"]) {
   assert.ok(!JSON.stringify(context).includes("PRIVATE MATCH CHAT"));
 }
 assert.deepEqual(focusedContext(lexical, "focus", "", { index: true }).relatedIds, []);
+const chatAnswer = { id: "own", kind: "q", answer: "One\n\nTwo", answerSource: { id: "own", messageIds: ["a", "b"] }, chat: [{ id: "a", from: "user", text: "One" }, { id: "b", from: "user", text: "Two" }] };
+assert.equal(deliveryNode(chatAnswer).answer, undefined);
+assert.equal(deliveryNode(chatAnswer).answerFromChat, true);
+assert.equal(deliveryNode({ ...chatAnswer, chat: chatAnswer.chat.slice(1) }).answer, chatAnswer.answer);
+assert.equal(evidenceNode(chatAnswer).answer, chatAnswer.answer);
 const badGraph = [...dense, { id: "preview", kind: "preview", parentId: "root", relates: [{ id: "dense0", kind: "depends" }] }];
 assert.throws(() => applySemantics(badGraph, "dense0", { relates: [{ id: "preview", kind: "depends" }] }, s => s));
 badGraph[1].relates = [{ id: "root", kind: "depends" }, { id: "preview", kind: "depends" }];
@@ -144,7 +149,26 @@ try {
     }
     measured[type] = await delivered(type);
   }
-  assert.ok(JSON.stringify(measured.answer).length <= 9730, "Answer exceeds the Stage 0 budget");
+  // Titles deliberately replace a separate model round trip; budget them explicitly.
+  assert.ok(JSON.stringify(measured.answer.context).length <= JSON.stringify(measured.answer.context.focus).length + 2300 + JSON.stringify(measured.answer.context.questionTitles).length);
+  assert.ok(!measured.answer.context.questionTitles.split("\n").some(line => line.startsWith("q00 |")));
+  assert.ok(measured.question.context.questionTitles);
+  // Real verdict timestamps allow unchanged descendants to become navigation rows.
+  await reset(); await stop();
+  const sparse = structuredClone(fixture);
+  for (const n of sparse.nodes.filter(n => n.answer)) n.verdictHistory = [{ at: 1700000000100, status: n.status, verdict: n.verdict }];
+  sparse.reevaluation = { ids: ["q00"] };
+  sparse.nodes.find(n => n.id === "q05").verdictHistory[0].at = 1700000000200;
+  fs.writeFileSync(stateFile, JSON.stringify(sparse)); await start();
+  const slim = await delivered("reevaluate");
+  assert.ok(JSON.stringify(slim).length <= 6094 / 2);
+  assert.ok(!slim.nodes.some(n => n.kind === "root"));
+  for (const n of sparse.nodes.filter(n => n.id === "q00" || n.parentId === "q00")) assert.ok(slim.nodes.some(x => x.id === n.id) || slim.index.includes(n.id));
+  assert.equal(slim.nodes.find(n => n.id === "q05").chat, undefined);
+  const beforeRequests = (await api("state")).contextStats.recent.at(-1).requests;
+  const command = spawnSync(process.execPath, [cli, "node", "q00", "--dir", dir, "--name", "check"], { cwd, encoding: "utf8", windowsHide: true });
+  assert.equal(command.status, 0, command.stderr);
+  assert.equal((await api("state")).contextStats.recent.at(-1).requests, beforeRequests + 1);
   assert.ok(JSON.stringify(measured.discuss).length <= 39603 * 0.35);
   assert.ok(JSON.stringify(measured.idea).length <= 32696 * 0.35);
   assert.ok(JSON.stringify(measured.knowledge).length < 71422);

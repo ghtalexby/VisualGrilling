@@ -1,6 +1,6 @@
 # Session cost: fewer model calls and a shorter history
 
-Status: planned, not implemented. Follows [context-budget.md](context-budget.md), which reduced the size of individual events.
+Status: implemented; deterministic API/CLI/browser checks completed. Comparable real-session cost acceptance remains pending. Follows [context-budget.md](context-budget.md), which reduced the size of individual events.
 
 ## Why a second plan
 
@@ -160,3 +160,16 @@ Stages 1, 3 and 7 are small and independent; do them first. Stage 2 is the large
 ## Synchronization and verification
 
 Follow the checklist in `docs/conventions.md` for every stage: `payload()`/`apply()` changes update `worker.md`, the affected `events/*.md`, `SKILL.md`, `monitor.md`, `docs/contract.md` and `dev/simulate.mjs`; new CLI flags update the header comment and `commands`; new config keys update `config.default.json` and validation. Keep the answer worker instruction budget in `check-workers.mjs` passing. Run the simulator, the relevant `dev/check-*.mjs`, one server restart, and the review loop from `CLAUDE.md`. After stage 2, repeat a real 12-answer Codex session and record the stage 0 numbers here next to the baseline.
+
+
+## Implementation verification (2026-11-12)
+
+The baseline tables above remain the **before** measurement; no synthetic token total is presented as a real after measurement. Stages 0–7 are implemented. Frozen answers retain separate reassessment as permitted. Inline grades validate the highest answered ancestor branch revision, including siblings. Completed knowledge clarifications and deliberate reread refusals rearm even when their result is `ok:false`.
+
+Deterministic context fixture: sparse reevaluation with known verdict timestamps is **2862 characters**, versus the prior **6094** (53% smaller). Legacy cards without timestamps conservatively retain full evidence. Answer titles replace the fixed payload ceiling with a focus + 2300 navigation + titles budget. The worker instruction budget remains below 11000 bytes.
+
+Checks cover atomic inline grades, empty/legacy/requested review, invalid IDs, sibling staleness, coalescing, frozen read tokens, combined rearm validation/staging/stale/finish/restart, inbox threshold/inline output, source-preserving knowledge edits, usage deduplication and rollover hints. Simulator exercises gap/ok/verify, discussion, more, finish, report and HTTP 403. Browser validation covers the localized rollover hint and offline hiding.
+
+The real rollout format was inspected before implementing usage records: top-level `type:token_usage_record`, `payload.thread_id`, `response_id`, `usage` (input/cached/output/reasoning/total), plus turn/thread totals. The adapter sums unique response usage, including compaction records, and retains token_count fallback.
+
+Still pending: a comparable real 12-answer Codex monitor session and real Claude instruction acceptance. This implementation session and transport fixtures are not substitutes. Calls/event <=3, zero rearm-only model calls, <=25% separate ancestor events, and zero truncated/reprinted outputs are targets, not claimed measured outcomes.

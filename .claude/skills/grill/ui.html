@@ -243,6 +243,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
     <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
   <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bPlay" aria-label="Продолжить грилинг" title="Продолжить грилинг в текущей сессии агента"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l9 6-9 6z" fill="currentColor"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
+  <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
   <div id="resumeNotice" class="why" role="status" hidden></div>
   <div id="finishedNotice" hidden></div>
 </header>
@@ -644,6 +645,7 @@ function renderHeader(){
 function working(t){return`<div class="working"><span class="busy-dot"></span><span>${t}</span></div>`}
 function renderUsage(){
   const u=offline?null:S.sessionUsage;
+  $("#sessionHint").hidden=offline||S.sessionHint!=="rollover";
   const number=n=>new Intl.NumberFormat(document.documentElement.lang).format(n);
   $("#usageTotal").textContent=u?"Токены сессии:"+" "+number(u.total_tokens):"Токены сессии: нет данных";
   $("#usageDetails").textContent=u?["Вход за все запросы:"+" "+number(u.input_tokens),"Без кэша:"+" "+number(u.input_tokens-u.cached_input_tokens),"Из кэша:"+" "+number(u.cached_input_tokens),"Выход:"+" "+number(u.output_tokens),"В том числе рассуждения:"+" "+number(u.reasoning_output_tokens),"Вся сессия, включая работу вне карты. Повторная передача контекста учитывается в каждом запросе. Это расход токенов, а не размер текущего контекста. Кэш входит во входные токены, рассуждения — в выходные."].join("\n"):"Статистика сессии недоступна.";
@@ -943,7 +945,7 @@ async function poll(force){
     const d=await api("/api/state");
     if(d.localeRevision && d.localeRevision!==PAGE_LOCALE){location.reload();return}
     const wasOffline=offline;offline=false;
-    S.sessionUsage=d.sessionUsage;renderUsage();
+    S.sessionUsage=d.sessionUsage;S.sessionHint=d.sessionHint;renderUsage();
     if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
       const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
       const first=!loaded,previousErrors=stateErrors(S);S=d;listening=d.listening;loaded=true;pruneImgUrls();

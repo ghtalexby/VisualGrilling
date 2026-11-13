@@ -73,6 +73,15 @@ try {
   // Shared editable records, identity, changed content, invalid parse and unrelated files.
   store.commit([{ path: target, expected: null, text: record() }]);
   let before = store.read(target);
+  const editedBody = store.edit({ path: target, expected: before.version, body: "\n# Revised prose\n" }, ".grill/check/state.json", "session");
+  const prefix = before.text.slice(0, before.text.indexOf("\n# Profile"));
+  assert.ok(editedBody.text.startsWith(prefix));
+  assert.deepEqual(store.parse(editedBody.text).sources, store.parse(before.text).sources);
+  assert.throws(() => store.edit({ path: target, expected: "stale", body: "No" }), /Конфликт/);
+  assert.throws(() => store.edit({ path: target, expected: before.version, body: "No", meta: { sources: [] } }), /метаданные/);
+  const metadataEdit = store.edit({ path: target, expected: before.version, body: "Updated", meta: { status: "superseded", supersedes: ["old"] }, sourcesAdd: [{ card: "q", version: "v" }] }, ".grill/check/state.json", "session");
+  assert.equal(store.parse(metadataEdit.text).status, "superseded");
+  assert.deepEqual(store.parse(metadataEdit.text).sources[0], source);
   assert.equal(store.index().documents.find(d => d.path === target).id, "profile");
   fs.appendFileSync(path.join(cwd, target), "\nManual clarification\n");
   assert.throws(() => store.commit([{ path: target, expected: before.version, text: record({}, "Lost manual text") }]), /Конфликт/);
@@ -165,9 +174,13 @@ try {
   await api("knowledge-retry", {}); event = await wait();
   const rereadDocument = store.read("docs/vgril/new-profile.md");
   result = await api("apply", { type: "knowledge", token: event.token, files: [{ path: rereadDocument.path, expected: rereadDocument.version,
-    text: record({ ...meta, author: historicalAuthor, sources: [...meta.sources, updatedEvidence] }, "Definition refined; original provenance retained.") }] });
+    body: "\n# Profile\nDefinition refined; original provenance retained.\n", sourcesAdd: [{ card: updatedEvidence.card, version: updatedEvidence.version }] }] });
   assert.equal(result.ok, true, result.error);
   assert.deepEqual(store.parse(store.read(rereadDocument.path).text).author, historicalAuthor);
+  const revisedMeta = store.parse(store.read(rereadDocument.path).text);
+  assert.deepEqual(revisedMeta.sources[0], meta.sources[0]);
+  assert.equal(revisedMeta.sources.at(-1).version, updatedEvidence.version);
+  assert.ok(revisedMeta.sources.at(-1).snapshot);
   await api("finish", {}); event = await wait();
   await api("apply", { type: "knowledge", token: event.token, error: "Disk unavailable" });
   await stop(); await start(); assert.equal((await api("state")).knowledgePending.stage, "blocked");

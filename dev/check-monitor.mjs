@@ -20,8 +20,9 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let server, url;
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
 const calls = () => fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n").map(JSON.parse) : [];
-function run(args) {
-  const child = spawn(process.execPath, [cli, ...args, "--dir", base, "--name", "check"], { cwd, windowsHide: true, env: { ...process.env, CODEX_THREAD_ID: owner }, stdio: ["ignore", "pipe", "pipe"] });
+function run(args, input) {
+  const child = spawn(process.execPath, [cli, ...args, "--dir", base, "--name", "check"], { cwd, windowsHide: true, env: { ...process.env, CODEX_THREAD_ID: owner }, stdio: ["pipe", "pipe", "pipe"] });
+  child.stdin.end(input === undefined ? undefined : JSON.stringify(input));
   children.add(child);
   let stdout = "", stderr = "";
   child.stdout.on("data", data => stdout += data); child.stderr.on("data", data => stderr += data);
@@ -177,6 +178,63 @@ try {
   await api("finish", {}); status = await pending();
   assert.notEqual(status.delivery, rereadDelivery); await api("monitor?delivery=" + rereadDelivery, undefined, 409);
   assert.equal((await event(status.delivery)).type, "knowledge");
+  // Combined commit/rearm, validation, stale results and staged discussion.
+  await stop(); await api("init", { title: "Combined", questions: [{ q: "One?" }, { q: "Open?" }] });
+  const combined = (await api("state")).nodes.find(n => n.kind === "q");
+  await api("apply", { type: "notes", text: "Must not apply", rearm: true, owner }, 409);
+  assert.notEqual((await api("state")).notes, "Must not apply");
+  await arm(); await api("answer", { id: combined.id, answer: "First" });
+  status = await pending(); e = await event(status.delivery);
+  const result = { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked", rearm: true, owner };
+  await api("apply", { ...result, ancestors: [{ id: "missing", status: "ok", verdict: "Invalid" }] }, 400);
+  assert.equal((await api("monitor")).delivery, status.delivery);
+  assert.equal((await api("apply", { ...result, ancestors: [] })).monitor.phase, "armed");
+  const staleCombined = await api("apply", result, 409); assert.equal(staleCombined.monitor.phase, "armed");
+  await api("discuss", { id: "root", message: "Discuss" }); status = await pending(); e = await event(status.delivery);
+  const part = { type: "discuss", id: e.id, token: e.token, rearm: true, owner };
+  assert.equal((await api("apply", { ...part, part: 0, more: true, questions: [] })).staged, true);
+  assert.equal((await api("monitor")).delivery, status.delivery);
+  assert.equal((await api("apply", { ...part, part: 1, more: false, reply: "Done" })).monitor.phase, "armed");
+  await api("finish", {}); status = await pending(); e = await event(status.delivery);
+  if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [], rearm: true, owner }); status = await pending(); e = await event(status.delivery); }
+  assert.equal(e.type, "finish");
+  assert.deepEqual((await api("apply", { type: "finish", token: e.token, summary: "Done", rearm: true, owner })).monitor, { phase: "stopped", drained: true });
+  // Non-empty finish drains queued work instead of stopping.
+  await arm(); await api("finish", {}); status = await pending(); e = await event(status.delivery);
+  if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [], rearm: true, owner }); status = await pending(); e = await event(status.delivery); }
+  await api("more", {});
+  assert.equal((await api("apply", { type: "finish", token: e.token, summary: "Drain", rearm: true, owner })).monitor.phase, "armed");
+  status = await pending(); e = await event(status.delivery); assert.equal(e.type, "more");
+  await api("apply", { type: "more", questions: [], rearm: true, owner });
+  // Deliberate negative results complete delivery and must keep serving.
+  await api("reread", {}); status = await pending(); e = await event(status.delivery);
+  const refused = await api("apply", { type: "reread", token: e.token, error: "Cannot assess", rearm: true, owner });
+  assert.equal(refused.ok, false); assert.equal(refused.monitor.phase, "armed");
+  await api("knowledge-import", {}); status = await pending(); e = await event(status.delivery);
+  const blocked = await api("apply", { type: "knowledge", token: e.token, questions: [{ q: "Who owns the definition?", options: ["Team", "User"] }], rearm: true, owner });
+  assert.equal(blocked.ok, false); assert.equal(blocked.monitor.phase, "armed");
+  const clarification = (await api("state")).nodes.find(n => n.q === "Who owns the definition?");
+  await api("answer", { id: clarification.id, answer: "Team" }); status = await pending();
+  assert.equal((await event(status.delivery)).id, clarification.id);
+  // A crash after the combined operation loses only the process-local subscription.
+  await api("stop", {}); await server.done; await start();
+  assert.equal((await api("monitor")).phase, "off");
+  assert.equal((await api("state")).finished, true);
+  await api("stop", {}); await server.done;
+  const statePath = path.join(map, "state.json"), seeded = read(statePath);
+  seeded.queue = []; seeded.knowledgeJob = null; seeded.reevaluation = null;
+  seeded.nodes = [{ id: "root", kind: "root", parentId: null }, ...Array.from({ length: 180 }, (_, i) => ({ id: "large" + i, kind: "q", parentId: "root", status: "open", q: `Question ${i}: ` + "Long distinct title ".repeat(8) }))];
+  fs.writeFileSync(statePath, JSON.stringify(seeded)); await start(); await arm();
+  await api("answer", { id: "large0", answer: "File delivery" }); status = await pending();
+  const fileOutput = await run(["monitor", "--event", status.delivery]).done;
+  assert.equal(fileOutput.code, 0, fileOutput.stderr);
+  const header = JSON.parse(fileOutput.stdout); assert.ok(header.characters > 20000);
+  assert.equal(read(header.inbox).token, header.token);
+  const inlineOutput = await run(["monitor", "--event", status.delivery, "--inline"]).done;
+  assert.ok(JSON.parse(inlineOutput.stdout).context);
+  const combinedCli = await run(["apply", "--rearm"], { type: "answer", id: "large0", token: header.token, status: "ok", verdict: "Checked", ancestors: [] }).done;
+  assert.equal(combinedCli.code, 0, combinedCli.stderr);
+  assert.equal(JSON.parse(combinedCli.stdout).monitor.phase, "armed");
   console.log("Monitor checks passed: idle, wake, serial delivery, CLI, conflicts, stale events, restart, errors, rebinding and API protection");
 } finally {
   clearTimeout(watchdog);

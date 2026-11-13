@@ -145,6 +145,17 @@ try {
   e = await wait(); assert.equal(e.type, "discuss"); assert.equal(e.scope, "idea");
   await reply(e, { answers: [{ id: count, messageIds: [discussionChat(e).at(-1).id], status: "weak", verdict: "Region missing" }], questions: [{ key: "$region", parentId: idea.id, q: "Which region?", options }], links: ["$region"] });
   assert.equal((await state()).nodes.find(n => n.id === idea.id).status, "open");
+  await request("init", { title: "Inline discussion", questions: [{ q: "Parent?", options }, { q: "Open?", options }] });
+  const inlineParent = (await state()).nodes.find(n => n.q === "Parent?").id;
+  await grade(inlineParent, "Original", { status: "weak", children: [{ q: "Proof?", options }] });
+  const inlineChild = (await state()).nodes.find(n => n.q === "Proof?").id;
+  e = await begin(inlineChild, "Measured evidence");
+  const discussionAnswer = { id: inlineChild, messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "Measured" };
+  await reply(e, { answers: [{ ...discussionAnswer, ancestors: [{ id: "root", status: "ok", verdict: "Invalid" }] }] }, 400);
+  assert.equal((await state()).nodes.find(n => n.id === inlineChild).answer, undefined);
+  await reply(e, { answers: [{ ...discussionAnswer, ancestors: [{ id: inlineParent, status: "ok", verdict: "Weakness resolved" }] }] });
+  assert.equal((await state()).nodes.find(n => n.id === inlineParent).status, "ok");
+  assert.equal((await state()).queueLength, 0);
   // Explicit context-limit errors must not starve independent queued answers.
   await request("init", { title: "Large map", questions: [{ q: "Original leaf", options }] });
   const leaf = (await state()).nodes.find(n => n.kind === "q").id;

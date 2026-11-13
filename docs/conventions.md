@@ -44,11 +44,11 @@ When adding an endpoint:
 - An unsupported `status` in `apply` silently becomes `weak`.
 - The server does not validate `area` or enforce the skill's question counts; these are the responsibility of `SKILL.md`.
 
-Inbox and session paths are fixed within the selected map directory and never taken from API requests. Only the server writes `session.md`; only `watch --inbox` writes `inbox.json`.
+Inbox and session paths are fixed within the selected map directory and never taken from API requests. Only the server writes `session.md`; `watch --inbox` and large-event CLI output (`wait`, plain `watch`, `monitor --event`) write `inbox.json`.
 
 Codex monitor is mutually exclusive with wait/watch. Keep its server state machine, fixed wake prompt, CLI, skill workflow and `dev/check-monitor.mjs` synchronized. Never send browser text as host instructions, retry ambiguous queue delivery automatically, or re-arm while applying an event. Monitor subscriptions are process-local; keep persisted work recovery independent of notification identity.
 
-`GET /api/maps` reads only the server's `--dir` root and valid sibling map directories, ignores request parameters, and never starts processes. Keep list discovery shared with CLI `list`. Escape map text and validate local link URLs in the switcher. `name` in inbox-mode watch lines identifies the map; plain watch stays compatible. Keep dispatcher rules, worker checks and map checks synchronized.
+`GET /api/maps` reads only the server's `--dir` root and valid sibling map directories, ignores request parameters, and never starts processes. Keep list discovery shared with CLI `list`. Escape map text and validate local link URLs in the switcher. `name` in inbox-mode watch lines identifies the map; plain watch uses file output above 20000 characters unless `--inline` is supplied. Keep dispatcher rules, worker checks and map checks synchronized.
 
 ## Preview synchronization
 
@@ -63,3 +63,7 @@ See [knowledge.md](knowledge.md) for the shared index, editable record schema, p
 ## Context and semantic projections
 
 Keep `context.mjs`, delivery callers, read-only context endpoints, simulator consumers and `dev/check-context.mjs` synchronized. Never replace required evidence with semantic summaries or silently truncate focus branches. Preserve frozen read-token isolation. Keep semantic fields out of specification/knowledge evidence and version hashes; shared duplicate validation and semantics validation must complete before any apply mutation. Reread audit coverage must include fully delivered and changed questions in incremental mode, and every question in full mode. Synchronize extraction thresholds with config validation, knowledge checks and instructions. Preserve Stage 0 baseline measurements while recording later budgets separately.
+
+## Session call cost
+
+In single-session modes (Codex monitor and levels 0/1), each extra tool round trip rereads the whole history (about 128000 tokens in the measured baseline). Small navigation data adds only about a thousand tokens per remaining call. Prefer inline question titles and ancestor navigation to mandatory read-only calls. Preserve apply/rearm atomicity, CLI-only request metrics, frozen read tokens and bounded file output when changing event workflows.

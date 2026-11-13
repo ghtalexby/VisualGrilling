@@ -467,5 +467,6 @@
   "Источник изменился": "Source has changed",
   "Незавершённая запись знаний": "Incomplete knowledge save",
   "Незавершённая запись знаний: повторите сохранение в исходной карте": "Incomplete knowledge save: retry saving in the originating map",
-  "Незавершённая запись знаний принадлежит другой карте": "The incomplete knowledge save belongs to another map"
+  "Незавершённая запись знаний принадлежит другой карте": "The incomplete knowledge save belongs to another map",
+  "Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.": "Continuing in a new session will use fewer tokens. Copy the context beside the map title."
 }

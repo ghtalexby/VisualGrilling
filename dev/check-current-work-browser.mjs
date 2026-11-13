@@ -65,6 +65,13 @@ try {
   assert.equal(await js('document.querySelector("#usageTotal").textContent'), "Session tokens: no data");
   await js('api=originalApi;hideUsage();poll()');
 
+  await js('window.hintApi=api;api=async(...args)=>{const d=await hintApi(...args);if(args[0]==="/api/state")d.sessionHint="rollover";return d};poll()');
+  assert.equal(await js('document.querySelector("#sessionHint").hidden'), false);
+  assert.match(await js('document.querySelector("#sessionHint").textContent'), /new session/);
+  await js('offline=true;renderUsage()');
+  assert.equal(await js('document.querySelector("#sessionHint").hidden'), true);
+  await js('api=hintApi;poll()');
+  assert.equal(await js('document.querySelector("#sessionHint").hidden'), true);
   const id = (await api("state")).nodes.find(n => n.kind === "q").id;
   await api("answer", { id, answer: "Test" });
   const e = await api("wait?timeout=5");

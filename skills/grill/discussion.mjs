@@ -1,6 +1,6 @@
 import { applySemantics } from "./context.mjs";
 // Build a discussion transaction without mutating live state or frozen specifications.
-export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, clean }) {
+export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, clean, inlineAncestors }) {
   const next = structuredClone(nodes), byId = new Map(next.map(n => [n.id, n]));
   const source = byId.get(sourceId), refs = new Map(), added = [], edited = [], touched = new Set();
   const bad = message => { throw [400, message]; };
@@ -37,7 +37,7 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
     return { id: n.id, q: n.q };
   });
   if (new Set(links.map(l => l.id)).size !== links.length || added.some(q => !links.some(l => l.id === q.id))) bad("Каждому новому вопросу нужна уникальная ссылка");
-  const targets = new Set();
+  const targets = new Set(), inline = [];
   for (const a of body.answers || []) {
     const n = byId.get(resolve(a?.id));
     if (!n || n.kind !== "q" || n.obsolete || targets.has(n.id) || body.assessment && n.id === sourceId) bad("Некорректный адресат ответа");
@@ -54,7 +54,11 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
     applySemantics(next, n.id, a.semantics, clean);
     recordVerdict(n, a.status, verdict); targets.add(n.id); touched.add(n.id);
   }
-  return { nodes: next, links, edited, touched: [...touched], added: added.length };
+  for (const a of body.answers || []) {
+    const id = resolve(a.id);
+    if (inlineAncestors?.(next, id, a)) inline.push(id);
+  }
+  return { nodes: next, links, edited, inline, touched: [...touched], added: added.length };
 }
 
 // Parts are persisted staging only. The final part validates and commits everything together.
