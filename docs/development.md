@@ -14,6 +14,14 @@ Run all `dev/check-*.mjs` suites applicable to the host, including context, disc
 
 Real-host acceptance remains separate from deterministic checks: on Codex and Claude Code verify an actual map event follows the selected waiting mode, loads only its event rules, retrieves plausible distant candidates before grading/issuing questions, and continues after apply. Exercise a withdrawn premise through a linked distant card, avoid treating `decision`/`chatDigest` as accepted evidence, and confirm semantic duplicate judgments and knowledge provenance. Earlier host transport verification does not establish acceptance of this new context workflow. Report hosts not exercised as unverified.
 
+## Release version
+
+Hover over the Grilling map brand text in the header to see the installed release version, starting at `1.0.0`. Run `npm run release` once for each new release: it increments the patch number (`1.0.0` → `1.0.1` → `1.0.2`) in the root `package.json` and uses the npm `version` lifecycle script to synchronize `skills/grill/version.json`. It does not publish, commit, or tag. Commit both version files with the release changes. No compilation or dependency installation is required.
+
+The whole skill directory includes `version.json`, so copied installations do not depend on the repository package file. Recopy the skill for copied installations; linked installations see the updated version on page reload. The renderer reads it on each page request. After first installing this tooltip change, restart existing map servers and reload the page because `i18n.mjs` changed. Map state revision counters are unrelated to the release version.
+
+The release script also synchronizes the tracked `.claude/skills/grill/version.json` mirror, whether it is a regular directory in a fresh clone or a local junction. Include that version file in the release commit too.
+
 ## npm scripts
 
 Run `node dev/check-context.mjs` for per-event serialized-character measurements on a disposable fixture with 40 questions and two chat messages per card. It requests all eleven event types and checks accounting, the 200-entry bound, cumulative totals, restart recovery, reset and protected state access. No user maps are changed. The Stage 0 baseline and section meanings are recorded in [the context budget plan](plans/ContextBudget/context-budget.md) and [contract.md](contract.md); later-stage budgets compare focused discussion/idea with that baseline and incremental reread with a full run.

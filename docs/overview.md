@@ -26,6 +26,8 @@ A project can have several named maps, such as `arch` and `money`, each in `.gri
 
 ## Language
 
+Hover over the header's Grilling map brand text to see the installed release version. `npm run release` increments its patch number; see [development.md](development.md#release-version).
+
 The agent uses the language of the user's launch request for the page, questions, options, verdicts, discussion replies, summary, report, and generated specification. An explicit requested language takes precedence. Language is stored per map and survives restart and `init`; resuming with an explicit launch request selects the language again. Merely answering in another language does not switch the interface.
 
 English and Russian UI dictionaries are built in. Other languages use a complete plain-text dictionary supplied by the agent before opening the page. Legacy maps default to Russian until a language is selected. Developer documentation is in English.

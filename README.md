@@ -56,6 +56,8 @@ Detailed developer documentation is in [docs/](docs/README.md).
 
 ## Developer debugging
 
+Hover over the Grilling map header text to see the installed version. Run `npm run release` for a new release (`1.0.0` → `1.0.1` → `1.0.2`); this updates the repository and copied-skill version files without publishing or creating a Git tag. See [release details](docs/development.md#release-version).
+
 Run the following commands from this repository's root unless a directory change is shown.
 
 ### Map and server without an agent

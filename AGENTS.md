@@ -25,6 +25,7 @@ CLI paths resolve from the target project's working directory. Pass the same `--
 Use Node.js 18+ from the repository root. The skill needs no package installation or build step.
 
 - `npm run sim`: launch the simulator and open the map; initializes sample questions.
+- `npm run release`: increment the patch release and synchronize `skills/grill/version.json` for the header tooltip; no publish, commit, or tag.
 - `npm run sim:keep`: continue an existing map.
 - `npm run link`: link the skill into the test project's Claude configuration.
 - `npm run link:codex` / `npm run link:codex:global`: link into `test-project/.agents/skills` / additionally `~/.agents/skills` for Codex.

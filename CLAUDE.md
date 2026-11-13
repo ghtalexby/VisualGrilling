@@ -33,6 +33,8 @@ No dependencies, build step, automated test framework, or linter. Standalone API
 
 ## Commands
 
+`npm run release` increments the patch release and synchronizes `skills/grill/version.json` for the header tooltip without publishing, committing, or tagging. See [release details](docs/development.md#release-version).
+
 ```bash
 npm run sim        # fake-Claude loop against test-project/.grill, opens the map
 npm run sim:keep   # same, continue existing map

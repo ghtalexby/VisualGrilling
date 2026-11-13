@@ -1,11 +1,13 @@
 {
   "name": "visual-grilling",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Скилл Codex и Claude Code для визуального грилинга проекта + тестовый проект для отладки",
   "type": "module",
   "engines": { "node": ">=18" },
   "scripts": {
+    "release": "npm version patch --no-git-tag-version",
+    "version": "node dev/sync-version.mjs",
     "link": "node dev/link-skill.mjs",
     "link:global": "node dev/link-skill.mjs --global",
     "link:codex": "node dev/link-skill.mjs --codex",
