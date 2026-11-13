@@ -117,16 +117,31 @@ try {
   }
   e = await wait(); assert.deepEqual(e.ids, [parent.id]); await assess(e);
   await grade(child.id, "Concrete evidence"); await assess(await wait(), "Needs verification", "verify");
-  // Sibling evidence changing after delivery invalidates even an unchanged inline verdict.
+  // Sibling-only changes defer ancestor review without throwing away the card grade.
   await api("answer", { id: child.id, answer: "Concrete evidence" }); e = await wait();
+  const parentBeforeSibling = await node(parent.id), childHistory = (await node(child.id)).verdictHistory.length;
   await api("discuss", { id: sibling.id, message: "This proof is now disputed" });
-  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Stale", ancestors: [] }, 409);
+  const siblingResult = { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Card remains valid" };
+  await api("apply", { ...siblingResult, ancestors: [{ id: "root", status: "ok", verdict: "Invalid ID" }] }, 400);
   assert.ok((await node(child.id)).pending);
-  e = await wait(); assert.equal(e.type, "answer");
-  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Fresh" });
+  await api("apply", { ...siblingResult, ancestors: [{ id: parent.id, status: "ok", verdict: "Stale closure" }] });
+  assert.equal((await node(child.id)).pending, null);
+  assert.equal((await node(child.id)).verdictHistory.length, childHistory + 1);
+  assert.deepEqual(await node(parent.id), parentBeforeSibling);
   e = await wait(); assert.equal(e.type, "discuss");
   await api("apply", { type: "discuss", id: e.id, token: e.token, reply: "Recorded" });
   await assess(await wait(), "Needs verification", "verify");
+  // A second queued answer has the same fallback, even for ancestors:[], and drains first.
+  await api("answer", { id: child.id, answer: "Concrete evidence" }); e = await wait();
+  await api("answer", { id: sibling.id, answer: "Second evidence" });
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Keep grade", ancestors: [] });
+  assert.equal((await node(child.id)).pending, null);
+  assert.equal((await node(parent.id)).status, "verify");
+  await stop(); await start();
+  e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.id, sibling.id);
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Second grade", ancestors: [] });
+  e = await wait(); assert.equal(e.type, "reevaluate"); assert.deepEqual(e.ids, [parent.id]);
+  await assess(e, "Needs verification", "verify");
   // Frozen parent reviews use frozen evidence and do not update the live parent.
   await api("answer", { id: child.id, answer: "Frozen evidence" }); await api("spec", {});
   e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.capturedForSpec, true);

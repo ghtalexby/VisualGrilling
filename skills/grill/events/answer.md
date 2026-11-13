@@ -34,4 +34,4 @@ Answers can combine multiple selected options and a free-text comment. Evaluate 
 
 Be tough but constructive. Find where the project could fail; do not try to defeat its author.
 
-Assess `ancestorIds` using focus and `context.ancestorIndex`. Send `ancestors:[{id,status,verdict}]` for changed conclusions, or `ancestors:[]` when checked and unchanged. Close a parent only when evidence resolves its original weakness, never merely because all children answered. If missing branches are necessary, omit `ancestors` and send `reviewAncestors:true`. Frozen answers retain separate reassessment.
+Assess `ancestorIds` using focus and `context.ancestorIndex`. Send `ancestors:[{id,status,verdict}]` for changed conclusions, or `ancestors:[]` when checked and unchanged. Close a parent only when evidence resolves its original weakness, never merely because all children answered. If missing branches are necessary, omit `ancestors` and send `reviewAncestors:true`. Frozen (`capturedForSpec:true`): omit `ancestors`.

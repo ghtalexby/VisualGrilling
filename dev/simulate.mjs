@@ -63,7 +63,7 @@ function grade(e) {
   const newRoot = status === "gap" && Math.random() < 0.3
     ? { area: "Риски", q: `[sim] Новый главный вопрос из ответа на «${e.question.slice(0, 40)}»`, why: "Проверка newRoot.", options: ["Да", "Нет"] }
     : null;
-  return { type: "answer", id: e.id, token: e.token, status, verdict, children, newRoot, ...(status === "ok" ? { ancestors: [] } : {}) };
+  return { type: "answer", id: e.id, token: e.token, status, verdict, children, newRoot, ...(status === "ok" && !e.capturedForSpec ? { ancestors: [] } : {}) };
 }
 
 let moreRound = 0;

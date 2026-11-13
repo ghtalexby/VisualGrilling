@@ -81,6 +81,11 @@ try {
   assert.equal((await arm()).delivery, status.delivery);
   await api("apply", { type: "notes", text: "Still processing" });
   assert.equal((await api("monitor")).delivery, status.delivery);
+  // Plain apply validation without save must preserve the delivery and not dispatch twice.
+  await api("apply", { type: "answer", id: e.id, token: e.token, ancestors: [{ id: "missing", status: "ok", verdict: "Invalid" }] }, 400);
+  assert.equal((await api("monitor")).delivery, status.delivery);
+  assert.equal(calls().length, 1);
+  assert.equal((await api("state")).nodes.find(n => n.id === e.id).pending.stage, "thinking");
   await grade(e); await api("monitor?delivery=" + status.delivery, undefined, 409);
   assert.equal(calls().length, 1, "Apply must not re-arm implicitly");
   await arm(); status = await pending(); e = await event(status.delivery);
@@ -235,6 +240,25 @@ try {
   const combinedCli = await run(["apply", "--rearm"], { type: "answer", id: "large0", token: header.token, status: "ok", verdict: "Checked", ancestors: [] }).done;
   assert.equal(combinedCli.code, 0, combinedCli.stderr);
   assert.equal(JSON.parse(combinedCli.stdout).monitor.phase, "armed");
+  // A new sibling submission must not cause a second grading cycle for the current answer.
+  await stop(); await api("init", { title: "Sibling fallback", questions: [{ q: "Parent?" }, { q: "Keep open?" }] });
+  const ancestor = (await api("state")).nodes.find(n => n.q === "Parent?").id;
+  await arm(); await api("answer", { id: ancestor, answer: "Original evidence" }); status = await pending(); e = await event(status.delivery);
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "weak", verdict: "Needs evidence", children: [{ q: "First proof?" }, { q: "Second proof?" }], rearm: true, owner });
+  const siblings = (await api("state")).nodes.filter(n => n.parentId === ancestor);
+  await api("answer", { id: siblings[0].id, answer: "First evidence" }); status = await pending(); e = await event(status.delivery);
+  await api("answer", { id: siblings[1].id, answer: "New sibling evidence" });
+  const applied = await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accept once", ancestors: [{ id: ancestor, status: "ok", verdict: "Outdated conclusion" }], rearm: true, owner });
+  assert.equal(applied.ok, true); assert.equal(applied.monitor.phase, "notifying");
+  let siblingState = await api("state");
+  assert.equal(siblingState.nodes.find(n => n.id === ancestor).status, "weak");
+  assert.equal(siblingState.nodes.find(n => n.id === siblings[0].id).verdictHistory.length, 1);
+  assert.equal(siblingState.nodes.find(n => n.id === siblings[0].id).pending, null);
+  status = await pending(); e = await event(status.delivery); assert.equal(e.id, siblings[1].id);
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Second", ancestors: [], rearm: true, owner });
+  status = await pending(); e = await event(status.delivery);
+  assert.equal(e.type, "reevaluate"); assert.deepEqual(e.ids, [ancestor]);
+  await api("apply", { type: "reevaluate", token: e.token, assessments: [{ id: ancestor, status: "verify", verdict: "Review both proofs" }], rearm: true, owner });
   console.log("Monitor checks passed: idle, wake, serial delivery, CLI, conflicts, stale events, restart, errors, rebinding and API protection");
 } finally {
   clearTimeout(watchdog);

@@ -859,7 +859,7 @@ ${S.notes || "—"}
       // only an answer taken by wait can be graded: after a restart it is re-queued and may be edited or withdrawn
       if (!n.pending || n.pending.stage !== "thinking") throw [409, "Ответ не ждёт оценки: его отозвали или он снова в очереди, возьмите его через wait"];
       if (b.token !== n.pending.token) throw [409, "Результат устарел, получите событие через wait"];
-      if (n.pending.revision !== branchRevision(n.id) || b.ancestors !== undefined && !specLocked(n.id) && n.pending.ancestorRevision !== branchRevision(ancestorIds(S.nodes, n.id).at(-1) || n.id)) {
+      if (n.pending.revision !== branchRevision(n.id)) {
         n.pending.stage = "queued"; delete n.pending.token;
         if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id });
         save(); throw [409, "Ветка изменилась, получите событие через wait"];
@@ -872,6 +872,8 @@ ${S.notes || "—"}
       }
       const frozen = specLocked(n.id) ? S.specJob.gradingNodes || S.specJob.nodes : null;
       const allowedAncestors = ancestorIds(frozen || S.nodes, n.id);
+      // Sibling evidence may invalidate only the ancestor conclusions, not this answer.
+      const deferAncestors = !!frozen || b.ancestors !== undefined && n.pending.ancestorRevision !== branchRevision(allowedAncestors.at(-1) || n.id);
       const scope = new Set(subtree(frozen || S.nodes, n.id).map(x => x.id));
       const drop = new Set(changes.remove || []), moves = changes.move || [];
       if (drop.size !== (changes.remove || []).length || new Set(moves.map(x => x?.id)).size !== moves.length) throw [400, "Повторная операция над вопросом"];
@@ -917,8 +919,8 @@ ${S.notes || "—"}
           }
           if (q.parentId !== "root") q.area = p.area;
         }
-        inlineAncestors(next, n.id, frozen ? { ...b, ancestors: b.ancestors === undefined ? undefined : [] } : b, allowedAncestors);
-        if (frozen && b.ancestors !== undefined) inlineAncestors(structuredClone(nodes), n.id, b, allowedAncestors);
+        inlineAncestors(next, n.id, deferAncestors ? { ...b, ancestors: b.ancestors === undefined ? undefined : [] } : b, allowedAncestors);
+        if (deferAncestors && b.ancestors !== undefined) inlineAncestors(structuredClone(nodes), n.id, b, allowedAncestors);
         validateDuplicates(nodes, next);
         reconcileLinks(nodes, next);
         applySemantics(next, n.id, b.semantics, clean);
@@ -929,7 +931,7 @@ ${S.notes || "—"}
       const next = preview.reconcile(S.nodes, rebuild(S.nodes)), nextFrozen = frozen && preview.reconcile(frozen, rebuild(frozen));
       if (S.rereadJob?.edits.includes(n.id)) { S.rereadJob.edits = S.rereadJob.edits.filter(id => id !== n.id); S.rereadJob.settled = true; }
       S.nodes = preview.branchCopies(next);
-      if (frozen || b.ancestors === undefined) queueReview(S.nodes, n.id);
+      if (deferAncestors || b.ancestors === undefined) queueReview(S.nodes, n.id);
       queueIdea(ideaOf(S.nodes, n.id));
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || !drop.has(e.id));
       if (nextFrozen) {
@@ -1554,6 +1556,7 @@ ${S.notes || "—"}
             rearmMonitor(); pump();
             return send(res, 409, { error: error[1], monitor: monitorStatus() });
           }
+          if (!rearm && monitor) pump();
           throw error;
         }
         applying = false;

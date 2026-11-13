@@ -164,7 +164,7 @@ Follow the checklist in `docs/conventions.md` for every stage: `payload()`/`appl
 
 ## Implementation verification (2026-11-12)
 
-The baseline tables above remain the **before** measurement; no synthetic token total is presented as a real after measurement. Stages 0–7 are implemented. Frozen answers retain separate reassessment as permitted. Inline grades validate the highest answered ancestor branch revision, including siblings. Completed knowledge clarifications and deliberate reread refusals rearm even when their result is `ok:false`.
+The baseline tables above remain the **before** measurement; no synthetic token total is presented as a real after measurement. Stages 0–7 are implemented. Frozen answers retain separate reassessment as permitted. Inline grades check the highest answered ancestor branch revision, including siblings; if only this broader context changed, the card grade is retained and separate ancestor review replaces the inline grades. Workers omit inline grades for captured answers. Completed knowledge clarifications and deliberate reread refusals rearm even when their result is `ok:false`.
 
 Deterministic context fixture: sparse reevaluation with known verdict timestamps is **2862 characters**, versus the prior **6094** (53% smaller). Legacy cards without timestamps conservatively retain full evidence. Answer titles replace the fixed payload ceiling with a focus + 2300 navigation + titles budget. The worker instruction budget remains below 11000 bytes.
 
