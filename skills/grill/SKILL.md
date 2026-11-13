@@ -11,6 +11,14 @@ Use the user's current Codex or Claude Code session. No separate API key or nest
 
 A project can have several named maps, such as `arch`, `money`, or `security`, stored in `.grill/<name>/` under the current working directory. Names use lowercase Latin letters, digits, and hyphens, up to 40 characters; Windows reserved names `con`, `prn`, `aux`, `nul`, `com0`–`com9`, and `lpt0`–`lpt9` are forbidden. Every command below means `node "<skill directory>/grill.mjs" <command> --name <name>`, abbreviated as `G <command>`. Pass the current map's `--name` to every command except `list`. Legacy unnamed maps use `.grill/state.json`, appear with `"name": null`, and require commands without `--name`.
 
+## Map storage: choose before the first command
+
+The project working directory and the maps root are different paths. For new maps, use `<project>/.grill` unless the user explicitly requests another storage location. `--dir` is the maps root itself: the CLI does not append `.grill`. Passing `--dir <project>` puts named maps and root-level runtime files directly in the project root; do not do this merely to identify the project.
+
+Keep cwd at the project root. For the default layout, either omit `--dir` consistently or pass the absolute `<project>/.grill` path to every command, including `list`. For a custom root, pass that selected absolute root consistently instead. Before `start` or `init`, resolve the resulting state path: a named map must be `<maps root>/<name>/state.json`, with `.grill` present for the default layout.
+
+When resuming an existing map (including Play or copied continuation context), preserve its supplied maps root and name even if it uses a custom or older layout. Do not silently relocate it or initialize a replacement in `.grill`; moving existing maps is a separate user-requested task. Paths shown as `.grill/<name>/` below assume the default layout; for custom roots, use the selected map directory for locale and other map-state files too.
+
 ## Language: select before opening the page
 
 Use the language in which the user asked to start or resume grilling, unless they explicitly request another language. Do not infer it from repository documentation or the browser language. Use it for the interface, title, brief, architecture, question areas, questions, options, verdicts, discussion replies, summary, report content, and specification headings and body.
@@ -79,7 +87,7 @@ Events use focused context and a compact map index; follow [worker context rules
 
 ## 3. Pass JSON safely
 
-For `init` and every `apply`, follow the canonical [JSON passing instructions](worker.md#pass-json-safely), including quoted heredocs or PowerShell UTF-8 here-strings. `G` is notation, not an installed command. Pass the same `--dir` everywhere, including `list`.
+For `init` and every `apply`, follow the canonical [JSON passing instructions](worker.md#pass-json-safely), including quoted heredocs or PowerShell UTF-8 here-strings. `G` is notation, not an installed command. Keep the maps root selected above: omit `--dir` consistently for the default layout, or pass the same explicit maps root everywhere, including `list`.
 
 ## 4. Grilling loop
 

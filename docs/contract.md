@@ -18,6 +18,8 @@ The agent follows this contract through `skills/grill/SKILL.md`. Keep field and 
 
 Common options: `--dir <directory>` selects the maps root (default `.grill` under the working directory); `--name <name>` selects `<dir>/<name>/`. Without a name, the legacy map lives directly in `<dir>`. Names match `^[a-z0-9][a-z0-9-]{0,39}$`, excluding Windows reserved `con`, `prn`, `aux`, `nul`, `com0-9`, `lpt0-9`. Invalid names, a missing name value, and `--name=…` exit with code 1. Each map has its own server and port. `list` ignores a valid `--name`; an invalid one is still an error.
 
+The skill creates new maps under `<project>/.grill` unless the user explicitly requests another location. `--dir` replaces that default; it does not select the project cwd or append `.grill`. Thus `--dir <project> --name main` writes `<project>/main/state.json`. Existing maps resumed through Play or copied context retain their supplied root; changing this layout requires a separate migration request. This is agent workflow policy, not a CLI restriction on custom roots.
+
 | Command | Input | Output / behavior |
 |---|---|---|
 | `start [--port 4777] [--no-open] [--lang en\|ru] [--locale file.json]` | Optional locale file | Starts the server if necessary, applies the language before opening the browser, prints the map URL |
