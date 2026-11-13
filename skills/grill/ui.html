@@ -436,6 +436,7 @@ async function previewAction(action){
     }else{await api("/api/preview/policy",{id:panel.id,policy:action==="keep"?"keep":"delete"});await poll(true)}
   }catch(e){showError(e.message);renderPanel()}
 }
+$("#panel").addEventListener("change",e=>{if(e.target.id!=="conversationSelect"||sending)return;projectConversation=e.target.value;panel.confirmChat=false;clearError();renderPanel(true)});
 $("#panel").addEventListener("input",e=>{if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
 $("#panel").addEventListener("change",e=>{if(e.target.id==="previewTarget")panel.previewTarget=e.target.value;if(e.target.matches("[data-preview-branch]"))panel.branches=[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
 $("#panel").addEventListener("click",e=>{const option=e.target.closest("[data-preview-option]");if(option){$("#fPreview").value=option.dataset.previewOption;drafts["p:"+panel.id]=option.dataset.previewOption}const b=e.target.closest("[data-preview]");if(b)previewAction(b.dataset.preview)});
@@ -711,19 +712,23 @@ function nodePanel(n){
 
   return{head,body:b};
 }
+let projectConversation="main";
+const chatKey=id=>id==="root"?id+":"+projectConversation:id;
 function discussTab(n){
-  const chat=n.chat||[];
+  if(n.kind==="root"&&!(S.projectConversations||[{id:"main"}]).some(c=>c.id===projectConversation))projectConversation="main";
+  const chat=(n.chat||[]).filter(m=>n.kind!=="root"||(m.conversationId||"main")===projectConversation);
   let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg copy-block ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
+  if(n.kind==="root")b=`<div class="row" style="flex-wrap:nowrap"><select id="conversationSelect" aria-label="Разговор" style="flex:1;min-width:0" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=(n.chat||[]).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select><button class="btn" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`+b;
   if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
-  const busy=n.discuss==="thinking";
+  const busy=n.discuss==="thinking"||n.kind==="root"&&n.discuss&&(n.chat?.at(-1)?.conversationId||"main")!==projectConversation;
   if(busy)b+=working("Агент пишет ответ…");
   else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
   else if(!listening)b+=`<div class="note">Агент сейчас не слушает карту. Сообщение встанет в очередь и будет разобрано, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`;
   if(panel.quote)b+=`<div class="qbox"><span>Обсуждаем — ${QLABEL[panel.quote.about].toLowerCase()}: «${esc(panel.quote.text)}»</span><button data-act="unquote" aria-label="Убрать цитату" title="Убрать цитату">×</button></div>`;
-  const imgs=draftImages[n.id]||[];
+  const imgs=draftImages[chatKey(n.id)]||[];
   if(imgs.length)b+=`<div class="thumbs">${imgs.map((src,i)=>`<span class="thumb"><img src="${esc(src)}" alt="Картинка"><button data-act="unimage" data-i="${i}" aria-label="Убрать картинку" title="Убрать картинку">×</button></span>`).join("")}</div>`;
-  b+=`<label class="fl">Сообщение<textarea id="fMsg" rows="3" maxlength="2000" placeholder="Например: что именно спрашивается? почему мой ответ слабый?">${esc(drafts["d:"+n.id]??"")}</textarea></label>`;
+  b+=`<label class="fl">Сообщение<textarea id="fMsg" rows="3" maxlength="2000" placeholder="Например: что именно спрашивается? почему мой ответ слабый?">${esc(drafts["d:"+chatKey(n.id)]??"")}</textarea></label>`;
   const rst=!chat.length&&!n.discuss?"":panel.confirmChat?`<span class="row" style="margin-left:auto;gap:6px"><span style="font-size:13px">Удалить переписку?</span><button class="btn small" data-act="chatreset" ${busy?"disabled":""}>Удалить</button><button class="btn small" data-act="nochatreset">Отмена</button></span>`
     :`<button class="btn small" data-act="askchatreset" style="margin-left:auto" ${busy?'disabled title="Дождитесь ответа агента"':""}>Сбросить чат</button>`;
   b+=`<div class="row"><button class="btn primary" data-act="discuss" ${sending||busy?"disabled":""}>Отправить</button>${KEYS}<span class="keys">Ctrl+V — вставить картинку</span>${rst}</div>`;
@@ -839,7 +844,7 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([S.projectConversations,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(revealDiscussion=false){
   const p=$("#panel");
@@ -848,7 +853,7 @@ function renderPanel(revealDiscussion=false){
   if(panel.mode==="summary")r=summaryPanel();
   else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)}:nodePanel(n)}
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
-  const key=[panel.mode,panel.id,panel.tab].join("|"),same=p.dataset.key===key;
+  const key=[panel.mode,panel.id,panel.tab,panel.id==="root"?projectConversation:""].join("|"),same=p.dataset.key===key;
   if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
   deferPanel=false;if(!same)composing=false; /* the composing textarea is gone; compositionend may never reach #panel */
   p.dataset.key=key;
@@ -901,7 +906,7 @@ async function submitAnswer(){
   sending=null;render();renderPanel();
 }
 async function submitDiscuss(request){
-  const id=panel.id,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined,images=request?[]:[...(draftImages[id]||[])];
+  const id=panel.id,key=chatKey(id),conversationId=id==="root"?projectConversation:undefined,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined,images=request?[]:[...(draftImages[key]||[])];
   if(sending||(get(id)||{}).discuss==="thinking"){
     if(request){showError("Дождитесь ответа агента и повторите запрос объяснения.");renderPanel()}
     return;
@@ -909,9 +914,9 @@ async function submitDiscuss(request){
   if(!message&&!quote&&!images.length){showError("Напишите сообщение.");renderPanel();return}
   sending=id;clearError();
   try{
-    await api("/api/discuss",{id,message,quote,about,images});
-    if(images.length)draftImages[id]=(draftImages[id]||[]).filter(x=>!images.includes(x));
-    if(!request&&drafts["d:"+id]===raw)delete drafts["d:"+id];
+    await api("/api/discuss",{id,message,quote,about,images,conversationId});
+    if(images.length)draftImages[key]=(draftImages[key]||[]).filter(x=>!images.includes(x));
+    if(!request&&drafts["d:"+key]===raw)delete drafts["d:"+key];
     if(!request&&draftQuotes[id]===q)delete draftQuotes[id];
     if(!request&&panel?.id===id&&panel.quote===q)panel.quote=null;
     await poll(true);
@@ -1002,7 +1007,8 @@ $("#bStop").onclick=()=>act("/api/finish");
 $("#bReread").onclick=requestReread;
 $("#closeErrorToast").onclick=clearError;
 $("#bChat").onclick=()=>openPanel({mode:"project",id:"root",tab:"discuss"});
-$("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fIdeaEdit")drafts["i:"+panel.id]=e.target.value;if(e.target.id==="fIdea"){drafts.idea=e.target.value;ideaRequestId=null}if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+panel.id]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion","fIdea","fIdeaEdit"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
+$("#panel").addEventListener("change",e=>{if(e.target.id!=="conversationSelect"||sending)return;projectConversation=e.target.value;panel.confirmChat=false;clearError();renderPanel(true)});
+$("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fIdeaEdit")drafts["i:"+panel.id]=e.target.value;if(e.target.id==="fIdea"){drafts.idea=e.target.value;ideaRequestId=null}if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+chatKey(panel.id)]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion","fIdea","fIdeaEdit"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
 addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit));
 /* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
 $("#panel").addEventListener("paste",async e=>{
@@ -1010,7 +1016,7 @@ $("#panel").addEventListener("paste",async e=>{
   const files=[...e.clipboardData.files].filter(f=>f.type.startsWith("image/"));
   if(!files.length||e.clipboardData.getData("text/plain").trim())return;
   e.preventDefault();clearError();
-  const id=panel.id;
+  const id=chatKey(panel.id);
   for(const f of files){
     if(!IMG_TYPES.includes(f.type)){showError("Неподдерживаемый формат картинки");continue}
     if(f.size>IMG_MAX){showError("Картинка больше 8 МБ");continue}
@@ -1055,11 +1061,14 @@ $("#panel").addEventListener("click",e=>{
     case "deleteidea":deleteIdea();break;
     case "addquestion":openQuestion("root");break;
     case "discuss":submitDiscuss();break;
-    case "unimage":draftImages[panel.id]?.splice(+a.dataset.i,1);renderPanel();break;
+    case "newconversation":{
+      if(sending)break;sending="conversation";renderPanel();
+      api("/api/conversations",{}).then(async c=>{projectConversation=c.id;if(panel)panel.confirmChat=false;await poll(true)},err=>showError(err.message)).finally(()=>{sending=null;renderPanel()});break}
+    case "unimage":draftImages[chatKey(panel.id)]?.splice(+a.dataset.i,1);renderPanel();break;
     case "askchatreset":panel.confirmChat=true;renderPanel();break;
     case "nochatreset":panel.confirmChat=false;renderPanel();break;
     case "chatreset":{const id=panel.id;panel.confirmChat=false;clearError();
-      api("/api/chatreset",{id}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{showError(err.message);renderPanel()});break}
+      api("/api/chatreset",{id,conversationId:id==="root"?projectConversation:undefined}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{showError(err.message);renderPanel()});break}
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":act("/api/cancel",{id:panel.id});break;
     case "reread":requestReread();break;

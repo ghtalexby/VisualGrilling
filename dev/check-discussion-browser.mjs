@@ -43,6 +43,26 @@ try {
   ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
+  await js('openPanel({mode:"project",id:"root",tab:"discuss"})');
+  await input("#fMsg", "First draft");
+  await click('[data-act="newconversation"]');
+  await until(() => js('!sending&&document.querySelectorAll("#conversationSelect option").length===2'));
+  assert.equal(await js('document.querySelector("#fMsg").value'), "");
+  await input("#fMsg", "Second draft");
+  await js('document.querySelector("#conversationSelect").value="main";document.querySelector("#conversationSelect").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert.equal(await js('document.querySelector("#fMsg").value'), "First draft");
+  await js('document.querySelector("#conversationSelect").selectedIndex=1;document.querySelector("#conversationSelect").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert.equal(await js('document.querySelector("#fMsg").value'), "Second draft");
+  await click('[data-act="discuss"]');
+  await until(() => js('!sending&&document.querySelectorAll(".chat .msg").length===1'));
+  await js('document.querySelector("#conversationSelect").value="main";document.querySelector("#conversationSelect").dispatchEvent(new Event("change",{bubbles:true}))');
+  assert.equal(await js('document.querySelectorAll(".chat .msg").length'), 0);
+  assert.equal(await js('document.querySelector("#fMsg").value'), "First draft");
+  await js('projectConversation=S.projectConversations[1].id');
+  await api("init", { title: "Browser check", questions: [{ q: "Existing question", options: ["Yes", "No"] }] });
+  await js('poll(true)');
+  assert.equal(await js('projectConversation'), "main");
+  await click('[data-act="close"]');
   assert.equal(await js("showObsolete"), false);
   await click("[data-obsolete]"); assert.equal(await js("showObsolete"), true);
   await cdp("Page.enable");

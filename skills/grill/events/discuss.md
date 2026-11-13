@@ -34,3 +34,5 @@ An oversized discussion context returns HTTP 400, records `node.discussError`, a
 Replacing an existing answer with different discussion text also queues an automatic incremental reread, as a direct Answer-tab edit does, so decisions in other branches can be reconsidered. The replacement is already graded, so this reread is settled (not cancelable as a withdrawn pending answer). Identical text does not trigger an edit reread; finish-pending/finished maps retain the existing automatic-reread suppression.
 
 Each `answers` entry may include `ancestors:[{id,status,verdict}]` (empty means checked, unchanged). IDs must be answered current ancestors of that target. Omission or `reviewAncestors:true` requests separate reassessment; never combine it with `ancestors`. Assess substantive resolution as in answer grading.
+
+Project events include `conversationId`; root focus chat contains only that conversation. Reply using the normal root ID/token; the server routes the reply. Other conversations remain available for whole-map reread, but must not be treated as new messages in this event.

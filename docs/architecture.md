@@ -265,3 +265,5 @@ The header shows whole-session Codex token usage, not usage attributable to one 
 
 
 Context limits apply to delivered focused evidence, not unrelated indexed histories. Incremental rereads bound delivered questions, neighbours, ideas and new project chat; full rereads retain the whole-map limit. Structural transactions reconcile semantic links independently in each candidate tree: prune deleted targets, redirect merged targets, union outgoing links, remove self-links/duplicates and validate the final eight-link bound. Reread audits cover evidence changes; graph-only maintenance and semantic backfills do not expand the audit.
+
+Project chat conversations share the root message log: messages carry `conversationId`, with missing IDs treated as `main`. `projectConversations` stores bounded conversation IDs outside the tree. Browser selection and drafts are local to each conversation; the root has one pending discussion at a time. Delivery filters root history to the pending conversation, and replies inherit its ID. Reread and image retention still see every conversation.

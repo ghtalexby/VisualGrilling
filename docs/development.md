@@ -268,3 +268,5 @@ index for these maps is 2207–4527 characters and is now inline in answer/quest
 acceptance check; the deterministic 0.85 similarity guard does not detect paraphrases.
 
 Session-cost checks extend context, completeness, discussion, monitor, watch, usage and knowledge scripts. A comparable real 12-answer session is a separate acceptance step: record calls/event, usage differences, separate reevaluation ratio and truncated outputs in the session-cost plan; deterministic transport tests do not establish model-call savings.
+
+Project conversation regression checks in `check-discussion.mjs` cover legacy history, isolated delivery, pending-work conflicts, reset isolation and restart. `check-discussion-browser.mjs` checks the dropdown, +, separate drafts and history.

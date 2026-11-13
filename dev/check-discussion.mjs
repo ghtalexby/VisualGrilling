@@ -169,6 +169,35 @@ try {
   assert.equal(s.nodes[0].chat.at(-1).text, "Preserve this oversized request");
   e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.id, leaf);
   await request("apply", { type: "answer", id: leaf, token: e.token, status: "ok", verdict: "Independent work completes" });
+  await request("init", { title: "Conversations", questions: [{ q: "Scope?", options }] });
+  e = await begin("root", "Original conversation"); await reply(e);
+  const conversation = await request("conversations", {});
+  await request("discuss", { id: "root", conversationId: "missing", message: "Invalid" }, 404);
+  await request("discuss", { id: "root", conversationId: conversation.id, message: "Separate topic" });
+  await request("discuss", { id: "root", message: "Wrong conversation" }, 409);
+  await request("chatreset", { id: "root" }, 409);
+  for (const conversationId of [" ", "", null, 42]) {
+    await request("chatreset", { id: "root", conversationId }, 404);
+    await request("discuss", { id: "root", conversationId, message: "Invalid" }, 404);
+  }
+  e = await wait();
+  assert.equal(e.conversationId, conversation.id);
+  assert.deepEqual(discussionChat(e).map(m => m.text), ["Separate topic"]);
+  await request("conversations", {});
+  await reply(e);
+  assert.equal((await state()).nodes[0].chat.at(-1).conversationId, conversation.id);
+  await request("discuss", { id: "root", conversationId: conversation.id, message: "Recover me" });
+  e = await wait(); await stop(); await start();
+  const recovered = await wait();
+  assert.equal(recovered.conversationId, conversation.id);
+  assert.equal(recovered.message, "Recover me");
+  await reply(e, {}, 409); await reply(recovered);
+  await request("chatreset", { id: "root", conversationId: conversation.id });
+  s = await state(); assert.equal(s.projectConversations.length, 3);
+  assert.deepEqual(s.nodes[0].chat.map(m => m.text), ["Original conversation", "Discussed"]);
+  e = await begin("root", "Continue original");
+  assert.equal(discussionChat(e).length, 3); await reply(e);
+  assert.equal((await fetch(url + "api/conversations", { method: "POST", body: "{}" })).status, 403);
   console.log("Discussion questions checks passed");
 } finally {
   await stop();

@@ -629,9 +629,11 @@ ${S.notes || "—"}
       n.discuss = "thinking"; n.discussToken = randomUUID();
       n.discussMapRevision = mapRevision();
       n.discussRevision = branchRevision(n.id);
-      const chat = n.chat || []; let i = chat.length; while (i && chat[i - 1].from === "user") i--;
+      const conversationId = n.kind === "root" ? n.chat?.at(-1)?.conversationId || "main" : null;
+      const chat = (n.chat || []).filter(m => !conversationId || (m.conversationId || "main") === conversationId); let i = chat.length; while (i && chat[i - 1].from === "user") i--;
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : n.kind === "idea" ? "idea" : "question", question: n.kind === "root" ? S.title : n.text || n.q, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
-        context: focusedContext(S.nodes, n.id, chat.slice(i).map(m => m.text).join(" "), { index: true, descendants: n.kind !== "root" }),
+        ...(conversationId ? { conversationId } : {}),
+        context: focusedContext(S.nodes.map(x => x.id === n.id ? { ...x, chat } : x), n.id, chat.slice(i).map(m => m.text).join(" "), { index: true, descendants: n.kind !== "root" }),
         message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : m.about === "question" ? "вопрос" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
         images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
         };
@@ -994,7 +996,7 @@ ${S.notes || "—"}
         queueReview(S.nodes, n.id);
         queueIdea(ideaOf(S.nodes, n.id));
       }
-      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
+      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", ...(n.kind === "root" ? { conversationId: n.chat?.at(-1)?.conversationId || "main" } : {}), text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
       delete n.discussDraft; delete n.discussMapRevision;
       for (const id of result.touched) { if (!result.inline.includes(id)) queueReview(S.nodes, id); queueIdea(ideaOf(S.nodes, id)); }
       delete n.discussRevision;
@@ -1436,15 +1438,25 @@ ${S.notes || "—"}
         if (!m.readAt) { m.readAt = Date.now(); save(); }
         return send(res, 200, { ok: true });
       }
+      if (p === "/api/conversations") {
+        const conversations = S.projectConversations || [{ id: "main" }];
+        if (conversations.length >= 100) return send(res, 400, { error: "Слишком много разговоров" });
+        const conversation = { id: randomUUID() };
+        S.projectConversations = [...conversations, conversation]; save();
+        return send(res, 200, conversation);
+      }
       if (p === "/api/discuss") {
         const n = get(b.id); const text = clean(b.message, 2000), quote = clean(b.quote, 400), about = ["verdict", "question"].includes(b.about) ? b.about : "option";
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
+        const conversationId = n.kind === "root" ? clean(b.conversationId === undefined ? "main" : b.conversationId, 80) : null;
+        if (n.kind === "root" && !(S.projectConversations || [{ id: "main" }]).some(c => c.id === conversationId)) return send(res, 404, { error: "Разговор не найден" });
+        if (conversationId && n.discuss && (n.chat?.at(-1)?.conversationId || "main") !== conversationId) return send(res, 409, { error: "Дождитесь ответа агента" });
         const sources = b.images ?? [];
         if (!Array.isArray(sources)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (!text && !quote && !sources.length) return send(res, 400, { error: "Пустое сообщение" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент уже отвечает в обсуждении этого вопроса" });
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Отправить сообщение можно будет после перечитывания" });
-        if ((n.chat || []).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
+        if ((n.chat || []).filter(m => !conversationId || (m.conversationId || "main") === conversationId).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
         if (sources.length > IMG_COUNT) return send(res, 400, { error: "Можно вставить не больше 4 картинок" });
         const decoded = sources.map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
         if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
@@ -1452,7 +1464,7 @@ ${S.notes || "—"}
         const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
         delete n.discussError;
         n.semanticsStale = true;
-        n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
+        n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", ...(conversationId ? { conversationId } : {}), text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
         if (n.discuss) { save(); return send(res, 200, { ok: true }); }
         n.discuss = "queued"; enqueue({ type: "discuss", id: n.id }); return send(res, 200, { ok: true });
       }
@@ -1461,7 +1473,12 @@ ${S.notes || "—"}
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент сейчас отвечает в обсуждении — сбросить можно после ответа" });
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Сбросить чат можно будет после перечитывания" });
-        delete n.chat; n.semanticsStale = true; delete n.discussError; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
+        const conversationId = n.kind === "root" ? clean(b.conversationId === undefined ? "main" : b.conversationId, 80) : null;
+        if (n.kind === "root" && !(S.projectConversations || [{ id: "main" }]).some(c => c.id === conversationId)) return send(res, 404, { error: "Разговор не найден" });
+        if (conversationId && n.discuss && (n.chat?.at(-1)?.conversationId || "main") !== conversationId) return send(res, 409, { error: "Дождитесь ответа агента" });
+        if (conversationId) n.chat = (n.chat || []).filter(m => (m.conversationId || "main") !== conversationId);
+        else delete n.chat;
+        n.semanticsStale = true; delete n.discussError; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
         return send(res, 200, { ok: true });
       }
       if (p === "/api/cancel") {
