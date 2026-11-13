@@ -1,6 +1,6 @@
 {
   "name": "visual-grilling",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "Скилл Codex и Claude Code для визуального грилинга проекта + тестовый проект для отладки",
   "type": "module",
