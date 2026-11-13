@@ -339,6 +339,7 @@
   "Ссылка в проекте превью": "Symbolic link in preview project",
   "Некорректный проект": "Invalid project",
   "Некорректный Git проекта": "Invalid project Git directory",
+  "Версия": "Version",
   "Версия не найдена": "Version not found",
   "Результат превью устарел": "Preview result is stale",
   "Нужны вопрос и варианты превью": "A preview question and options are required",

@@ -11,7 +11,8 @@ const updates = directories.map(directory => {
   const source = fs.readFileSync(file, "utf8");
   const target = /(<span id="brandVersion" title=")[^"]*(")/;
   if (!target.test(source)) throw new Error("Не найден заголовок с версией скилла");
-  return { directory, file, source: source.replace(target, `$1${version}$2`) };
+  // The entity separates the translated label from the release number.
+  return { directory, file, source: source.replace(target, (_, before, after) => `${before}Версия&#58; ${version}${after}`) };
 });
 for (const { directory, file, source } of updates) {
   fs.writeFileSync(new URL("version.json", directory), JSON.stringify({ version }, null, 2) + "\n");

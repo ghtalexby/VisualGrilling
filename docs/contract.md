@@ -426,6 +426,10 @@ Replacing an existing answer with different discussion text also queues an autom
 
 `GET /api/state` also returns `currentWork:null|{type}` for the latest unfinished delivery on this map. Types: `answer`, `discuss`, `reread`, `reevaluate`, `question`, `idea`, `preview`, `spec`, `knowledge`, `more`, `finish`. It exposes no delivery credentials. Queued/blocked work is not active work. Staged discussion parts and notes keep the current task; completion or invalidation clears it. A new wait recovers unfinished work before redelivery. This field has no heartbeat timeout and is independent of `listening`; server restart clears it until another delivery. Existing event/apply formats are unchanged (including tokenless `more`).
 
+## Release tooltip
+
+The brand's release tooltip uses the map locale's `Версия` label (`Version` in English), followed by the installed numeric release. Release numbers are not dictionary keys and do not change the API or map state revision.
+
 ## Session token usage
 
 The header shows whole-session Codex token usage, not usage attributable to one map. Hover over the single-line counter (or focus it with the keyboard) for a floating tooltip with cumulative input, uncached input, cached input, output and reasoning tokens. Leaving the counter, blurring it or pressing Escape hides the tooltip without changing header layout. Input counts repeated context on every request; it is not the current context size. Uncached input equals input minus cached input. Cached input is a subset of input; reasoning is a subset of output, so neither is added again to the total. Counts refresh with polling even when map state is unchanged. Missing data (including unsupported providers) and an offline map show no data, never an invented zero.
