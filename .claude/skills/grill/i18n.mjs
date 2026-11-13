@@ -21,9 +21,6 @@ export function locale(input = { language: "ru" }, stored = false) {
 export const revision = l => createHash("sha256").update(JSON.stringify(l)).digest("hex");
 export const translate = (l, text) => Object.hasOwn(l.messages, text) ? l.messages[text] : text;
 export function page(source, l, doubleClickMs = 5000) {
-  const { version } = JSON.parse(fs.readFileSync(new URL("./version.json", import.meta.url), "utf8"));
-  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error("Invalid release version");
-  source = source.replace("__GRILL_VERSION__", version);
   const clickDelay = Number.isFinite(doubleClickMs) && doubleClickMs > 0 && doubleClickMs <= 10000 ? Math.ceil(doubleClickMs) + 100 : 5100;
   const parts = source.split(/(<script>|<\/script>)/);
   let script = false;

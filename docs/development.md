@@ -16,11 +16,11 @@ Real-host acceptance remains separate from deterministic checks: on Codex and Cl
 
 ## Release version
 
-Hover over the Grilling map brand text in the header to see the installed release version, starting at `1.0.0`. Run `npm run release` once for each new release: it increments the patch number (`1.0.0` → `1.0.1` → `1.0.2`) in the root `package.json` and uses the npm `version` lifecycle script to synchronize `skills/grill/version.json`. It does not publish, commit, or tag. Commit both version files with the release changes. No compilation or dependency installation is required.
+Hover over the Grilling map brand text in the header to see the installed release version, starting at `1.0.0`. Run `npm run release` once for each new release: it increments the patch number (`1.0.0` → `1.0.1` → `1.0.2`) in the root `package.json` and uses the npm `version` lifecycle script to synchronize `skills/grill/version.json`. It does not publish, commit, or tag. Commit the version files and stamped UI templates with the release changes. No compilation or dependency installation is required.
 
-The whole skill directory includes `version.json`, so copied installations do not depend on the repository package file. Recopy the skill for copied installations; linked installations see the updated version on page reload. The renderer reads it on each page request. After first installing this tooltip change, restart existing map servers and reload the page because `i18n.mjs` changed. Map state revision counters are unrelated to the release version.
+The whole skill directory includes `version.json`, so copied installations do not depend on the repository package file. Recopy the skill for copied installations; linked installations see the updated version on page reload. The release script stamps the numeric version directly into the UI template. Existing servers read that template on each page request, so a browser reload is sufficient even when the server predates version support. Map state revision counters are unrelated to the release version.
 
-The release script also synchronizes the tracked `.claude/skills/grill/version.json` mirror, whether it is a regular directory in a fresh clone or a local junction. Include that version file in the release commit too.
+The release script also synchronizes the tracked `.claude/skills/grill/version.json` and `ui.html` mirror, whether it is a regular directory in a fresh clone or a local junction. Include that version file in the release commit too.
 
 ## npm scripts
 
