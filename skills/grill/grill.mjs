@@ -617,7 +617,7 @@ ${S.notes || "—"}
       return { type: "answer", id: n.id, token: n.pending.token, question: n.q, why: n.why, area: n.area, level: depth(n), priority: rootOf(n).prio,
         answer: n.pending.answer, previousAnswer: n.answer || null, previews: preview.savedContext(n.id, source),
         ancestorIds: ancestorIds(source, n.id),
-        context: { ...focusedContext(source, n.id, n.pending.answer, { titles: true }), ancestorIndex: indexText(source.filter(x => ancestorIds(source, n.id).includes(x.parentId) && !branchIds(source, n.id).has(x.id))), ...(specLocked(n.id) ? { readToken: n.pending.token } : {}) }, capturedForSpec: !!specLocked(n.id),
+        context: { ...focusedContext(source, n.id, n.pending.answer, { titles: true }), ancestorIndex: indexText(source.filter(x => ancestorIds(source, n.id).includes(x.parentId) && !branchIds(source, n.id).has(x.id)), new Set(), false, false), ...(specLocked(n.id) ? { readToken: n.pending.token } : {}) }, capturedForSpec: !!specLocked(n.id),
         questionRequests: S.questionRequests.filter(j => subtree(S.nodes, n.id).some(x => x.id === j.parentId)).map(j => ({ id: j.id, parentId: j.parentId, q: j.q })),
         protectedIds: specLocked(n.id) ? subtree(S.nodes, n.id).filter(x => !source.some(s => s.id === x.id && JSON.stringify(contextNode(s)) === JSON.stringify(contextNode(x)))).map(x => x.id) : [],
         };
@@ -1551,8 +1551,8 @@ ${S.notes || "—"}
         catch (error) {
           applying = false;
           if (rearm && error[0] === 409) {
-            const status = rearmMonitor(); pump();
-            return send(res, 409, { error: error[1], monitor: status });
+            rearmMonitor(); pump();
+            return send(res, 409, { error: error[1], monitor: monitorStatus() });
           }
           throw error;
         }
@@ -1560,7 +1560,9 @@ ${S.notes || "—"}
         const event = monitor?.event;
         if (event && event.type === b.type && event.id === b.id && event.token === b.token && !workIsCurrent()) monitor.completed = true;
         if (rearm && !result.staged && !workIsCurrent()) result.monitor = rearmMonitor(b.type === "finish");
-        pump(); return send(res, 200, result);
+        pump();
+        if (result.monitor && result.monitor.phase !== "stopped") result.monitor = monitorStatus();
+        return send(res, 200, result);
       }
       if (p === "/api/stop") { send(res, 200, { ok: true }); setTimeout(() => { try { fs.unlinkSync(INFO); } catch {} process.exit(0); }, 100); return; }
       return send(res, 404, { error: "not found" });

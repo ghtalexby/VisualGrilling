@@ -122,6 +122,16 @@ try {
     assert.equal(result.code, 1);
     assert.ok(result.stderr.includes(configFile));
   }
+  for (const threshold of [1, 120000, 200000]) {
+    fs.writeFileSync(configFile, JSON.stringify({ session: { rolloverTokens: threshold } }));
+    result = await run(["config"]).done;
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).session.rolloverTokens, threshold);
+  }
+  for (const threshold of [0, -1, 1.5, "120000", null]) {
+    fs.writeFileSync(configFile, JSON.stringify({ session: { rolloverTokens: threshold } }));
+    assert.equal((await run(["config"]).done).code, 1);
+  }
   fs.unlinkSync(configFile);
   fs.mkdirSync(configFile);
   assert.equal((await run(["config"]).done).code, 1);

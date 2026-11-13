@@ -98,11 +98,21 @@ export function focusedContext(nodes, id, text, { index = false, titles = false,
 
 // Sparse reassessment evidence: missing timestamps conservatively mean changed.
 export function reviewContext(nodes, ids, imageDirectory) {
-  const targets = new Set(ids), descendants = new Set(ids.flatMap(id => [...branchIds(nodes, id, true, false)]));
+  const targets = new Set(ids), descendants = new Set(), cutoffs = new Map();
+  const byId = new Map(nodes.map(n => [n.id, n])), children = new Map();
+  for (const n of nodes) { if (!children.has(n.parentId)) children.set(n.parentId, []); children.get(n.parentId).push(n.id); }
+  for (const id of ids) {
+    const since = byId.get(id)?.verdictHistory?.at(-1)?.at || 0, seen = new Set(), pending = [id];
+    while (pending.length) {
+      const child = pending.pop(); if (seen.has(child)) continue;
+      seen.add(child); descendants.add(child);
+      cutoffs.set(child, Math.min(cutoffs.get(child) ?? Infinity, since));
+      pending.push(...children.get(child) || []);
+    }
+  }
   const full = [], omitted = new Set();
   for (const n of nodes.filter(n => descendants.has(n.id) && n.kind !== "root")) {
-    const parents = ids.filter(id => branchIds(nodes, id, true, false).has(n.id));
-    const since = Math.min(...parents.map(id => nodes.find(n => n.id === id).verdictHistory?.at(-1)?.at || 0));
+    const since = cutoffs.get(n.id);
     const chatChanged = (n.chat || []).some(m => m.from === "user" && (!m.at || m.at > since));
     const changed = !since || n.pending || (n.verdictHistory?.at(-1)?.at || n.reviewedAt || 0) > since || (n.answerHistory?.at(-1)?.at || 0) > since || (n.answerSource?.at || 0) > since || chatChanged;
     if (!targets.has(n.id) && !changed) { omitted.add(n.id); continue; }
@@ -114,7 +124,8 @@ export function reviewContext(nodes, ids, imageDirectory) {
     if (card.verdictHistory) { card.verdictHistoryCount = card.verdictHistory.length; card.verdictHistory = card.verdictHistory.slice(-3); }
     full.push(card);
   }
-  const ancestors = new Set(ids.flatMap(id => [...branchIds(nodes, id, false, true)]));
+  const ancestors = new Set();
+  for (const id of ids) for (let n = byId.get(id); n && !ancestors.has(n.id); n = byId.get(n.parentId)) ancestors.add(n.id);
   for (const n of nodes.filter(n => ancestors.has(n.id) && !descendants.has(n.id) && n.kind !== "root")) {
     full.push({ id: n.id, parentId: n.parentId, kind: n.kind, q: n.q, answer: n.answer, status: n.status, ...(n.kind === "idea" ? { text: n.text } : {}) });
   }

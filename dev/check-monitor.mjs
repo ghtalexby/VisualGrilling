@@ -203,7 +203,7 @@ try {
   await arm(); await api("finish", {}); status = await pending(); e = await event(status.delivery);
   if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [], rearm: true, owner }); status = await pending(); e = await event(status.delivery); }
   await api("more", {});
-  assert.equal((await api("apply", { type: "finish", token: e.token, summary: "Drain", rearm: true, owner })).monitor.phase, "armed");
+  assert.equal((await api("apply", { type: "finish", token: e.token, summary: "Drain", rearm: true, owner })).monitor.phase, "notifying");
   status = await pending(); e = await event(status.delivery); assert.equal(e.type, "more");
   await api("apply", { type: "more", questions: [], rearm: true, owner });
   // Deliberate negative results complete delivery and must keep serving.

@@ -1,5 +1,5 @@
 // Measure focused event payloads using a deterministic, disposable 40-question map.
-import { evidenceNode, deliveryNode, focusedContext, indexText, vocabulary, applySemantics, validateDuplicates, reconcileLinks, validateLinks } from "../skills/grill/context.mjs";
+import { evidenceNode, reviewContext, deliveryNode, focusedContext, indexText, vocabulary, applySemantics, validateDuplicates, reconcileLinks, validateLinks } from "../skills/grill/context.mjs";
 import { digest } from "../skills/grill/knowledge.mjs";
 import { circlePreview } from "./fixtures/preview.mjs";
 import assert from "node:assert/strict";
@@ -53,6 +53,8 @@ assert.equal(deliveryNode(chatAnswer).answer, undefined);
 assert.equal(deliveryNode(chatAnswer).answerFromChat, true);
 assert.equal(deliveryNode({ ...chatAnswer, chat: chatAnswer.chat.slice(1) }).answer, chatAnswer.answer);
 assert.equal(evidenceNode(chatAnswer).answer, chatAnswer.answer);
+const deepReview = Array.from({ length: 500 }, (_, i) => ({ id: "deep" + i, kind: "q", parentId: i ? "deep" + (i - 1) : null, q: "Q", answer: "A", verdictHistory: [{ at: 1 }] })).reverse();
+assert.equal(reviewContext(deepReview, deepReview.map(n => n.id)).nodes.length, 500);
 const badGraph = [...dense, { id: "preview", kind: "preview", parentId: "root", relates: [{ id: "dense0", kind: "depends" }] }];
 assert.throws(() => applySemantics(badGraph, "dense0", { relates: [{ id: "preview", kind: "depends" }] }, s => s));
 badGraph[1].relates = [{ id: "root", kind: "depends" }, { id: "preview", kind: "depends" }];
@@ -480,6 +482,15 @@ try {
   assert.equal((await api("state")).contextStats.totals.more.count, 206);
   await api("init", { questions: [{ q: "Reset?", options: ["Yes", "No"] }] });
   assert.deepEqual((await api("state")).contextStats, { recent: [], totals: {} });
+  // Navigation-only siblings must not impose a full-card delivery limit.
+  await reset(); await stop();
+  const wide = structuredClone(fixture);
+  wide.nodes = [wide.nodes[0], { id: "parent", kind: "q", parentId: "root", q: "Parent", answer: "Original", status: "weak" }, ...Array.from({ length: 502 }, (_, i) => ({ id: "sibling" + i, kind: "q", parentId: "parent", q: "Child " + i, status: "open" }))];
+  fs.writeFileSync(stateFile, JSON.stringify(wide)); await start();
+  await api("answer", { id: "sibling0", answer: "Evidence" });
+  const wideEvent = await delivered("answer", false);
+  assert.equal(wideEvent.context.focus.length, 2);
+  assert.equal(wideEvent.context.ancestorIndex.split("\n").length, 501);
   console.log("Context accounting, bounded history, restart and reset checks passed");
 } finally {
   await stop(); fs.rmSync(cwd, { recursive: true, force: true });
