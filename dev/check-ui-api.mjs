@@ -32,6 +32,7 @@ const state = () => request("state");
 async function wait() {
   for (;;) {
     const e = await request("wait?timeout=5");
+    if (e.type === "reread") { await request("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport review" })) }); continue; }
     if (e.type !== "reevaluate") return e;
     await request("apply", { type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
       assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status, verdict: n.verdict }; }) });
@@ -52,6 +53,7 @@ try {
   const headerContext = vm.createContext({
     S: headerState, loaded: true, listening: true, offline: false, panel: null, rereadSending: false, resumeSending: false,
     showObsolete: false, coverageText: () => "", qs: () => headerState.nodes, counts: () => ({}), ORDER: [], document: {},
+    renderQueue: () => {},
     renderUsage: () => {}, // Token rendering is outside this isolated Stop-button check.
     renderResumeCopy: () => {}, // Clipboard rendering is covered by check-copy-browser.
     $: selector => controls[selector] ||= { classList: { toggle() {} }, setAttribute(key, value) { this[key] = value; } }
@@ -145,6 +147,7 @@ try {
   await request("discuss", { id: "root", images: ["data:image/png;base64," + Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(8 * 1024 * 1024)]).toString("base64")] }, 400);
   assert.deepEqual(stored(), []);
   await request("discuss", { id: "root", images: [png] });
+  e = await wait();
   let [picture] = (await state()).nodes.find(n => n.id === "root").chat[0].images;
   assert.match(picture, /^[0-9a-f-]{36}\.png$/);
   assert.equal((await fetch(url + "api/image?file=" + picture)).status, 403);
@@ -153,7 +156,6 @@ try {
   assert.equal((await served.arrayBuffer()).byteLength, 24);
   for (const bad of ["..%2Fstate.json", "..%5Cstate.json", "state.json", "00000000-0000-0000-0000-000000000000.png"])
     assert.equal((await fetch(url + "api/image?file=" + bad, { headers: { "x-grill": "1" } })).status, 404);
-  e = await wait();
   assert.equal(e.message, ""); assert.deepEqual(e.images, [path.join(map, "images", picture)]); assert.ok(fs.existsSync(e.images[0]));
   await discuss(e);
   await request("discuss", { id: "root", message: "Follow-up" });
@@ -165,14 +167,13 @@ try {
   fs.writeFileSync(path.join(map, "images", "11111111-1111-1111-1111-111111111111.png"), "orphan");
   fs.writeFileSync(path.join(map, "images", "11111111-1111-1111-1111-111111111111.png.interrupted.tmp"), "partial");
   await request("chatreset", { id: "root" });
-  assert.deepEqual(stored(), []);
   // A long Cyrillic message must survive being split across network chunks.
   const long = "щ".repeat(2000);
   await request("discuss", { id: "root", message: long, images: ["data:image/png;base64," + Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(1024 * 1024)]).toString("base64")] });
-  e = await wait(); assert.equal(e.message, long); await discuss(e);
+  e = await wait(); assert.equal(e.message, long); assert.ok(stored().includes(picture)); await discuss(e);
   await request("chatreset", { id: "root" });
 
-  const custom = { id: "custom-main", parentId: "root", q: "User main?" };
+  const custom = { actionId: "custom-main-action", id: "custom-main", parentId: "root", q: "User main?" };
   await request("question", custom); await request("question", custom);
   assert.equal((await state()).queueLength, 1);
   await request("question", { ...custom, q: "Different" }, 409);
@@ -188,8 +189,6 @@ try {
   await request("question", { id: "custom-child", parentId: main.id, q: "User child?" });
   e = await wait();
   await request("answer", { id: main.id, answer: "New parent context" });
-  await request("apply", { type: "question", id: e.id, token: e.token, question: { options } }, 409);
-  e = await wait(); assert.equal(e.type, "question");
   const child = await request("apply", { type: "question", id: e.id, token: e.token, question: { options } });
   e = await wait(); assert.equal(e.type, "answer");
   await grade(e, { children: [{ q: "Automatic child", options, recommendation }] });
@@ -216,7 +215,6 @@ try {
   // A concurrent browser message invalidates an answer result; delivery rotates tokens.
   await request("answer", { id: main.id, answer: "Concurrent edit" }); e = await wait();
   await request("discuss", { id: child.id, message: "Late activity" });
-  await grade(e, {}, 409);
   const newer = await wait(); assert.equal(newer.type, "answer");
   await grade(e, {}, 409); await grade(newer);
   e = await wait(); assert.equal(e.type, "discuss");
@@ -229,15 +227,15 @@ try {
   await request("answer", { id: main.id, answer: "Captured parent grade" });
   await request("spec", {});
   await request("discuss", { id: child.id, message: "Discussion after capture" });
-  e = await wait(); assert.equal(e.id, child.id); assert.equal(e.capturedForSpec, true);
+  e = await wait(); assert.equal(e.id, child.id); assert.equal(e.capturedForSpec, false);
   assert.ok(!JSON.stringify(e.context.focus).includes("Discussion after capture"));
   await grade(e);
   await request("answer", { id: child.id, answer: "Answer after capture" });
   e = await wait(); assert.equal(e.id, main.id);
   assert.ok(!JSON.stringify(e.context.focus).includes("Answer after capture"));
-  assert.ok(e.protectedIds.includes(child.id));
+  assert.deepEqual(e.protectedIds, []);
   await grade(e, { branchChanges: { remove: [grouping] } }, 400);
-  await grade(e, { branchChanges: { remove: [child.id] } }, 409);
+  await grade(e, { branchChanges: { remove: [other.id] } }, 400);
   await grade(e, { branchChanges: { remove: [grouping], move: [{ id: child.id, parentId: main.id }] } });
   e = await wait(); assert.equal(e.type, "spec");
   assert.equal(e.nodes.find(n => n.id === child.id).answer, "Captured child grade");
@@ -245,9 +243,9 @@ try {
   assert.ok(!e.nodes.some(n => n.id === grouping || n.chat || n.discuss));
   assert.ok(!JSON.stringify(e.nodes).includes("Answer after capture"));
   await request("apply", { type: "spec", token: e.token, markdown: "# Captured implementation" });
-  await request("apply", { type: "spec", token: e.token, markdown: "# Repeated" }, 409);
-  e = await wait(); assert.equal(e.answer, "Answer after capture"); await grade(e);
+  await request("apply", { type: "spec", token: e.token, markdown: "# Repeated" });
   e = await wait(); assert.equal(e.type, "discuss"); assert.equal(focusCard(e).pending, undefined); await discuss(e);
+  e = await wait(); assert.equal(e.answer, "Answer after capture"); await grade(e);
 
   // Client request IDs and node IDs occupy separate queue namespaces.
   await request("answer", { id: main.id, answer: "Remove a descendant" });
@@ -255,15 +253,14 @@ try {
   e = await wait(); assert.equal(e.type, "answer");
   await grade(e, { branchChanges: { remove: [child.id] } });
   // The custom question, queued reread and internal parent reassessment.
-  assert.equal((await state()).queueLength, 3);
+  assert.equal((await state()).queueLength, 2);
   e = await wait(); assert.equal(e.type, "question"); assert.equal(e.id, child.id);
   await request("apply", { type: "question", id: e.id, token: e.token, question: { options } });
-  e = await wait(); assert.equal(e.type, "reread");
-  await request("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Nothing to change" });
 
-  await request("more", {}); await request("more", {});
-  assert.equal((await state()).queueLength, 1); await wait();
-  await request("apply", { type: "more", questions: [{ q: "More", options, recommendation }] });
+
+  await request("more", { actionId: "more-once" }); await request("more", { actionId: "more-once" });
+  assert.equal((await state()).queueLength, 1); e = await wait();
+  await request("apply", { type: "more", token: e.token, questions: [{ q: "More", options, recommendation }] });
   assert.deepEqual((await state()).nodes.find(n => n.q === "More").recommendation, recommendation);
   await request("finish", {}); assert.equal((await wait()).type, "finish");
   await request("apply", { type: "finish", summary: "Done" });

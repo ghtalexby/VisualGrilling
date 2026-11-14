@@ -55,15 +55,15 @@ try {
   await stop(); await start(); await work(null);
   await request("wait?timeout=5"); await work("answer");
   await request("apply", { type: "answer", id, token: e.token, status: "ok", verdict: "Stale" }, 409); await work("answer");
-  await request("cancel", { id }); await work("answer");
-  await stop(); await start(); await request("cancel", { id }); await work(null);
+  await request("cancel", { id }, 409); await work("answer");
+  await stop(); await start(); await request("cancel", { id }, 409); await work(null);
   await request("init", { title: "More", questions: [{ q: "Open?", options: ["Yes", "No"] }] });
   await request("more", {}); await work(null);
   e = await request("wait?timeout=5"); assert.equal(e.type, "more"); await work("more");
   await stop(); await start(); await work(null);
   e = await request("wait?timeout=5"); assert.equal(e.type, "more"); await work("more");
   e = await request("wait?timeout=5"); assert.equal(e.type, "more"); await work("more");
-  await request("apply", { type: "more", questions: [{ q: "Another?", options: ["Yes", "No"] }] }); await work(null);
+  await request("apply", { type: "more", token: e.token, questions: [{ q: "Another?", options: ["Yes", "No"] }] }); await work(null);
   console.log("Current work lifecycle checks passed");
 } finally {
   await stop(); fs.rmSync(cwd, { recursive: true, force: true });

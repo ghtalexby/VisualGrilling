@@ -22,7 +22,7 @@ The interaction takes place on a browser map:
 7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues an automatic incremental review after the first full review.
 8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
-A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 and Codex monitor mode require separate sessions. Use the header switcher to visit sibling maps. Finishing drains queued actions, then stops listening while leaving the page readable.
+A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 and Codex monitor mode require separate sessions. Use the header switcher to visit sibling maps. Finishing processes earlier actions, then stops at a persisted boundary; later actions remain queued until explicit continuation.
 
 ## Language
 
@@ -108,4 +108,7 @@ The header also shows cumulative tokens for the bound Codex session, including w
 
 Hover over the map name/title to copy a ready-to-paste continuation request for another agent session. It includes the project directory, saved map paths, skill and CLI paths, language and exact start command. Keyboard focus and touch devices also expose the control. Copying does not transfer the active event listener; stop the previous session from serving the map before resuming elsewhere.
 
-The project chat has a conversation dropdown on the left and a + button on the right. Start a new conversation or return to an older one; labels use each conversation’s first message. Existing chat remains the first conversation. Each conversation preserves its own browser draft and saved messages. Only one project conversation can queue agent work at a time.
+The project chat has a conversation dropdown on the left and a + button on the right. Start a new conversation or return to an older one; labels use each conversation’s first message. Existing chat remains the first conversation. Each conversation preserves its own browser draft and saved messages. All conversations can queue messages; the server processes adjacent messages from one conversation together in FIFO order.
+
+
+Every mutation receives a durable action receipt before execution. The header queue circle counts waiting messages and internal tasks, separately from current work and the 20-action admission limit. Hover to inspect, click to pin, and use the problem icon to revisit errors. Root offers an archive of removed cards and preserved inputs; reread reviews that evidence. Submission remains available while the agent works. Codex monitor delegates each event to a fresh prepare-only worker and keeps apply/rearm in the main session.

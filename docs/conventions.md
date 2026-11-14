@@ -35,7 +35,7 @@ When adding an endpoint:
 
 ## Known code quirks
 
-- Keep the `spec` contract synchronized across the server, UI, `SKILL.md`, documentation, and simulator. The server writes Markdown supplied by the agent through `apply`; the request does not choose the filename. Preserve the ownership marker, symlink checks, and delivery token. The snapshot must exclude changes made after the request.
+- Keep the `spec` contract synchronized across the server, UI, `SKILL.md`, documentation, and simulator. The server writes Markdown supplied by the agent through `apply`; the request does not choose the filename. Preserve the ownership marker, symlink checks, and delivery token. The snapshot is captured at execution after predecessor actions; later journal entries must not leak into it.
 - `requeue()` is declared in `grill.mjs` but unused.
 - Run at most one `wait` or `watch` per map at a time, including across sessions. A second call returns another agent's work from `thinking` to the queue and can take its events. A lease is postponed to a later persistent-worker step.
 - There is no processing timeout. Each new `wait` or `watch` returns everything still in `thinking` (answers in `pending.stage`, discussions in `node.discuss`) to the front of the queue. The agent follows `wait/watch → apply → wait/watch`, so such work is assumed to have been abandoned by a dead session.
@@ -67,3 +67,6 @@ Keep `context.mjs`, delivery callers, read-only context endpoints, simulator con
 ## Session call cost
 
 In single-session modes (Codex monitor and levels 0/1), each extra tool round trip rereads the whole history (about 128000 tokens in the measured baseline). Small navigation data adds only about a thousand tokens per remaining call. Prefer inline question titles and ancestor navigation to mandatory read-only calls. Preserve apply/rearm atomicity, CLI-only request metrics, frozen read tokens and bounded file output when changing event workflows.
+
+
+Action admission must preserve the input before acknowledgement. Never prune journal IDs/receipts or archived evidence automatically. Keep actions.mjs, the admission UI, locale dictionary, worker ownership and check-actions.mjs synchronized. Perform image pruning only after the archive and result transaction is committed. Do not count paused post-finish actions as executable drain work.

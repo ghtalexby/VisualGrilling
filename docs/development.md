@@ -270,3 +270,12 @@ acceptance check; the deterministic 0.85 similarity guard does not detect paraph
 Session-cost checks extend context, completeness, discussion, monitor, watch, usage and knowledge scripts. A comparable real 12-answer session is a separate acceptance step: record calls/event, usage differences, separate reevaluation ratio and truncated outputs in the session-cost plan; deterministic transport tests do not establish model-call savings.
 
 Project conversation regression checks in `check-discussion.mjs` cover legacy history, isolated delivery, pending-work conflicts, reset isolation and restart. `check-discussion-browser.mjs` checks the dropdown, +, separate drafts and history.
+
+
+## Durable action queue acceptance
+
+Run `node dev/check-actions.mjs`: durable IDs/replay/restart, adjacent messages/answer versions, execution-time spec snapshots, submissions during reread, missing-target archive/restoration, group cancellation and start races, failures/manual tail retries, 20 queued actions, finish boundaries and protected API. Run check-monitor, check-current-work, check-workers, check-maps and check-locale with it. Earlier suites that asserted immediate mutation or invalidation must follow the durable admission contract.
+
+In both UI languages exercise queue hover/pinning/Close, separate current/queued counts, three messages plus one internal task, problem access without waiting work, answer editing and deletion during reread, archive access and full-queue refusal with drafts intact. Close the browser and confirm the active host keeps processing. In a real Codex session verify one fresh prepare-only worker per event, worker failure fallback, stale result rejection, main-session-only apply and rearm; fake transport and simulator checks do not prove model/host behavior.
+
+`node dev/check-actions-browser.mjs` verifies EN/RU queue grouping, hover/pinning/close, current-work indicator, problem access, archive and exact internal-task counting. `node dev/check-actions-simulator.mjs` runs the required simulator with `--no-open --delay 200` on a uniquely named disposable map and covers all three grade outcomes, chat, more, finish and report.

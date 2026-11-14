@@ -146,7 +146,7 @@ try {
   await api("apply", { type: "reread", token: event.token, audit: contextCards(event).map(n => ({ id: n.id, action: "keep", reason: "Current" })) });
   event = await wait(); assert.equal(event.type, "knowledge"); assert.equal(event.reason, "reread");
   await api("apply", { type: "knowledge", token: event.token, files: [] });
-  await api("apply", { type: "knowledge", token: event.token, files: [] }, 409);
+  await api("apply", { type: "knowledge", token: event.token, files: [] });
   await api("finish", {}); event = await wait(); assert.equal(event.type, "knowledge");
   await api("apply", { type: "finish", summary: "Bypass" }, 409);
   assert.equal(event.author, null);
@@ -161,6 +161,7 @@ try {
   await api("apply", { type: "finish", token: event.token, summary: "Saved" });
   assert.equal((await api("state")).knowledgeResult.status, "saved");
   // Reusing historical snapshots after the source changes must preserve both provenance and origin.
+  await api("actions/continue", {});
   await api("answer", { id, answer: "A profile now also records a theme." }); event = await wait();
   await api("apply", { type: "answer", id, token: event.token, status: "ok", verdict: "Refined definition" });
   await api("knowledge-import", {}); event = await wait();
@@ -194,9 +195,9 @@ try {
   await api("apply", { type: "answer", id: event.id, token: event.token, status: "ok", verdict: "Explicit identity" });
   await api("answer", { id: scopeCard.id, answer: "Settings" }); event = await wait(); assert.equal(event.type, "answer");
   await api("apply", { type: "answer", id: event.id, token: event.token, status: "ok", verdict: "Explicit scope" });
-  event = await wait(); assert.equal(event.type, "knowledge");
+  await api("knowledge-retry", {}); event = await wait(); assert.equal(event.type, "knowledge");
   await api("apply", { type: "knowledge", token: event.token, error: "Explicit conflict remains" });
-  const operation = JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation;
+  const operation = (JSON.parse(fs.readFileSync(path.join(map, "state.json"))).actions.findLast(a => a.resume?.operation)).resume.operation;
   fs.writeFileSync(path.join(ops, "pending.json"), JSON.stringify({ id: operation, files: [{ path: "docs/vgril/skipped.md", expected: null, text: record({ id: "skipped" }) }] }));
   await api("knowledge-skip", {}); event = await wait(); assert.equal(event.type, "finish");
   await api("apply", { type: "finish", token: event.token, summary: "Skipped" });
@@ -205,23 +206,23 @@ try {
   assert.equal(fs.existsSync(path.join(ops, "pending.json")), false);
 
   // A blocked reread/import keeps its clarification IDs when Finish promotes the same job.
+  await api("actions/continue", {});
   await api("knowledge-import", {}); event = await wait();
   await api("apply", { type: "knowledge", token: event.token, error: "Clarify before finishing", questions: [{ q: "Confirm scope before finish?" }] });
-  await api("finish", {});
   const blocked = await api("state");
   assert.equal(blocked.knowledgeResult.error, "Clarify before finishing");
   const clarification = blocked.knowledgeResult.questions[0];
   await api("answer", { id: clarification, answer: "Confirmed settings scope" }); event = await wait();
   await api("apply", { type: "answer", id: event.id, token: event.token, status: "ok", verdict: "Confirmed" });
-  event = await wait(); assert.equal(event.type, "knowledge");
+  await api("finish", {}); event = await wait(); assert.equal(event.type, "knowledge");
   await api("apply", { type: "knowledge", token: event.token, error: "Interrupted replacement" });
-  const interrupted = JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation;
+  const interrupted = (JSON.parse(fs.readFileSync(path.join(map, "state.json"))).actions.findLast(a => a.resume?.operation)).resume.operation;
   const original = store.read("docs/vgril/new-profile.md");
   fs.writeFileSync(path.join(ops, "pending.json"), JSON.stringify({ id: interrupted, files: [{ path: original.path, expected: original.version, text: original.text + "Interrupted\n" }] }));
   fs.renameSync(path.join(cwd, original.path), path.join(ops, interrupted + "-0.before"));
   await api("knowledge-retry", {});
-  assert.notEqual(JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation, interrupted);
   event = await wait(); assert.equal(event.type, "knowledge");
+  assert.notEqual(JSON.parse(fs.readFileSync(path.join(map, "state.json"))).knowledgeJob.operation, interrupted);
   result = await api("apply", { type: "knowledge", token: event.token, files: [{ path: original.path, expected: original.version, text: original.text + "Fresh reconciled update\n" }] });
   assert.equal(result.ok, true, result.error);
   assert.ok(fs.existsSync(path.join(ops, interrupted + "-0.before")));

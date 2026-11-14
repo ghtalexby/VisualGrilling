@@ -34,7 +34,13 @@ async function rawRequest(route, body, expected = 200) {
   return route === "report" ? r.text() : r.json();
 }
 const state = () => request("state");
-const wait = () => request("wait?timeout=5");
+const wait = async () => {
+  for (;;) {
+    const e = await request("wait?timeout=5");
+    if (e.type !== "reread") return e;
+    await request("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport review" })) });
+  }
+};
 const grade = (e, status = "ok", children = []) => request("apply", { type: "answer", id: e.id, token: e.token, status, verdict: "Проверено", children });
 const markdown = "# План\n\n## Цель\nТест\n\n## Требования\nТест\n\n## Шаги по компонентам\nТест\n\n## Зависимости\nНет\n\n## Проверки\nТест\n\n## Открытые вопросы\nНет";
 const applySpec = e => request("apply", { type: "spec", token: e.token, markdown });
@@ -51,8 +57,8 @@ try {
   const ids = (await state()).nodes.filter(n => n.kind === "q").map(n => n.id);
   const forbidden = await fetch(url + "api/spec", { method: "POST" });
   assert.equal(forbidden.status, 403);
-  await request("spec", {});
-  await request("spec", {});
+  await request("spec", { actionId: "spec-first" });
+  await request("spec", { actionId: "spec-first" });
   assert.equal((await state()).queueLength, 1);
   let e = await wait();
   assert.equal(e.type, "spec");
@@ -61,15 +67,14 @@ try {
   const file = path.join(cwd, "docs/vgril/specs/grill-check.md");
   assert.ok(fs.readFileSync(file, "utf8").includes(markdown));
   fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace(/\r?\n/g, "\r\n"));
-  await request("apply", { type: "spec", token: e.token, markdown }, 409);
+  await request("apply", { type: "spec", token: e.token, markdown });
 
   await request("answer", { id: ids[0], answer: "Старое решение" });
   await grade(await wait(), "ok", [{ q: "Старый потомок" }]);
   const oldChild = (await state()).nodes.find(n => n.parentId === ids[0]).id;
   await request("answer", { id: ids[0], answer: "До клика" });
   await request("spec", {});
-  await request("answer", { id: ids[0], answer: "Замена" }, 409);
-  await request("cancel", { id: ids[0] }, 409);
+
   await request("answer", { id: ids[1], answer: "После клика" });
   e = await wait(); assert.equal(e.answer, "До клика");
   await grade(e, "verify", [{ q: "Новый потомок" }]);
@@ -101,7 +106,7 @@ try {
   // Simulate upgrading a persisted pre-extension spec job.
   const stateFile = path.join(dir, "check", "state.json");
   const legacy = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-  delete legacy.specJob.gradingNodes;
+  if (legacy.specJob) delete legacy.specJob.gradingNodes;
   fs.writeFileSync(stateFile, JSON.stringify(legacy));
   await start();
   e = await wait(); assert.equal(e.answer, "До рестарта");
@@ -134,16 +139,14 @@ try {
   await request("discuss", { id: ids[0], message: "Объясни" });
   e = await wait(); assert.equal(e.type, "discuss");
   await request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Объяснение" });
-  // The answer edits above queued a reread.
-  e = await wait(); assert.equal(e.type, "reread");
-  await request("apply", { type: "reread", token: e.token, audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport fixture review" })), summary: "Без изменений" });
   await request("more", {});
   e = await wait(); assert.equal(e.type, "more");
-  await request("apply", { type: "more", questions: [{ q: "Дополнительный" }] });
+  await request("apply", { type: "more", token: e.token, questions: [{ q: "Дополнительный" }] });
   await request("finish", {});
   e = await wait(); assert.equal(e.type, "finish");
   await request("apply", { type: "finish", summary: "Жив при условии проверок" });
   assert.ok((await request("report")).includes("Жив при условии"));
+  await request("actions/continue", {});
   await request("spec", {});
   e = await wait();
   assert.ok(!e.nodes.some(n => n.chat || n.discuss));

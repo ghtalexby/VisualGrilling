@@ -64,26 +64,21 @@ try {
 
   // A request is deduplicated, hides its token, and waits for submitted answers.
   await request("answer", { id: detail, answer: "Queued first" });
-  await request("reread", {}); await request("reread", {});
+  await request("reread", { actionId: "reread-first" }); await request("reread", { actionId: "reread-first" });
   s = await state();
-  assert.equal(s.rereadJob, undefined); assert.equal(s.rereadPending.stage, "queued"); assert.equal(s.rereadPending.locked, true);
+  assert.equal(s.rereadJob, undefined); assert.equal(s.rereadPending, null); assert.equal(s.actionQueue.actions.at(-1).type, "reread");
   assert.equal(s.queueLength, 2);
-  await request("answer", { id: colour, answer: "Blocked" }, 409);
-  await request("question", { id: "custom", parentId: "root", q: "Blocked?" }, 409);
+
   let e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.id, detail);
   await request("apply", { type: "answer", id: detail, token: e.token, status: "ok", verdict: "Checked" });
 
   // Delivery rotates tokens; restart recovers the job; a stale result is refused.
-  await request("discuss", { id: other, message: "Discussion counts as input" });
-  e = await wait(); assert.equal(e.type, "discuss");
-  await request("apply", { type: "discuss", id: other, token: e.token, reply: "Noted" });
   e = await wait(); assert.equal(e.type, "reread");
   assert.equal(e.context.mode, "full");
-  assert.ok(by(e, "Other?").chat.some(m => m.text === "Discussion counts as input"));
+
   assert.equal(by(e, "Count?").answer, "Two blue buttons");
   assert.equal((await state()).rereadPending.stage, "thinking");
-  await request("discuss", { id: other, message: "Too late" }, 409);
-  await request("answer", { id: colour, answer: "Blocked" }, 409);
+
   const stale = e;
   await stop(); await start();
   await reread(stale, {}, 409);
@@ -112,7 +107,7 @@ try {
   await reread(e, { order: [count] }, 400);
   // Answers being merged cannot also disagree.
   await reread(e, { merge: [{ ids: [count, why], keep: count, answer: "Two blue buttons", status: "ok", verdict: "Same" }], add: [{ key: "$x", parentId: "root", q: "Both?", options, conflictOf: [count, why] }] }, 400);
-  await request("spec", {}, 409);
+
   assert.deepEqual((await state()).nodes, before);
   assert.ok(!fs.existsSync(path.join(map, "state.before-reread.json")));
 
@@ -140,7 +135,7 @@ try {
   const saved = JSON.parse(fs.readFileSync(path.join(map, "state.before-reread.json"), "utf8"));
   assert.equal(saved.version, JSON.parse(copyOf).version);
   assert.equal(saved.rereadJob, null); assert.ok(saved.nodes.some(n => n.q === "Why?"));
-  await reread(e, {}, 409);
+  await reread(e);
   await request("answer", { id: colour, answer: "Allowed again" });
   await request("cancel", { id: colour });
 
@@ -166,7 +161,7 @@ try {
   assert.equal((await state()).rereadPending, null);
   await request("cancel", { id: other });
   await request("answer", { id: other, answer: "Changed my mind" });
-  assert.equal((await state()).rereadPending.stage, "queued");
+  assert.equal((await state()).rereadPending, null);
   await request("cancel", { id: other });
   s = await state(); assert.equal(s.rereadPending, null); assert.equal(s.queueLength, s.knowledgePending ? 1 : 0);
 
@@ -199,17 +194,18 @@ try {
 
   // Editing an answer queues an unlocked automatic run; edits in a row join it.
   await request("answer", { id: other, answer: "Edited once" });
-  s = await state(); assert.equal(s.rereadPending.locked, false);
+  s = await state(); assert.equal(s.rereadPending, null);
   await request("answer", { id: count, answer: "Edited twice" });
-  assert.equal((await state()).queueLength, 3);
+  assert.equal((await state()).queueLength, 2);
   e = await wait(); assert.equal(e.type, "answer");
   await request("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked" });
+  e = await wait(); assert.equal(e.type, "reread"); await reread(e);
   e = await wait(); assert.equal(e.type, "answer");
   await request("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Checked" });
   e = await wait(); assert.equal(e.type, "reread"); await reread(e);
 
   // A running specification finishes first.
-  await request("reread", {}); await request("spec", {});
+  await request("spec", {}); await request("reread", {});
   e = await wait(); assert.equal(e.type, "spec");
   await request("apply", { type: "spec", token: e.token, markdown: "# Plan" });
   e = await wait(); assert.equal(e.type, "reread"); await reread(e);
@@ -217,8 +213,9 @@ try {
   // With no agent connected, answers stay open and the request waits.
   await stop(); await start();
   await request("reread", {});
-  s = await state(); assert.equal(s.listening, false); assert.equal(s.rereadPending.locked, false);
+  s = await state(); assert.equal(s.listening, false); assert.equal(s.rereadPending, null);
   await request("answer", { id: colour, answer: "Answered while waiting" });
+  e = await wait(); assert.equal(e.type, "reread"); await reread(e);
   e = await wait(); assert.equal(e.type, "answer");
   await request("apply", { type: "answer", id: colour, token: e.token, status: "ok", verdict: "Checked" });
   e = await wait(); assert.equal(e.type, "reread");
@@ -321,8 +318,8 @@ try {
   await grade(low, "Deep");
   await request("reread", {}); e = await wait();
   await reread(e, { error: "first" });
-  await request("reread", {}); assert.equal((await state()).rereadResult, null);
-  e = await wait();
+  await request("reread", {});
+  e = await wait(); assert.equal((await state()).rereadResult, null);
   await reread(e, { merge: [{ ids: [top, low], keep: low, answer: "Deep", status: "ok", verdict: "Same" }] });
   s = await state();
   assert.equal(by(s, "Low?").parentId, "root"); assert.equal(by(s, "Middle?").parentId, low);
@@ -365,11 +362,12 @@ try {
   await request("apply", { type: "answer", id: childEvent.id, token: childEvent.token, status: "ok", verdict: "Current detail checked" });
   await request("more", {}); let moreEvent = await wait();
   assert.ok(moreEvent.mainQuestions.find(n => n.q === "Why not implement?").obsolete);
-  await request("apply", { type: "more", questions: [] });
+  await request("apply", { type: "more", token: moreEvent.token, questions: [] });
   await request("finish", {}); let finishEvent = await wait();
   assert.equal(finishEvent.counts.ok, 2);
   await request("apply", { type: "finish", summary: "Checked active counts" });
   assert.match(await (await fetch(url + "api/report", { headers: { "x-grill": "1" } })).text(), /Устарело: The user explicitly/);
+  await request("actions/continue", {});
   await request("spec", {}); let spec = await wait();
   assert.ok(spec.nodes.find(n => n.id === answeredOld).obsolete);
   await request("apply", { type: "spec", token: spec.token, markdown: "# Current decisions only" });

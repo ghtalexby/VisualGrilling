@@ -23,7 +23,9 @@ async function rawRequest(route, body, expected = 200) {
   const r = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
   assert.equal(r.status, expected, await r.clone().text()); return route === "report" ? r.text() : r.json();
 }
+let cachedEvent;
 const wait = async () => {
+  if (cachedEvent) { const e = cachedEvent; cachedEvent = null; return e; }
   for (;;) {
     const e = await api("wait?timeout=5");
     if (e.type !== "reevaluate") return e;
@@ -33,14 +35,20 @@ const wait = async () => {
       assessments: e.ids.map(id => ({ id, status: "ok", verdict: "Retain accepted decision after checking branch evidence" })) });
   }
 };
+const prepare = async (route, body, expected = 200) => {
+  const receipt = await api(route, body, expected);
+  if (expected !== 200) return receipt;
+  cachedEvent = await wait();
+  return { ...receipt, id: cachedEvent.id };
+};
 const apply = (e, extra) => api("apply", { type: "preview", id: e.id, token: e.token, projectId: e.projectId, base: e.base, ...extra });
 async function stop() { if (!server || server.exitCode !== null) return; const done = new Promise(r => server.once("exit", r)); await api("stop", {}); await done; }
 try {
   await start(); await api("init", { title: "Preview", brief: "Original premise", arch: "Local UI", questions: [{ q: "Size?", options: ["A", "B"] }, { q: "Unrelated", options: ["A", "B"] }] });
   const [q, other] = (await api("state")).nodes.filter(n => n.kind === "q");
   assert.equal((await fetch(url + "api/preview?id=none")).status, 403);
-  assert.equal((await api("preview/prepare", { sourceId: "root" }, 400)).error, "Select preview branches");
-  const { id } = await api("preview/prepare", { sourceId: q.id });
+  assert.equal((await prepare("preview/prepare", { sourceId: "root" }, 400)).error, "Select preview branches");
+  const { id } = await prepare("preview/prepare", { sourceId: q.id });
   assert.equal((await api("preview?id=" + id)).q, "Preview");
   let e = await wait(); assert.equal(e.phase, "prepare"); assert.ok(!e.context.some(n => n.id === other.id));
   assert.equal(e.context.find(n => n.id === "root").brief, "Original premise");
@@ -69,7 +77,7 @@ try {
   assert.equal((await api("preview?id=" + id)).commit, first.commit);
   await api("answer", { id: q.id, answer: "Diameter should be 240" });
   const second = await apply(e, { files: { ...circlePreview, "script.js": circlePreview["script.js"].replace("120", "240") }, purpose: "Larger circle" });
-  n = await api("preview?id=" + id); assert.equal(n.stale, 1); assert.equal(n.savedState, null);
+  n = await api("preview?id=" + id); assert.equal(n.stale, 0); assert.equal(n.savedState, null);
   e = await wait();
   const beforeInvalidMove = (await api("state")).nodes;
   await api("apply", { type: "answer", id: q.id, token: e.token, status: "ok", verdict: "Invalid cycle", branchChanges: { move: [{ id, parentId: id }] } }, 400);
@@ -84,10 +92,14 @@ try {
   assert.equal((await api("preview?id=" + id)).commit, second.commit);
   await api("preview/build", { id, request: "A pending revision" }); e = await wait();
   await api("preview/restore", { id, commit: n.commit, epoch: n.epoch, target: first.commit });
-  await api("apply", { ...e, files: circlePreview }, 409);
+  await apply(e, { files: circlePreview, purpose: "Pending completed" });
+  await api("more", {}); e = await wait(); await api("apply", { type: "more", token: e.token, questions: [] });
+  n = await api("preview?id=" + id);
+  await api("preview/restore", { id, commit: n.commit, epoch: n.epoch, target: first.commit });
   await api("preview/save", { id, commit: second.commit, epoch: n.epoch, state: { diameter: 260 } });
   assert.equal((await api("preview?id=" + id)).savedState.diameter, 230);
-  await api("preview/save", { id, commit: "0".repeat(40), epoch: n.epoch, state: {} }, 404);
+  const badSave = await api("preview/save", { id, commit: "0".repeat(40), epoch: n.epoch, state: {} });
+  assert.equal((await api("actions?id=" + badSave.actionId)).actions[0].status, "failed");
   assert.match(await api("report"), /Circle/);
   await api("preview/delete", { id, confirm: true });
   assert.equal((await api("preview/snapshot?key=" + snapshot.snapshot)).savedState.diameter, 180);
@@ -106,10 +118,10 @@ try {
   await api("init", { title: "Linear and deep branches", questions: [{ q: "A", options: ["A", "B"] }, { q: "Other", options: ["A", "B"] }] });
   assert.equal(fs.existsSync(path.join(dir, "previews", copy.projectId)), false);
   const a = (await api("state")).nodes.find(n => n.kind === "q");
-  const original = await api("preview/prepare", { sourceId: a.id }); e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
+  const original = await prepare("preview/prepare", { sourceId: a.id }); e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: original.id, request: "A wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "A" });
   // Create a separate ancestor project to cover a split below a one-child chain.
-  const ancestor = await api("preview/prepare", { sourceId: a.id }); e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
+  const ancestor = await prepare("preview/prepare", { sourceId: a.id }); e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: ancestor.id, request: "Ancestor wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "Ancestor" });
   const ancestorNode = await api("preview?id=" + ancestor.id);
   await api("answer", { id: a.id, answer: "First answer" }); e = await wait();
@@ -118,7 +130,7 @@ try {
   await api("answer", { id: b.id, answer: "A newly submitted continuation" });
   assert.ok((await api("preview?id=" + original.id)).stale > 0);
   e = await wait(); await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted" });
-  const moved = await api("preview/prepare", { id: original.id, sourceId: b.id }); assert.equal(moved.id, original.id);
+  const moved = await prepare("preview/prepare", { id: original.id, sourceId: b.id }); assert.equal(moved.id, original.id);
   e = await wait(); await apply(e, { question: "Refine?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: original.id, request: "B wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "B" });
   await api("answer", { id: b.id, answer: "Split here" }); e = await wait();
@@ -133,21 +145,22 @@ try {
   // Both phases share the same bounded queue, including already-prepared projects.
   const prepared = [];
   for (let i = 0; i < 21; i++) {
-    const p = await api("preview/prepare", { sourceId: "root", branches: [a.id] }); prepared.push(p.id);
+    const p = await prepare("preview/prepare", { sourceId: "root", branches: [a.id] }); prepared.push(p.id);
     e = await wait(); await apply(e, { question: "Which?", options: ["UI", "Diagram"] });
   }
   for (const id of prepared.slice(0, 20)) await api("preview/build", { id, request: "Build" });
-  await api("preview/build", { id: prepared[20], request: "Over limit" }, 409);
+  await api("preview/build", { id: prepared[20], request: "Over limit" }, 429);
   const rootOnly = { nodes: [{ id: "root", kind: "root" }], queue: [] };
   const frozenController = previews(cwd, () => rootOnly, () => {}, () => {});
   const retained = frozenController.reconcile([{ id: "old-preview", kind: "preview", sourceId: "deleted-source", parentId: "deleted-source", snapshot: "f".repeat(64) }], [...rootOnly.nodes]);
   assert.equal(retained.find(n => n.id === "old-preview").parentId, "root");
+  for (const a of (await api("actions")).actions.filter(a => a.status === "queued")) { const plan = await api("actions/cancel", { id: a.id }); await api("actions/cancel", { id: a.id, confirmation: plan.confirmation }); }
   for (const p of (await api("state")).nodes.filter(n => n.kind === "preview")) await api("preview/policy", { id: p.id, policy: "delete" });
   await api("init", { title: "Idea preview", questions: [{ q: "Existing", options: ["A", "B"] }] });
-  const idea = await api("idea", { id: "preview-idea-check", text: "An idea with an explanatory preview" });
+  const idea = await prepare("idea", { id: "preview-idea-check", text: "An idea with an explanatory preview" });
   e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.id, idea.id);
   await api("apply", { type: "idea", id: idea.id, token: e.token, status: "open", verdict: "Needs visual exploration" });
-  const ideaPreview = await api("preview/prepare", { sourceId: idea.id }); e = await wait(); await apply(e, { question: "Visual?", options: ["UI", "Diagram"] });
+  const ideaPreview = await prepare("preview/prepare", { sourceId: idea.id }); e = await wait(); await apply(e, { question: "Visual?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: ideaPreview.id, request: "Idea wireframe" }); e = await wait(); await apply(e, { files: circlePreview, purpose: "Idea wireframe" });
   const ideaProject = await api("preview?id=" + ideaPreview.id);
   await api("idea/analyze", { id: idea.id }); e = await wait();
@@ -156,7 +169,7 @@ try {
   // Discussion can split an unanswered branch too; no parent reassessment repairs missing copies.
   const unanswered = (await api("state")).nodes.find(n => n.kind === "q" && n.q === "Existing");
   assert.equal(unanswered.answer, undefined);
-  const discussionPreview = await api("preview/prepare", { sourceId: unanswered.id });
+  const discussionPreview = await prepare("preview/prepare", { sourceId: unanswered.id });
   e = await wait(); await apply(e, { question: "Discussion visual?", options: ["UI", "Diagram"] });
   await api("preview/build", { id: discussionPreview.id, request: "Before discussion split" });
   e = await wait(); await apply(e, { files: circlePreview, purpose: "Discussion visual" });

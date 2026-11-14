@@ -2,7 +2,7 @@
 
 ## Specification from answers
 
-This flow is independent of `finish`: UI/CLI `spec` → persisted `specJob` snapshot → grading captured pending answers → `wait` delivers `spec` → agent writes a plan → `apply spec` saves Markdown. The snapshot excludes question discussions and later answers; idea chat is captured as context. Captured pending answers cannot be replaced or withdrawn before grading; their `apply` updates the snapshot, including explicit branch operations. Restart recovers the request; redelivery changes its token.
+This flow is independent of `finish`: UI/CLI `spec` → durable action journal → execution-time `specJob` snapshot → grading captured pending answers → `wait` delivers `spec` → agent writes a plan → `apply spec` saves Markdown. The snapshot excludes question discussions and later answers; idea chat is captured as context. Captured pending answers cannot be replaced or withdrawn before grading; their `apply` updates the snapshot, including explicit branch operations. Restart recovers the request; redelivery changes its token.
 
 `specOwner` is a stable document-owner UUID; `specFile` is the path in `docs/vgril/specs`; `specUpdatedAt` records the last successful write; `specError` stores the latest error. `specJob` contains `stage, token, requestedAt, title, brief, arch, nodes, gradingNodes, waiting`. The UI receives only the stage and pending-grade count. Saving a specification does not change grades, summary, or completion. The writer checks ownership and regular directories/files, then replaces its file with a temporary-file rename. The server's working directory defines the project root independently of `--dir`.
 
@@ -11,7 +11,7 @@ This flow is independent of `finish`: UI/CLI `spec` → persisted `specJob` snap
 ```text
 Browser (ui.html)                  grill.mjs serve                   Codex / Claude Code
 poll GET /api/state  <---1.2s---    S in memory <-> state.json
-POST /api/answer ----------------> S.queue -> pump() --------------> grill.mjs wait/watch
+POST /api/answer ----------------> S.actions → S.queue -> pump() --------------> grill.mjs wait/watch
 POST /api/discuss|more|finish|spec                                  grades answers, checks code
                                   apply() updates tree <---------- grill.mjs apply
 ```
@@ -100,7 +100,7 @@ Successful rereads persist evidence digests in `rereadSeen`. First and manually 
 
 ## Answer lifecycle
 
-1. `POST /api/answer {id, answer}` sets `node.pending = {answer, stage:"queued"}` and queues `{type:"answer", id}`. Resubmission while queued replaces the text without adding an event; while thinking it returns 409. `/api/cancel` withdraws queued answers only. Answers captured by a specification are additionally locked until grading.
+1. `POST /api/answer {id, answer, actionId?}` persists an action. When its turn arrives, its reducer sets `node.pending` and queues an answer event. Adjacent unstarted revisions execute the last version; all versions remain in the journal. Running work is unchanged by new submissions.
 2. `wait` calls `takeEvent()`; `payload()` gathers context and sets `stage:"thinking"`. Obsolete events, such as withdrawn answers, are skipped.
 3. `apply {type:"answer", id, token, status, verdict, children, branchChanges, newRoot}` validates the delivery token and branch revision, constructs a candidate tree, validates all parents and cycles, then commits it. Descendants survive unless explicitly removed; `children` adds new open questions. Moves retain IDs, answers, chat and pending work. `pending.answer` becomes `answer`; unsupported statuses become `weak`. Concurrent branch changes requeue grading and return 409.
 4. The next UI poll detects the new `version`, redraws, and highlights new nodes with `fresh`.
@@ -109,13 +109,13 @@ Successful rereads persist evidence digests in `rereadSeen`. First and manually 
 
 The discussion tab sends messages and can settle a question directly. The root also has chat, opened through its project-question context menu; it never becomes a graded question:
 
-1. `/api/discuss {id, message}` appends to `node.chat`, sets `discuss:"queued"`, and queues an event. Further queued messages append without a new event; thinking returns 409.
+1. `/api/discuss {id, message, actionId?}` persists a message action. At execution, adjacent messages for the same conversation append to chat and create one delivery. New messages during thinking remain queued for the next response.
 2. `wait` returns messages since the last agent reply in `message`, the complete canonical thread in the focus card's `chat`, and sets `discuss:"thinking"`.
 3. `apply {type:"discuss", id, token, reply, assessment?}` appends an agent reply and clears `discuss`. An optional question assessment records status/verdict and seeds a missing answer from the accepted decision; existing answers and children survive. It validates the delivered branch revision, queues ancestor/idea reassessment, and leaves frozen spec snapshots unchanged. Reply-only results preserve grades. Explicit commands may also include `reread:true` or `forward:{id,message}`: after validation, the same apply saves the reply and queues a manual whole-map review or the requested other-question discussion. Forwarded decisions are evaluated in a subsequent delivery with the target branch context. If the thread is no longer thinking, return 409 so stale replies cannot consume newer messages.
 
 Right-click an answer option to discuss or select it. Right-click a verdict (`[data-verdict]`) to discuss it. Existing text selection keeps the browser's copy menu; selection is captured on `pointerdown` because macOS may select a word on right-click. Discussion attaches `panel.quote = {about, text}` as `quote` and `about`.
 
-Reset chat, with confirmation, calls `/api/chatreset`: deletes chat, its queued event and its images; thinking returns 409. Enter sends; Ctrl/Cmd+Enter or Shift+Enter inserts a newline.
+Reset chat, with confirmation, calls `/api/chatreset`: queues a reset after earlier work. Removed chat and images remain in the archive. Enter sends; Ctrl/Cmd+Enter or Shift+Enter inserts a newline.
 
 Pasting an image into the discussion input adds a removable thumbnail held in memory (`draftImages`) until it is sent with the message. A clipboard that also holds text pastes the text. The agent receives saved file paths in the event's `images`. The browser reuses fetched image blob URLs and revokes them when a state update removes their last chat reference; pending fetches cannot recreate removed URLs. Answer, discussion and custom-question inputs grow with their text up to 40% of the window height.
 
@@ -125,13 +125,13 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 
 The header Reread button and summary control call `/api/reread`; editing an existing answer queues the same job automatically. After submitted work settles, first/manual rereads review the whole map; later automatic rereads review changed evidence and semantic neighbours with the rest indexed. The agent returns one transaction: `branchChanges` stays limited to the graded subtree and `init` still wipes answers.
 
-The Reread button disables immediately on submission and shows a spinner until the queued or running job completes. Both controls share the submission guard. Request errors appear in a dismissible floating alert without opening or switching the drawer and restore the control; reduced-motion preferences keep the spinner static.
+The Reread button shows progress while allowing later requests to enter the journal. Both controls share the submission guard. Request errors appear in a dismissible floating alert without opening or switching the drawer and restore the control; reduced-motion preferences keep the spinner static.
 
 All action errors and input validation messages use the same floating alert, including answers, discussions, ideas, question creation, image attachments, clipboard access, map loading and preview controls. Alerts dismiss automatically after ten seconds; a shrinking ring around the close button shows the remaining time (static with reduced motion). Each new error restarts the timer and ring; manual dismissal cancels both. Starting another action or switching discussion tabs clears the alert. Failed header spec/finish requests retain the current drawer. Preview save errors remain visible and dismissible inside the modal unsaved-changes dialog. Newly observed background spec, reread, reassessment and preview errors also trigger an alert once per change; persisted errors remain available in their existing result panels and do not repeat on every poll or initial load. Background connectivity and image-loading indicators remain local to their controls. Generic API 404 `not found` responses explain that the command is unavailable and suggest restarting the map server and reloading the page; reread has a specific message.
 
 The browser translates known terse errors into explanations with a recovery action: unavailable cards/versions, queue limits, preview failures, image restrictions, duplicate submissions and file-access failures. The same explanations appear in persisted result panels, without rewriting stored diagnostics. The API helper explains connection failures, rejects malformed success responses, and replaces raw server failures or HTML responses with guidance; meaningful validation and conflict messages remain intact. CLI diagnostics and server protocol strings are unchanged. Error phrases and their English translations are maintained together in `ui.html` and `locales/en.json`.
 
-The server validates the candidate on a clone, independently confirms that every previous answer survives, keeps one copy in `state.before-reread.json`, then commits. It cannot judge meaning, so chain coherence is the agent's check; an unsure agent returns `error`, which unlocks the map unchanged. A manual job locks answers while an agent is listening, and any delivered job locks them until its result. Recovery uses the same mechanism as other tokenized work, so a crash needs no timeout. The map's idea is the brief, shown on the root card and rewritable by this transaction. Rules and formats are in `events/reread.md` and [contract.md](contract.md).
+The server validates the candidate on a clone, independently confirms that every previous answer survives, keeps one copy in `state.before-reread.json`, then commits. It cannot judge meaning, so chain coherence is the agent's check; an unsure agent returns `error`, which unlocks the map unchanged. Reducer-level locks protect the active snapshot; admission remains available because later mutations wait in the journal. Recovery uses the same mechanism as other tokenized work, so a crash needs no timeout. The map's idea is the brief, shown on the root card and rewritable by this transaction. Rules and formats are in `events/reread.md` and [contract.md](contract.md).
 
 ## Recovery
 
@@ -196,7 +196,7 @@ Map rendering reuses visible card buttons and their unchanged markup across poll
 
 ## Reread coverage and obsolete premises
 
-A finish request cancels queued or delivered automatic rereads and invalidates their tokens; a stale apply returns 409. Automatic rereads, including answer-edit reviews, stay disabled while finish is pending or the map is finished, including after restart. Submitted grading and ancestor reassessment still drain. Explicit manual rereads remain available, including automatic jobs upgraded to manual before the finish request.
+A finish request waits behind previous actions and their automatic reread dependencies. Automatic rereads, including answer-edit reviews, stay disabled while finish is pending or the map is finished, including after restart. Submitted grading and ancestor reassessment still drain. Explicit manual rereads remain available, including automatic jobs upgraded to manual before the finish request.
 
 The worker compares every question, explanation, option and parent chain with current decisions and explicitly withdrawn assumptions. Successful rereads require a complete per-card audit; the server validates coverage and agreement with operations atomically. An explicit replacement decision is distinct from an unresolved disagreement.
 
@@ -206,7 +206,7 @@ An obsolete card with user history stays in the tree with `obsolete:{reason,sour
 
 Ideas are root children in the existing flat tree; their questions keep ordinary `kind:q`. The idea's full `text`, numeric content `revision`, five-valued `status`, explanation and chat persist. Separate `analysis` holds queue progress. Creation is idempotent and atomically queues analysis; Analyze idea, text edits, descendant grades and changing rereads of previously analyzed ideas use the tokenized idea event. Editing requests a per-question premise audit, preserving history. Context revisions cover the whole map because other branches may supply decisive evidence.
 
-Specification processing adds frozen idea evaluations after captured answer grades. These update only `specJob.gradingNodes` and its projection; live idea work remains separate to avoid overwriting later activity. Only ok idea subtrees are delivered to the document worker. Text edits are an explicit invalidation boundary: the old spec token is canceled, a persisted refresh stage waits for live reassessment, and a new snapshot/request is captured. Ordinary late answers do not recapture a snapshot. Recovery restores both live and frozen work.
+Specification processing adds frozen idea evaluations after captured answer grades. These update only `specJob.gradingNodes` and its projection; live idea work remains separate to avoid overwriting later activity. Only ok idea subtrees are delivered to the document worker. Text edits wait in the action journal until the earlier spec completes. Legacy recovered spec jobs can still use their refresh stage. Ordinary late answers do not recapture a snapshot. Recovery restores both live and frozen work.
 
 Deletion checks pending branch work, rereads and spec references before deleting the entire subtree and its unused images. Editing instead remains available during work and invalidates outdated deliveries. UI filters count and match ideas and questions by status, retaining only matching cards and their context ancestors. Previews appear only as required context under a filter. Exports preserve all ideas regardless of spec inclusion. See the attached-ideas section in contract.md for exact routes, limits and audit shapes.
 
@@ -233,7 +233,7 @@ The header brand icon shows map-wide pending work independently of the open draw
 
 ## Host session connection
 
-The default Codex mode, `monitor`, registers one subscription inside the map server. `pump()` reserves one event using `takeEvent()`, keeps its full payload in process memory and sends a fixed notification through `connection.mjs`. Codex fetches it with a separate delivery UUID, grades and applies it, then explicitly re-arms. No timeout reaches the model, no extra polling process is launched, and normal wait/watch transport stays available as a mutually exclusive fallback. Status is exposed through protected `/api/monitor`; no delivery credentials are added to browser state.
+The default Codex mode, `monitor`, registers one subscription inside the map server. `pump()` reserves one event using `takeEvent()`, keeps its full payload in process memory and sends a fixed notification through `connection.mjs`. Codex fetches it with a separate delivery UUID and delegates preparation to one fresh worker. The main session checks and applies the result, then re-arms. No timeout reaches the model, no extra polling process is launched, and normal wait/watch transport stays available as a mutually exclusive fallback. Status is exposed through protected `/api/monitor`; no delivery credentials are added to browser state.
 
 Subscription identity guards asynchronous transport completion: a late queue result cannot change a newer subscription. Failed or warned submissions are not retried automatically. Restart drops the subscription and existing recovery requeues work, so old notifications cannot fetch a new event. The original bound thread owns arming; rebinding is detected before dispatch and event retrieval. See [contract.md](contract.md#codex-event-monitor) for lifecycle and recovery details.
 
@@ -267,3 +267,8 @@ The header shows whole-session Codex token usage, not usage attributable to one 
 Context limits apply to delivered focused evidence, not unrelated indexed histories. Incremental rereads bound delivered questions, neighbours, ideas and new project chat; full rereads retain the whole-map limit. Structural transactions reconcile semantic links independently in each candidate tree: prune deleted targets, redirect merged targets, union outgoing links, remove self-links/duplicates and validate the final eight-link bound. Reread audits cover evidence changes; graph-only maintenance and semantic backfills do not expand the audit.
 
 Project chat conversations share the root message log: messages carry `conversationId`, with missing IDs treated as `main`. `projectConversations` stores bounded conversation IDs outside the tree. Browser selection and drafts are local to each conversation; the root has one pending discussion at a time. Delivery filters root history to the pending conversation, and replies inherit its ID. Reread and image retention still see every conversation.
+
+
+## Action journal and archive
+
+`actions.mjs` owns persistent admission identities, grouping, cancellation plans and archive projections. `grill.mjs` serializes reducer activation, generated dependencies, result receipts and finish boundaries. See [the durable action contract](contract.md#durable-user-actions). Pending actions never mutate the evidence of active work. Legacy reducers recover before newly queued actions. State writes capture removed records before image pruning. The header queue separates current work, waiting messages/internal tasks and problems; hover opens temporarily, click pins, Close dismisses. Root exposes Archive.

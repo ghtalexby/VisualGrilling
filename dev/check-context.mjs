@@ -266,8 +266,8 @@ try {
   // including prepared projects without a commit and immutable built snapshots.
   for (const built of [false, true]) {
     await reset();
-    const { id } = await api("preview/prepare", { sourceId: "q00" });
-    const prepared = await delivered("preview", false);
+    await api("preview/prepare", { sourceId: "q00" });
+    const prepared = await delivered("preview", false), id = prepared.id;
     const previewResult = event => ({ type: "preview", id, token: event.token, projectId: event.projectId, base: event.base });
     await api("apply", { ...previewResult(prepared), question: "Which visual?", options: ["UI", "Diagram"] });
     if (built) {
@@ -287,8 +287,8 @@ try {
     await annotatePreview();
     const capture = async () => {
       await api("spec", {});
-      const job = JSON.parse(fs.readFileSync(stateFile)).specJob;
       const event = await delivered("spec", false);
+      const job = JSON.parse(fs.readFileSync(stateFile)).specJob;
       await api("apply", { type: "spec", token: event.token, markdown: "# Preview evidence" });
       return { nodes: job.nodes, gradingNodes: job.gradingNodes, delivered: event.nodes };
     };
@@ -320,9 +320,10 @@ try {
   await api("init", { questions: [{ q: "Which authentication protocol protects account access?", options: ["Token", "Password"] }, { q: "How are database backups restored?", options: ["Manual", "Scheduled"] }] });
   let state = await api("state"); const auth = state.nodes.find(n => n.kind === "q"), backup = state.nodes.find(n => n.kind === "q" && n.id !== auth.id);
   const duplicate = { q: auth.q, options: ["Token", "Password"] };
-  await api("apply", { type: "more", questions: [duplicate] }, 400);
+  await api("more", {}); const moreDelivery = await api("wait?timeout=5");
+  await api("apply", { type: "more", token: moreDelivery.token, questions: [duplicate] }, 400);
   assert.deepEqual((await api("state")).nodes, state.nodes);
-  await api("apply", { type: "more", questions: [{ ...duplicate, allowSimilar: [auth.id] }] });
+  await api("apply", { type: "more", token: moreDelivery.token, questions: [{ ...duplicate, allowSimilar: [auth.id] }] });
   assert.equal((await api("state")).nodes.length, state.nodes.length + 1);
   // Unknown source versions are retryable 400s. Saved metadata receives exact captured evidence.
   await api("knowledge-import", {}); const job = await delivered("knowledge", false);
@@ -343,7 +344,18 @@ try {
   assert.equal(captured.id, auth.id); assert.equal(digest(savedMeta.sources[0].snapshot), source.version);
   // A frozen answer exposes only token-bound captured reads; old tokens fail after apply/restart.
   await api("answer", { id: auth.id, answer: "Token credentials" });
-  await api("spec", {}); const frozen = await delivered("answer", false);
+  await api("spec", {});
+  // Seed the pre-journal captured-answer format to preserve migration coverage.
+  await stop();
+  const legacySnapshot = JSON.parse(fs.readFileSync(stateFile));
+  legacySnapshot.actions = [];
+  legacySnapshot.nodes.find(n => n.id === auth.id).pending = { answer: "Token credentials", stage: "queued" };
+  legacySnapshot.specJob = { stage: "queued", title: legacySnapshot.title, brief: legacySnapshot.brief, arch: legacySnapshot.arch, requestedAt: Date.now(), waiting: [auth.id], ideaWaiting: [], reviewIds: [],
+    gradingNodes: structuredClone(legacySnapshot.nodes.map(evidenceNode)),
+    nodes: legacySnapshot.nodes.map(({ topics, relates, decision, chatDigest, semanticsStale, chat, pending, ...n }) => ({ ...n, ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) })) };
+  legacySnapshot.queue = [{ type: "answer", id: auth.id }, { type: "spec" }];
+  fs.writeFileSync(stateFile, JSON.stringify(legacySnapshot)); await start();
+  const frozen = await delivered("answer", false);
   assert.equal(frozen.context.readToken, frozen.token);
   assert.equal((await api(`node?id=${auth.id}&token=${frozen.token}`)).nodes[0].pending.answer, "Token credentials");
   await api("apply", { type: "answer", id: auth.id, token: frozen.token, status: "ok", verdict: "Confirmed", semantics: { relates: [{ id: "absent", kind: "depends" }] } }, 400);
@@ -391,12 +403,14 @@ try {
   assert.equal(smallReread.context.mode, "incremental");
   assert.deepEqual(smallReread.context.focus.map(n => n.id), ["q04"]);
   await api("apply", { type: "reread", token: smallReread.token, audit: [{ id: "q04", action: "keep", reason: "Reviewed new evidence" }] });
-  await api("reread", {}); await api("wait?timeout=1", undefined, 400);
+  const failedReread = await api("reread", {}); await api("wait?timeout=1");
+  assert.equal((await api("actions?id=" + failedReread.actionId)).actions[0].status, "failed");
   // The same histories inside the required focus still fail explicitly.
   fixture = structuredClone(largeFixture);
   fixture.nodes.filter(n => n.kind === "q" && n.id !== "q04").forEach(n => { n.parentId = "q04"; });
-  await reset(); await api("discuss", { id: "q04", message: "Read the entire branch" });
-  await api("wait?timeout=1", undefined, 400);
+  await reset(); const failedDiscuss = await api("discuss", { id: "q04", message: "Read the entire branch" });
+  await api("wait?timeout=1");
+  assert.equal((await api("actions?id=" + failedDiscuss.actionId)).actions[0].status, "failed");
   fixture = structuredClone(largeFixture);
   fixture.nodes.push({ id: "large-idea", parentId: "root", kind: "idea", text: "Large proposal", q: "Large proposal", status: "open", analysis: { stage: "queued", reason: "manual" } });
   fixture.nodes.filter(n => n.kind === "q").forEach(n => { n.parentId = "large-idea"; });
@@ -449,6 +463,8 @@ try {
   assert.deepEqual((await api("state")).nodes, beforeDelete);
   await api("apply", answerDelete);
   assert.deepEqual((await api("state")).nodes.find(n => n.id === "q02").relates, []);
+  const deletionReview = await delivered("reread", false);
+  await api("apply", { type: "reread", token: deletionReview.token, audit: audit(deletionReview) });
   const deletingSpec = await delivered("spec", false);
   assert.equal(deletingSpec.nodes.some(n => n.id === "q01"), false);
   // Idea audit removals and explicit idea deletion both prune outside incoming links.
@@ -463,8 +479,8 @@ try {
   await api("apply", { type: "idea", id: "proposal", token: deletingIdea.token, status: "weak", verdict: "Reviewed", audit: [{ id: "q00", action: "remove", reason: "No longer needed" }] });
   assert.deepEqual((await api("state")).nodes.find(n => n.id === "q02").relates, [{ id: "proposal", kind: "same-object" }]);
   await api("idea/edit", { id: "proposal", revision: 1, text: "Edited proposal" });
-  assert.equal((await api("state")).nodes.find(n => n.id === "proposal").semanticsStale, true);
   const editedIdea = await delivered("idea", false);
+  assert.equal((await api("state")).nodes.find(n => n.id === "proposal").semanticsStale, true);
   await api("apply", { type: "idea", id: "proposal", token: editedIdea.token, status: "weak", verdict: "Reviewed again", audit: [], semantics: { decision: "Edited proposal" } });
   assert.equal((await api("state")).nodes.find(n => n.id === "proposal").semanticsStale, undefined);
   await api("idea/delete", { id: "proposal", confirm: true });

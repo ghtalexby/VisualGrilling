@@ -117,8 +117,8 @@ try {
   assert.ok(!legacyResume.start.includes("--name"));
   await request(root, "init", { title: "Legacy", questions: [{ q: "Legacy?" }] });
   await request(root, "more", {});
-  assert.equal((await result(run(null, ["watch", "--inbox"]))).name, null);
-  await request(root, "apply", { type: "more", questions: [] });
+  const legacyMore = await result(run(null, ["watch", "--inbox"])); assert.equal(legacyMore.name, null);
+  await request(root, "apply", { type: "more", token: legacyMore.token, questions: [] });
   const legacyExpired = await result(run(null, ["watch", "--inbox", "--max-wait", "5"]));
   assert.equal(legacyExpired.name, null);
   assert.equal(legacyExpired.expired, true);

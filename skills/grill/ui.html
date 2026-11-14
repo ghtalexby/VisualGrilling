@@ -231,6 +231,12 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 .copy-block.copy-heading{padding-top:6px;padding-bottom:6px}
 .copy-history{display:flex;flex-direction:column;gap:8px}
 @keyframes copy-confirm{from{transform:scale(.5);opacity:0}to{transform:scale(1);opacity:1}}
+.queue-control{position:relative;display:flex;gap:4px;align-items:center}
+.queue-circle{border-radius:50%;width:28px;height:28px;padding:0;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+#queueWindow{position:fixed;right:20px;top:110px;z-index:40;width:min(420px,90vw);max-height:65vh;overflow:auto;padding:16px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 30px #0004}
+.queue-item{border-top:1px solid var(--line);padding:8px 0;overflow-wrap:anywhere;white-space:pre-wrap}
+.queue-item.grouped{border-top:0;border-left:2px solid var(--accent);padding-left:12px}
+#queueNotice{font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -242,8 +248,9 @@ label.fl{display:flex;flex-direction:column;gap:6px}
     </div>
     <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
-  <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bPlay" aria-label="Продолжить грилинг" title="Продолжить грилинг в текущей сессии агента"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l9 6-9 6z" fill="currentColor"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
+  <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bPlay" aria-label="Продолжить грилинг" title="Продолжить грилинг в текущей сессии агента"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l9 6-9 6z" fill="currentColor"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
   <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
+  <div id="queueNotice" role="status"></div>
   <div id="resumeNotice" class="why" role="status" hidden></div>
   <div id="finishedNotice" hidden></div>
 </header>
@@ -351,6 +358,15 @@ function stateErrors(state){
 }
 
 async function api(p,body){
+  const queuedRoute=/^\/api\/(answer|discuss|chatreset|question|more|reread|spec|finish|idea(?:\/(analyze|edit|delete))?|knowledge-import|spec-migrate|preview\/(prepare|build|policy|delete|save|restore))$/.test(p);
+  let retryKey;
+  if(body&&queuedRoute){
+    const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify([p,body]))))).map(x=>x.toString(16).padStart(2,"0")).join("");
+    retryKey="grill-action:"+location.origin+":"+(S.mapKey||"")+":"+hash;
+    let id;try{id=localStorage.getItem(retryKey)}catch{}
+    id||=crypto.randomUUID();try{localStorage.setItem(retryKey,id)}catch{}
+    body={...body,actionId:id};
+  }
   let r,t;
   try{
     r=await fetch(p,{method:body?"POST":"GET",headers:{"content-type":"application/json","x-grill":"1"},body:body?JSON.stringify(body):undefined});
@@ -358,6 +374,7 @@ async function api(p,body){
   }catch{throw new Error("Не удалось связаться с сервером карты. Проверьте, что он запущен, и повторите действие.")}
   let j;try{j=JSON.parse(t)}catch{j=null}
   if(!r.ok){
+    if(retryKey&&r.status<500){try{localStorage.removeItem(retryKey)}catch{}}
     const message=typeof j?.error==="string"?j.error.trim():"",readable=friendlyError(message);
     if(r.status===404&&/^not found$/i.test(message||t.trim()))throw new Error(p==="/api/reread"?"Не удалось перечитать карту. Сервер не поддерживает эту команду. Перезапустите сервер карты и обновите страницу.":"Сервер не нашёл команду. Перезапустите сервер карты и обновите страницу.");
     if(message&&readable!==message)throw new Error(readable);
@@ -367,8 +384,49 @@ async function api(p,body){
     throw new Error("Сервер отклонил запрос. Обновите страницу карты и повторите действие.");
   }
   if(!j||typeof j!=="object"||Array.isArray(j))throw new Error("Сервер прислал непонятный ответ. Обновите страницу; если ошибка повторится, перезапустите сервер карты.");
+  if(retryKey){try{localStorage.removeItem(retryKey)}catch{}}
+  if(j.queued)$("#queueNotice").textContent="В очереди";
   return j;
 }
+
+let queuePinned=false, archiveOpen=false, queueLeaveTimer;
+const actionLabels={answer:"Ответ",discuss:"Сообщение",spec:"Спека",reread:"Перечитать",finish:"Итог",reevaluate:"Переоценка",knowledge:"Знания",question:"Вопрос",idea:"Идея",more:"Вопросы"};
+function showQueue(pin=false){archiveOpen=false;queuePinned=pin||queuePinned;$("#queueWindow").hidden=false;renderQueue()}
+function renderQueue(){
+  const q=S.actionQueue||{actions:[],internal:[],waiting:0},running=q.actions.filter(a=>a.status==="running"),issues=q.actions.filter(a=>["failed","needs-decision"].includes(a.status));
+  $("#queueCount").hidden=!q.waiting&&!S.currentWork&&!running.length;
+  $("#queueCount").textContent=q.waiting?String(q.waiting):"◌";
+  $("#queueIssues").hidden=!issues.length;
+  const win=$("#queueWindow");if(win.hidden||archiveOpen)return;
+  let previous=null;
+  const rows=q.actions.map(a=>{
+    const grouped=previous&&a.sequence===previous.sequence+1&&a.type==="discuss"&&previous.type===a.type&&previous.target===a.target&&previous.conversationId===a.conversationId&&previous.status===a.status;
+    previous=a;
+    return `<div class="queue-item${grouped?" grouped":""}"><b>${esc(actionLabels[a.type]||a.type)}</b> · ${a.status==="queued"?"В очереди":a.status==="running"?"Разбор":"Ошибка"}<div>${esc(a.text)}</div>${a.error?`<div class="err">${esc(a.error)}</div>`:""}${a.status==="queued"?`<button class="btn small" data-queue-cancel="${esc(a.id)}">Отменить</button>`:a.status==="failed"||a.status==="needs-decision"?`<button class="btn small" data-queue-retry="${esc(a.id)}">Повторить в конце</button>`:""}</div>`;
+  }).join("");
+  win.innerHTML=`<div class="row"><b>Очередь</b>${queuePinned?'<button class="btn small" data-queue-close>Закрыть</button>':""}</div>${S.currentWork?`<p>Текущая работа: ${esc(actionLabels[S.currentWork.type]||S.currentWork.type)}</p>`:""}${q.paused?'<p>Поздние действия ждут продолжения карты.</p><button class="btn" data-queue-continue>Продолжить</button>':""}${rows}${q.internal.map(a=>`<div class="queue-item">${esc(actionLabels[a.type]||a.type)} · В очереди</div>`).join("")}`;
+}
+async function cancelQueued(id){
+  try{const plan=await api("/api/actions/cancel",{id});if(!confirm("Отменить группу и зависимые действия?"+" ("+plan.ids.length+")"))return;await api("/api/actions/cancel",{id,confirmation:plan.confirmation});await poll(true)}catch(e){showError(e.message)}
+}
+async function showArchive(){
+  try{const result=await api("/api/archive");archiveOpen=true;queuePinned=true;const win=$("#queueWindow");win.hidden=false;win.innerHTML=`<div class="row"><b>Архив</b><button class="btn small" data-queue-close>Закрыть</button></div><p>Агент рассмотрит архив при перечитывании карты.</p><button class="btn" data-archive-reread>Перечитать</button>${result.archive.map(a=>`<details class="queue-item"><summary>${esc(a.node?.q||a.node?.text||a.reason)}</summary><pre style="white-space:pre-wrap">${esc(JSON.stringify(a,null,2))}</pre></details>`).join("")}`}catch(e){showError(e.message)}
+}
+$("#queueControl").addEventListener("mouseenter",()=>{clearTimeout(queueLeaveTimer);if(!archiveOpen)showQueue()});
+$("#queueWindow").addEventListener("mouseenter",()=>clearTimeout(queueLeaveTimer));
+$("#queueControl").addEventListener("mouseleave",()=>{queueLeaveTimer=setTimeout(()=>{if(!queuePinned)$("#queueWindow").hidden=true},180)});
+$("#queueCount").onclick=$("#queueIssues").onclick=()=>showQueue(true);
+$("#queueWindow").addEventListener("click",async e=>{
+  const b=e.target.closest("button");if(!b)return;
+  try{
+    if(b.hasAttribute("data-queue-close")){queuePinned=false;archiveOpen=false;$("#queueWindow").hidden=true}
+    else if(b.dataset.queueCancel)await cancelQueued(b.dataset.queueCancel);
+    else if(b.dataset.queueRetry){await api("/api/actions/retry",{id:b.dataset.queueRetry,actionId:crypto.randomUUID()});await poll(true)}
+    else if(b.hasAttribute("data-queue-continue")){await api("/api/actions/continue",{});await poll(true)}
+    else if(b.hasAttribute("data-archive-reread"))await requestReread();
+  }catch(error){showError(error.message)}
+});
+
 /* <img> cannot send x-grill: fetch the protected file once and reuse its blob URL across panel re-renders */
 function imgUrl(f){
   if(imgUrls[f])return imgUrls[f];
@@ -423,8 +481,10 @@ async function previewAction(action){
   clearError();
   try{
     if(action==="prepare"){
+      const target=panel;
       const result=await api("/api/preview/prepare",{sourceId:panel.id,id:$("#previewTarget").value||undefined,branches:[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
-      await poll(true);openPanel({mode:"node",id:result.id});
+      await poll(true);showQueue(true);
+      actionResult(result,true).then(async done=>{await poll(true);if(panel===target){queuePinned=false;$("#queueWindow").hidden=true;openPanel({mode:"node",id:done.id})}},error=>showError(error.message));
     }else if(action==="open")await openPreview(panel.id);
     else if(action==="build"){
       if(previewView?.id===panel.id&&!await guardPreview())return;
@@ -448,12 +508,23 @@ function frameRequest(type){
     v.frame.contentWindow.postMessage({type,instance:v.instance,requestId},"*");
   });
 }
+async function actionResult(receipt,started=false){
+  if(!receipt.actionId)return receipt;
+  for(;;){
+    const data=await api("/api/actions?id="+encodeURIComponent(receipt.actionId)),a=data.actions[0];
+    if(!a)throw new Error("Сервер не нашёл команду. Перезапустите сервер карты и обновите страницу.");
+    if(a.status==="done"||started&&a.result?.id)return a.result;
+    if(["failed","needs-decision","cancelled","superseded"].includes(a.status))throw new Error(a.error||"Действие уже начато");
+    await new Promise(resolve=>setTimeout(resolve,1200));
+  }
+}
 async function savePreview(){
   clearError();
   const v=previewView;if(v.snapshot)throw new Error("Снимок доступен только для просмотра");
   const generation=v.dirtyRevision,data=await frameRequest("save");
   if(v!==previewView)throw new Error("Превью закрыто");
-  await api("/api/preview/save",{id:v.id,commit:v.commit,epoch:v.epoch,state:data.state});
+  v.message.textContent="В очереди";
+  await actionResult(await api("/api/preview/save",{id:v.id,commit:v.commit,epoch:v.epoch,state:data.state}));
   if(v.dirtyRevision===generation)v.dirty=false;
   v.message.textContent=v.dirty?"Есть несохранённые изменения":"Значения сохранены";
 }
@@ -486,7 +557,7 @@ async function openPreview(id,snapshot){
       if(action==="save")await savePreview();
       if(action==="close"&&await guardPreview())closePreviewNow();
       if(action==="refresh")await openPreview(id,snapshot);
-      if(action==="restore"&&await guardPreview()){await api("/api/preview/restore",{id,commit:v.commit,epoch:v.epoch,target:$("#previewHistory").value});v.dirty=false;await poll(true);await openPreview(id)}
+      if(action==="restore"&&await guardPreview()){v.message.textContent="В очереди";await actionResult(await api("/api/preview/restore",{id,commit:v.commit,epoch:v.epoch,target:$("#previewHistory").value}));v.dirty=false;await poll(true);await openPreview(id)}
       if(action==="export"){const result=await frameRequest("export"),url=URL.createObjectURL(new Blob([result.svg],{type:"image/svg+xml"})),a=document.createElement("a");a.href=url;a.download="preview.svg";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
     }catch(error){showError(error.message)}
   });
@@ -611,10 +682,11 @@ function renderHeader(){
   $("#finishedNotice").hidden=!S.finished||listening||offline;
   $("#finishedNotice").textContent=`Карта завершена, агент больше не слушает. Попросите продолжить карту: ${S.name??"Без имени"}`;
   $("#bSpec").textContent=S.specPending?"Спека в работе…":S.specUpdatedAt?"Обновить спеку":"Создать спеку";
-  $("#bSpec").disabled=!!S.specPending;
+  $("#bSpec").disabled=false;
   const rereadBusy=rereadSending||!!S.rereadPending, rereadButton=$("#bReread");
   rereadButton.textContent=rereadBusy?"Перечитываю…":`Перечитать · ${coverageText()}`;
-  rereadButton.disabled=rereadBusy||!qs().length;
+  rereadButton.disabled=!qs().length;
+  renderQueue();
   rereadButton.classList.toggle("reread-busy",rereadBusy);
   rereadButton.setAttribute("aria-busy",String(rereadBusy));
   $("#bStop").setAttribute("aria-label",S.finishPending?"Останавливаю…":"Остановить");
@@ -688,8 +760,9 @@ function nodePanel(n){
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
   else if(n.obsolete){if(n.answer)b+=copyBlock(n.answer,`<p>Ваш ответ: ${esc(n.answer)}</p>`);if(n.verdict)b+=copyBlock(n.verdict,`<p>${esc(n.verdict)}</p>`)}
-  else if(n.pending){
+  else if(n.pending&&!panel.edit){
     b+=copyBlock(n.pending.answer,`<span class="pill s-think">${n.pending.stage==="thinking"?"Агент разбирает":"В очереди"}</span><p class="atext">Ваш ответ: ${esc(n.pending.answer)}</p>`,"verdict s-think");
+    b+=`<button class="btn small" data-act="edit">Изменить ответ</button>`;
     b+=n.pending.stage==="thinking"?working("Агент оценивает ответ и ищет слабые места…"):waitNote()+`<div class="row"><button class="btn small" data-act="cancel">Отозвать ответ</button></div>`;
   }else if(n.answer&&!panel.edit){
     b+=copyBlock(n.answer,`<p class="atext">Ваш ответ: ${esc(n.answer)}</p>`,"verdict s-open");
@@ -698,7 +771,7 @@ function nodePanel(n){
     const ch=kids(n.id);
     if(ch.length)b+=`<h3>Подвопросы</h3><div class="sublist">${ch.map(c=>`<button class="subq s-${vis(c)}" data-open="${c.id}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
     else if(n.status==="ok")b+=`<p class="why">Ветка закрыта, копать глубже не нужно.</p>`;
-    if(confirmReset)b+=`<div class="warn"><span>Новый ответ заменит текущий. Агент пересмотрит связи ветки, сохранит актуальные вопросы и может удалить устаревшие решения. Затем он перечитает всю карту: другие ветки тоже могут измениться, а отвечать на это время будет нельзя.</span><div class="row"><button class="btn small primary" data-act="edit">Ответить заново</button><button class="btn small" data-act="noreset">Отмена</button></div></div>`;
+    if(confirmReset)b+=`<div class="warn"><span>Новый ответ заменит текущий. Агент пересмотрит связи ветки, сохранит актуальные вопросы и может удалить устаревшие решения. Затем он перечитает всю карту: другие ветки тоже могут измениться, новые действия сохранятся в очереди.</span><div class="row"><button class="btn small primary" data-act="edit">Ответить заново</button><button class="btn small" data-act="noreset">Отмена</button></div></div>`;
     else b+=`<div class="row"><button class="btn small" data-act="reset">Изменить ответ</button></div>`;
     const nx=nextOpen();if(nx&&nx.id!==n.id)b+=`<div class="row"><button class="btn" data-open="${nx.id}">Следующий открытый вопрос →</button></div>`;
   }else{
@@ -721,7 +794,7 @@ function discussTab(n){
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
   if(n.kind==="root")b=`<div class="row" style="flex-wrap:nowrap"><select id="conversationSelect" aria-label="Разговор" style="flex:1;min-width:0" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=(n.chat||[]).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select><button class="btn" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`+b;
   if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
-  const busy=n.discuss==="thinking"||n.kind==="root"&&n.discuss&&(n.chat?.at(-1)?.conversationId||"main")!==projectConversation;
+  const busy=false;
   if(busy)b+=working("Агент пишет ответ…");
   else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
   else if(!listening)b+=`<div class="note">Агент сейчас не слушает карту. Сообщение встанет в очередь и будет разобрано, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`;
@@ -765,7 +838,7 @@ async function attachIdea(){
   const raw=$("#fIdea")?.value||"",text=raw.trim();if(!text)return;
   ideaRequestId ||= crypto.randomUUID();
   const target=panel,requestId=ideaRequestId;sending=true;clearError();renderPanel();
-  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged)openPanel({mode:"node",id:result.id})}
+  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged)result.id?openPanel({mode:"node",id:result.id}):showQueue(true)}
   catch(e){showError(e.message)}
   finally{sending=false;renderPanel()}
 }
@@ -826,7 +899,7 @@ function summaryPanel(){
   if(S.knowledgeResult?.status==="saved")b+=`<p class="final">Знания сохранены</p>`;
   if(S.knowledgeResult?.status==="skipped")b+=`<p class="warn">Сохранение знаний пропущено пользователем</p>`;
   if(S.knowledgeResult?.error)b+=`<div class="err">${esc(S.knowledgeResult.error)}</div>`;
-  if(S.knowledgePending?.stage==="blocked")b+=`<div class="row"><button class="btn" data-act="knowledge-retry">Повторить сохранение знаний</button>${S.finishPending?`<button class="btn" data-act="knowledge-skip">Завершить без сохранения знаний</button>`:""}</div>`;
+  if(S.knowledgePending?.stage==="blocked")b+=`<div class="row"><button class="btn" data-act="knowledge-retry">Повторить сохранение знаний</button>${S.finishPending||S.failedKnowledgeFinish?`<button class="btn" data-act="knowledge-skip">Завершить без сохранения знаний</button>`:""}</div>`;
   b+=`<button class="btn" data-act="knowledge-open">Документы и источники знаний</button>`;
   if(knowledgeIndex)b+=knowledgeIndex.documents.filter(d=>d.path.startsWith("docs/vgril/")).map(d=>`<p><button class="btn small" data-document="${esc(d.path)}">${esc(d.path)}</button>${d.error?`<span class="err">${esc(d.error)}</span>`:""}${(d.sources||[]).map(s=>`<br><span class="why">${esc(s.path)} · ${s.available?"Источник доступен":"Источник недоступен"}${s.available&&!s.versionMatches?" · "+"Источник изменился":""}${s.localOnly?" · "+"Локальный источник":""}${s.snapshot?" · "+"Сохранённый фрагмент источника доступен":""}</span>`).join("")}${d.links.map(l=>`<br><span class="why">${esc(l.target)} · ${l.localOnly?"Локальный источник":l.available===false?"Источник недоступен":l.available===true?"Источник доступен":"Внешний источник"}</span>`).join("")}</p>`).join("");
   if(knowledgeDocument)b+=`<details open><summary>${esc(knowledgeDocument.path)}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(knowledgeDocument.text||"Источник недоступен")}</pre></details>`;
@@ -907,7 +980,7 @@ async function submitAnswer(){
 }
 async function submitDiscuss(request){
   const id=panel.id,key=chatKey(id),conversationId=id==="root"?projectConversation:undefined,t=$("#fMsg"),raw=t?t.value:"",message=request?request.message:raw.trim(),q=request?request.quote:panel.quote,quote=q?q.text:null,about=q?q.about:undefined,images=request?[]:[...(draftImages[key]||[])];
-  if(sending||(get(id)||{}).discuss==="thinking"){
+  if(sending){
     if(request){showError("Дождитесь ответа агента и повторите запрос объяснения.");renderPanel()}
     return;
   }
@@ -925,12 +998,12 @@ async function submitDiscuss(request){
 }
 async function act(path,body){clearError();try{await api(path,body||{});await poll(true);return true}catch(e){showError(e.message);renderPanel();return false}}
 async function requestReread(){
-  if(rereadSending||S.rereadPending||!qs().length)return;
+  if(rereadSending||!qs().length)return;
   rereadSending=true;clearError();renderHeader();renderPanel();
   try{
     await api("/api/reread",{});
     // Keep the accepted request visible even if the immediate state poll fails.
-    S.rereadPending||={stage:"queued",locked:false};
+
     await poll(true);
   }catch(e){showError(e.message)}
   finally{rereadSending=false;renderHeader();renderPanel()}
@@ -1070,7 +1143,7 @@ $("#panel").addEventListener("click",e=>{
     case "chatreset":{const id=panel.id;panel.confirmChat=false;clearError();
       api("/api/chatreset",{id,conversationId:id==="root"?projectConversation:undefined}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{showError(err.message);renderPanel()});break}
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
-    case "cancel":act("/api/cancel",{id:panel.id});break;
+    case "cancel":{const a=S.actionQueue?.actions.find(a=>a.type==="answer"&&a.target===panel.id&&a.status==="queued");if(a)cancelQueued(a.id);else showQueue(true);break}
     case "reread":requestReread();break;
     case "knowledge-open":api("/api/knowledge").then(d=>{knowledgeIndex=d;renderPanel()},err=>showError(err.message));break;
     case "knowledge-retry":act("/api/knowledge-retry");break;
@@ -1111,7 +1184,7 @@ $("#stage").addEventListener("contextmenu",e=>{
   const target=e.target.closest(".node");if(!target||selBefore)return;
   e.preventDefault();clearTimeout(clickTimer);
   const id=target.dataset.id,el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
-  el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="project">Общий чат</button><button role="menuitem" data-ctx="reread">Перечитать</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
+  el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="archive">Архив</button><button role="menuitem" data-ctx="project">Общий чат</button><button role="menuitem" data-ctx="reread">Перечитать</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
   if(get(id)?.kind!=="preview")el.innerHTML+=`<button role="menuitem" data-ctx="preview">Создать превью</button>`;
   else el.innerHTML=`<button role="menuitem" data-ctx="previewopen">Открыть превью</button>`;
   const n=get(id);
@@ -1130,7 +1203,7 @@ document.addEventListener("click",e=>{
     try{Promise.resolve(navigator.clipboard.writeText(text)).catch(()=>showError("Не удалось скопировать. Выделите текст и скопируйте вручную."))}catch{showError("Не удалось скопировать. Выделите текст и скопируйте вручную.")}
     return;
   }
-  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="reread")requestReread();else if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
+  if(c.card){if(b&&get(c.id)){if(b.dataset.ctx==="archive")showArchive();else if(b.dataset.ctx==="reread")requestReread();else if(b.dataset.ctx==="preview")openPanel({mode:"previewSetup",id:c.id});else if(b.dataset.ctx==="previewopen")openPanel({mode:"node",id:c.id});else if(b.dataset.ctx==="project")openPanel({mode:"project",id:"root",tab:"discuss"});else if(b.dataset.ctx==="attachidea")openPanel({mode:"ideaDraft",id:"root"});else if(b.dataset.ctx==="analyzeidea"){openPanel({mode:"node",id:c.id});act("/api/idea/analyze",{id:c.id})}else if(b.dataset.ctx==="editidea")openPanel({mode:"node",id:c.id,edit:true,ideaRevision:get(c.id).revision});else if(b.dataset.ctx==="removeidea")openPanel({mode:"node",id:c.id,deleteIdea:true});else openQuestion(c.id)}return}
   if(!b||!panel||panel.id!==c.id)return;
   if(b.dataset.ctx==="discuss"||b.dataset.ctx==="explain"){
     panel.tab="discuss";clearError();confirmReset=false;

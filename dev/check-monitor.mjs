@@ -125,35 +125,30 @@ try {
   const id = (await api("state")).nodes.find(n => n.kind === "q").id;
   await api("answer", { id, answer: "Keep queued" });
   status = await pending("failed"); assert.equal(status.delivery, null);
-  assert.equal((await api("state")).nodes.find(n => n.id === id).pending.stage, "queued");
+  assert.equal((await api("state")).actionQueue.actions.find(a => a.target === id).status, "queued");
   await stop(); fs.writeFileSync(bindingFile, JSON.stringify(binding)); fs.writeFileSync(mode, "");
   await api("init", { title: "Invalidation", questions: [{ q: "Leave open?" }] });
   await arm();
-  const idea = await api("idea", { id: "monitor-idea", text: "Initial idea" });
+  await api("idea", { id: "monitor-idea", text: "Initial idea" });
   status = await pending(); const ideaDelivery = status.delivery;
-  await api("idea/edit", { id: idea.id, revision: 1, text: "Changed idea" });
-  await until(async () => (await api("monitor")).delivery !== ideaDelivery);
-  status = await pending(); assert.notEqual(status.delivery, ideaDelivery);
+  const ideaEvent = await event(ideaDelivery);
+  await api("idea/edit", { id: ideaEvent.id, revision: 1, text: "Changed idea" });
+  assert.equal((await api("monitor")).delivery, ideaDelivery);
+  await api("apply", { type: "idea", id: ideaEvent.id, token: ideaEvent.token, status: "verify", verdict: "Initial review", audit: [], children: [] });
+  await arm(); status = await pending(); assert.notEqual(status.delivery, ideaDelivery);
   await api("monitor?delivery=" + ideaDelivery, undefined, 409);
   assert.equal((await event(status.delivery)).type, "idea");
-  // New answers invalidate a delivered finish without blocking the queue.
+  // Finish is stable while later actions are accepted and paused.
   await stop(); await api("init", { title: "Finish recovery", questions: [{ q: "Question?" }] });
   await api("finish", {}); await arm(); status = await pending(); e = await event(status.delivery);
   assert.equal(e.type, "knowledge"); await api("apply", { type: "knowledge", token: e.token, files: [] }); await arm();
   status = await pending(); const finish = await event(status.delivery); assert.equal(finish.type, "finish");
-  const finishDelivery = status.delivery;
   const question = (await api("state")).nodes.find(n => n.kind === "q");
   await api("answer", { id: question.id, answer: "Arrived during finish" });
-  await api("apply", { type: "finish", token: finish.token, summary: "Stale" }, 409);
-  status = await pending(); assert.notEqual(status.delivery, finishDelivery);
-  e = await event(status.delivery); assert.equal(e.type, "answer"); await grade(e);
-  await arm(); status = await pending(); e = await event(status.delivery);
-  assert.equal(e.type, "knowledge");
-  await api("apply", { type: "knowledge", token: e.token, files: [] });
-  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "finish");
-  await api("apply", { type: "finish", token: e.token, summary: "Finished" });
-  assert.equal((await api("state")).finished, true);
-  await stop();
+  await api("apply", { type: "finish", token: finish.token, summary: "Finished" });
+  assert.equal((await api("state")).actionQueue.paused, true);
+  await stop(); await api("actions/continue", {}); await arm(); status = await pending(); e = await event(status.delivery);
+  assert.equal(e.type, "answer"); await grade(e); await stop();
   // Explicit continuation retains finished/summary but serves new discussions.
   await arm(); await api("discuss", { id: "root", message: "Continue this map" });
   status = await pending(); e = await event(status.delivery); assert.equal(e.type, "discuss");
@@ -165,24 +160,15 @@ try {
   await api("apply", { type: "reread", token: e.token, reserve: [], audit: contextCards(e).map(n => ({ id: n.id, action: "keep", reason: "Transport test" })) });
   assert.equal((await api("state")).knowledgePending, null);
   await arm(); assert.equal((await api("monitor")).phase, "armed");
-  // A save-only browser mutation must also replace a now-stale finish delivery.
+  // Chat reset also respects an in-flight finish boundary.
   await api("finish", {}); status = await pending(); e = await event(status.delivery);
   if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [] }); await arm(); status = await pending(); e = await event(status.delivery); }
   assert.equal(e.type, "finish");
   const resetDelivery = status.delivery;
   await api("chatreset", { id: "root" });
-  await until(async () => (await api("monitor")).delivery !== resetDelivery);
-  status = await pending(); await api("monitor?delivery=" + resetDelivery, undefined, 409);
-  assert.equal((await event(status.delivery)).type, "knowledge");
-  // Finish cancels an automatic reread that was already sent to the host.
-  await stop(); await api("init", { title: "Cancel reread", questions: [{ q: "Question?" }] });
-  const q = (await api("state")).nodes.find(n => n.kind === "q");
-  await api("answer", { id: q.id, answer: "Closed" }); await grade(await api("wait?timeout=5"));
-  await arm(); status = await pending(); e = await event(status.delivery); assert.equal(e.type, "reread");
-  const rereadDelivery = status.delivery;
-  await api("finish", {}); status = await pending();
-  assert.notEqual(status.delivery, rereadDelivery); await api("monitor?delivery=" + rereadDelivery, undefined, 409);
-  assert.equal((await event(status.delivery)).type, "knowledge");
+  assert.equal((await api("monitor")).delivery, resetDelivery);
+  await api("apply", { type: "finish", token: e.token, summary: "Stable", rearm: true, owner });
+  assert.equal((await api("state")).actionQueue.paused, true);
   // Combined commit/rearm, validation, stale results and staged discussion.
   await stop(); await api("init", { title: "Combined", questions: [{ q: "One?" }, { q: "Open?" }] });
   const combined = (await api("state")).nodes.find(n => n.kind === "q");
@@ -194,7 +180,7 @@ try {
   await api("apply", { ...result, ancestors: [{ id: "missing", status: "ok", verdict: "Invalid" }] }, 400);
   assert.equal((await api("monitor")).delivery, status.delivery);
   assert.equal((await api("apply", { ...result, ancestors: [] })).monitor.phase, "armed");
-  const staleCombined = await api("apply", result, 409); assert.equal(staleCombined.monitor.phase, "armed");
+  const replay = await api("apply", result); assert.equal(replay.ok, true); assert.equal((await api("monitor")).phase, "armed");
   await api("discuss", { id: "root", message: "Discuss" }); status = await pending(); e = await event(status.delivery);
   const part = { type: "discuss", id: e.id, token: e.token, rearm: true, owner };
   assert.equal((await api("apply", { ...part, part: 0, more: true, questions: [] })).staged, true);
@@ -204,13 +190,14 @@ try {
   if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [], rearm: true, owner }); status = await pending(); e = await event(status.delivery); }
   assert.equal(e.type, "finish");
   assert.deepEqual((await api("apply", { type: "finish", token: e.token, summary: "Done", rearm: true, owner })).monitor, { phase: "stopped", drained: true });
-  // Non-empty finish drains queued work instead of stopping.
-  await arm(); await api("finish", {}); status = await pending(); e = await event(status.delivery);
+  // Late work remains paused even when a monitor is armed.
+  await api("actions/continue", {}); await arm(); await api("finish", {}); status = await pending(); e = await event(status.delivery);
   if (e.type === "knowledge") { await api("apply", { type: "knowledge", token: e.token, files: [], rearm: true, owner }); status = await pending(); e = await event(status.delivery); }
   await api("more", {});
-  assert.equal((await api("apply", { type: "finish", token: e.token, summary: "Drain", rearm: true, owner })).monitor.phase, "notifying");
+  assert.equal((await api("apply", { type: "finish", token: e.token, summary: "Drain", rearm: true, owner })).monitor.phase, "stopped");
+  await api("actions/continue", {}); await arm();
   status = await pending(); e = await event(status.delivery); assert.equal(e.type, "more");
-  await api("apply", { type: "more", questions: [], rearm: true, owner });
+  await api("apply", { type: "more", token: e.token, questions: [], rearm: true, owner });
   // Deliberate negative results complete delivery and must keep serving.
   await api("reread", {}); status = await pending(); e = await event(status.delivery);
   const refused = await api("apply", { type: "reread", token: e.token, error: "Cannot assess", rearm: true, owner });
@@ -227,7 +214,7 @@ try {
   assert.equal((await api("state")).finished, true);
   await api("stop", {}); await server.done;
   const statePath = path.join(map, "state.json"), seeded = read(statePath);
-  seeded.queue = []; seeded.knowledgeJob = null; seeded.reevaluation = null;
+  seeded.actions = []; seeded.actionPaused = false; seeded.queue = []; seeded.knowledgeJob = null; seeded.reevaluation = null;
   seeded.nodes = [{ id: "root", kind: "root", parentId: null }, ...Array.from({ length: 180 }, (_, i) => ({ id: "large" + i, kind: "q", parentId: "root", status: "open", q: `Question ${i}: ` + "Long distinct title ".repeat(8) }))];
   fs.writeFileSync(statePath, JSON.stringify(seeded)); await start(); await arm();
   await api("answer", { id: "large0", answer: "File delivery" }); status = await pending();
@@ -251,11 +238,11 @@ try {
   const applied = await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accept once", ancestors: [{ id: ancestor, status: "ok", verdict: "Outdated conclusion" }], rearm: true, owner });
   assert.equal(applied.ok, true); assert.equal(applied.monitor.phase, "notifying");
   let siblingState = await api("state");
-  assert.equal(siblingState.nodes.find(n => n.id === ancestor).status, "weak");
+  assert.equal(siblingState.nodes.find(n => n.id === ancestor).status, "ok");
   assert.equal(siblingState.nodes.find(n => n.id === siblings[0].id).verdictHistory.length, 1);
   assert.equal(siblingState.nodes.find(n => n.id === siblings[0].id).pending, null);
   status = await pending(); e = await event(status.delivery); assert.equal(e.id, siblings[1].id);
-  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Second", ancestors: [], rearm: true, owner });
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Second", rearm: true, owner });
   status = await pending(); e = await event(status.delivery);
   assert.equal(e.type, "reevaluate"); assert.deepEqual(e.ids, [ancestor]);
   await api("apply", { type: "reevaluate", token: e.token, assessments: [{ id: ancestor, status: "verify", verdict: "Review both proofs" }], rearm: true, owner });

@@ -228,7 +228,7 @@ try {
   let resolved = (await request("state")).nodes.find(n => n.id === discussionId);
   assert.equal(resolved.status, "ok");
   assert.equal(resolved.answer, "Accepted exception list.");
-  await rejected(decision, 409);
+  await request("apply", decision);
   decision = await assess("The exceptions still need measurement.", { status: "verify", verdict: "Measure exception frequency.", answer: "Must not replace the original answer." });
   await request("spec", {});
   await request("apply", decision);
@@ -237,19 +237,15 @@ try {
   assert.equal(resolved.answer, "Accepted exception list.");
   assert.equal(resolved.verdictHistory.length, 2);
   const frozen = await event(watch(), "spec");
-  assert.equal(frozen.nodes.find(n => n.id === discussionId).status, "ok");
+  assert.equal(frozen.nodes.find(n => n.id === discussionId).status, "verify");
   await request("apply", { type: "spec", token: frozen.token, markdown: "# Frozen decision" });
   decision = await assess("Decision before concurrent answer.", { status: "ok", verdict: "Accepted." });
   await request("answer", { id: discussionId, answer: "New submitted answer" });
-  await rejected(decision, 409);
   await request("cancel", { id: discussionId });
-  decision.token = (await event(watch(), "discuss")).token;
   // A changed branch must invalidate the assessment, even with a valid delivery token.
   await request("discuss", { id: "root", message: "Changed project premise." });
   await request("question", { id: "discussion-child", parentId: discussionId, q: "New branch evidence?" });
-  await rejected(decision, 409);
-  const retryDecision = await event(watch(), "discuss");
-  await request("apply", { ...decision, token: retryDecision.token });
+  await request("apply", decision);
   const rootDiscussion = await event(watch(), "discuss");
   assert.equal(rootDiscussion.id, "root");
   await rejected({ type: "discuss", id: "root", token: rootDiscussion.token, reply: "No root grade.", assessment: { status: "ok", verdict: "Invalid", answer: "Invalid" } }, 400);
@@ -286,12 +282,9 @@ try {
   await rejected({ ...commandApply, reread: "yes" }, 400);
   assert.equal((await request("state")).rereadPending, null);
   await request("apply", commandApply);
-  await rejected(commandApply, 409);
-  assert.equal((await request("state")).nodes.find(n => n.id === target.id).chat.length, 2);
+  await request("apply", commandApply);
+  assert.equal((await request("state")).nodes.find(n => n.id === target.id).chat.length, 1);
   await request("stop", {}); await server.done; await start();
-  const targetAnswer = await event(watch(), "answer");
-  assert.equal(targetAnswer.id, target.id);
-  await request("apply", { type: "answer", id: target.id, token: targetAnswer.token, status: "ok", verdict: "Initial grade." });
   const targetEvent = await event(watch(), "discuss");
   assert.equal(focusCard(targetEvent).pending, undefined);
   assert.equal(targetEvent.id, target.id);
@@ -303,8 +296,15 @@ try {
   assert.equal(contextCards(commandReview).find(n => n.id === target.id).status, "verify");
   await request("apply", { type: "reread", token: commandReview.token, summary: "Checked.", reserve: [],
     audit: contextCards(commandReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
+  const earlier = await event(watch(), "discuss");
+  assert.match(earlier.message, /Earlier clarification/);
+  await request("apply", { type: "discuss", id: target.id, token: earlier.token, reply: "Noted" });
+  const targetAnswer = await event(watch(), "answer");
+  assert.equal(targetAnswer.id, target.id);
+  await request("apply", { type: "answer", id: target.id, token: targetAnswer.token, status: "ok", verdict: "Initial grade." });
+  const editReview = await event(watch(), "reread");
+  await request("apply", { type: "reread", token: editReview.token, audit: contextCards(editReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant" })) });
   // CLI reread reuses the same deduplicated manual request path.
-  assert.equal((await run(["reread"]).done).code, 0);
   assert.equal((await run(["reread"]).done).code, 0);
   const cliReview = await event(watch(), "reread");
   await request("apply", { type: "reread", token: cliReview.token, summary: "Checked again.", reserve: [],
@@ -312,9 +312,9 @@ try {
   assert.equal((await request("state")).nodes.find(n => n.id === source.id).status, "open");
   await request("more", {});
   const more = await event(watch("--inbox"), "more");
-  assert.deepEqual(Object.keys(more).sort(), ["characters", "inbox", "language", "name", "sections", "type"]);
+  assert.deepEqual(Object.keys(more).sort(), ["characters", "inbox", "language", "name", "sections", "token", "type"]);
   assert.equal(inbox().type, "more");
-  await request("apply", { type: "more", questions: [] });
+  await request("apply", { type: "more", token: more.token, questions: [] });
   const savedInbox = read("inbox.json");
   const expired = await event(watch("--inbox", "--max-wait", "5"), "timeout");
   assert.equal(expired.expired, true);

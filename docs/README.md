@@ -15,3 +15,5 @@ Documentation is in English. The browser interface follows the language of the u
 Visual explanations: [preview.md](preview.md) documents the project format, API, isolation, versions and retention.
 
 Project memory: [knowledge.md](knowledge.md) documents shared knowledge, provenance, safe writes and the finish stage.
+
+Durable action admission, cancellation, archive and finish boundaries: [contract.md](contract.md#durable-user-actions).
