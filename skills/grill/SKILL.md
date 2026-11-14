@@ -45,7 +45,7 @@ Always name new maps; do not create unnamed maps.
 
 If a map selected for resumption has an empty `title` and all-zero counts, initialization was interrupted. Follow step 2 with the same name.
 
-Before resuming, if `listening:true` and this map is not in your served-map table, another session may be serving it. Warn the user and proceed only after confirmation that no other session is listening. Then run `G start` with the language option described above and go to step 4.
+Before resuming, if `listening:true` and this map is not in your served-map table, another session may be serving it. Warn the user and proceed only after confirmation that no other session is listening. Then run `G start --continue` with the language option described above and go to step 4; `--continue` releases late actions held after a finish.
 
 When opening a map, name it in a short localized message, for example: Map “arch” is open: <URL>. Levels 1/2 can serve several maps under the dispatcher rules below. At level 0, parallel maps require separate agent sessions; one session listens to one map.
 
@@ -171,4 +171,4 @@ Project chat supports separate conversations selected in the browser. Project `d
 
 ## Durable action queue
 
-User mutations are accepted into a durable FIFO journal, including during reread and finish. Never ask the user to wait before submitting. Adjacent messages are delivered together; adjacent answer revisions execute the last version. Spec and reread capture state when executed. Main-session Codex monitor uses one fresh prepare-only worker per event (see monitor.md); only the main session applies/rearms. Echo every token, including more. An unrecoverable event can be completed with `{type:"failure",token,error}`; independent actions continue and retry is explicit. A new finish pauses later actions; do not drain them. Explicit `G start` releases the boundary.
+User mutations are accepted into a durable FIFO journal, including during reread and finish. Never ask the user to wait before submitting. Adjacent messages are delivered together; adjacent answer revisions execute the last version. Spec and reread capture state when executed. Main-session Codex monitor uses one fresh prepare-only worker per event (see monitor.md); only the main session applies/rearms. Echo every token, including more. An unrecoverable event can be completed with `{type:"failure",token,error}`; independent actions continue and retry is explicit. A started finish holds later actions, also if it fails; do not drain them. Only an explicit user continuation of the finished map (a chat request, Play or copied continuation context) uses `G start --continue` to release them. Plain `G start` for recovery or reopening keeps them paused.

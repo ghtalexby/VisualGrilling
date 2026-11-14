@@ -48,7 +48,7 @@ Attach `semantics` to each answer assessment (including discussion assessment an
 
 ## Shared evidence and grades
 
-Codex monitor delegates preparation to one fresh worker; the main session alone applies and re-arms after completion. In monitor mode use `apply --rearm` on the final result; the server arms after commit. Other modes keep their loop. After finish, late journal actions remain paused until explicit continuation. Drain only executable work when authoritative `queueLength` / CLI `status.queue` / map-list `queue` is zero; these include frozen/internal ancestor reassessments.
+Codex monitor delegates preparation to one fresh worker; only the main session applies and re-arms. In monitor mode use `apply --rearm` on the final result; the server arms after commit. Other modes keep their loop. After finish, late actions stay paused until explicit user continuation (`G start --continue`). Drain only executable work when authoritative `queueLength` / CLI `status.queue` / map-list `queue` is zero; these include frozen/internal ancestor reassessments.
 
 `obsolete` is history, not current requirements or blockers; current descendants may remain relevant. Discussion can establish restoration evidence, but only reread applies `restore`. Never request an answer while the card is obsolete. Read idea ancestors' full `text`.
 

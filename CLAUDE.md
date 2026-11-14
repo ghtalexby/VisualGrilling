@@ -45,7 +45,7 @@ npm run status | list | stop | reset
 Manually, from the target project directory (map in `./.grill/<name>/` with `--name`, or `./.grill/` without it):
 
 ```bash
-node skills/grill/grill.mjs start [--port 4777] [--no-open] [--dir .grill] [--name arch]   # --name/--dir go to every command
+node skills/grill/grill.mjs start [--port 4777] [--no-open] [--dir .grill] [--name arch] [--continue]   # --name/--dir go to every command; --continue releases a finish boundary
 node skills/grill/grill.mjs init  < init.json
 node skills/grill/grill.mjs watch --max-wait 1800 # one event or expired timeout; background-capable hosts
 node skills/grill/grill.mjs wait --timeout 30     # one event JSON or {"type":"timeout"}
@@ -56,7 +56,7 @@ node skills/grill/grill.mjs list                  # all maps in .grill: name, ti
 
 ## Architecture in brief
 
-Browser → POST `/api/answer|discuss|more|finish` → event in `S.queue` → the agent's `grill.mjs wait` or background `watch` (long-poll `GET /api/wait`, max 290s) → Claude grades → `grill.mjs apply` mutates the tree → UI picks it up via 1.2s polling of `/api/state`. State is a flat `nodes` tree (via `parentId`) in `.grill/[<name>/]state.json`; each map has its own server/port. Details: [docs/architecture.md](docs/architecture.md).
+Browser → POST `/api/answer|discuss|more|finish` → durable action in `S.actions` (acknowledged after the state file is written; FIFO, one action group at a time) → its reducer puts an event in `S.queue` → the agent's `grill.mjs wait` or background `watch` (long-poll `GET /api/wait`, max 290s) → Claude grades → `grill.mjs apply` mutates the tree → UI picks it up via 1.2s polling of `/api/state`. State is a flat `nodes` tree (via `parentId`) in `.grill/[<name>/]state.json`; each map has its own server/port. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Must-keep invariants
 
@@ -90,7 +90,7 @@ The main session then does steps 3–4 itself and spawns the next fresh reviewer
    - docs and `CLAUDE.md` still match the code.
 2. **(Reviewer agent) List findings** with `file:line`, severity (bug / contract-mismatch / security / docs / style) and a concrete failure scenario. Drop anything you can't back with a concrete scenario.
 3. **(Main session) Check each finding against the code** — discard ones that don't hold up — and **fix the rest.** If a fix needs a user decision, ask, and treat it as open until answered.
-4. **(Main session) Verify:** `node dev/simulate.mjs --no-open --delay 200 --name <disposable-name>` plus API calls from [docs/development.md](docs/development.md) (answer → `gap`/`ok`/`verify`, `discuss`, `more`, `finish`, `report`, request without `x-grill` → 403). Restart the server once to check queue recovery if `grill.mjs` changed. Stop and remove only disposable state; preserve unrelated user maps. Run `node dev/check-watch.mjs`, `node dev/check-workers.mjs`, `node dev/check-maps.mjs`, `node dev/check-spec.mjs`, `node dev/check-reread.mjs`, and `node dev/check-locale.mjs` for relevant runtime changes. Documentation-only edits need link and content checks.
+4. **(Main session) Verify:** `node dev/simulate.mjs --no-open --delay 200 --name <disposable-name>` plus API calls from [docs/development.md](docs/development.md) (answer → `gap`/`ok`/`verify`, `discuss`, `more`, `finish`, `report`, request without `x-grill` → 403). Restart the server once to check queue recovery if `grill.mjs` changed. Stop and remove only disposable state; preserve unrelated user maps. Run `node dev/check-actions.mjs`, `node dev/check-watch.mjs`, `node dev/check-workers.mjs`, `node dev/check-maps.mjs`, `node dev/check-spec.mjs`, `node dev/check-reread.mjs`, and `node dev/check-locale.mjs` for relevant runtime changes. Documentation-only edits need link and content checks.
 5. Spawn a new fresh reviewer agent and go to step 1.
 
 **Stop condition:** a fresh reviewer agent returns zero findings (or only findings the main session disproved against the code) and verification passes. Do not stop because "only minor issues remain" — fix them or explicitly mark them as accepted by the user. The main session keeps the log of all iterations and compares findings across them: if the same finding keeps coming back after 2 fixes, or a reviewer keeps re-raising a finding already disproved, stop and ask the user instead of looping.

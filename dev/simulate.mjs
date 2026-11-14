@@ -109,13 +109,14 @@ const handlers = {
 };
 
 async function main() {
-  const startArgs = ["start", "--port", opt("port", "4777")];
+  // --keep explicitly continues the existing map, including late actions after its finish.
+  const startArgs = ["start", "--port", opt("port", "4777"), ...(has("keep") ? ["--continue"] : [])];
   if (has("no-open")) startArgs.push("--no-open");
   if (has("lang")) startArgs.push("--lang", opt("lang", ""));
   if (has("locale")) startArgs.push("--locale", path.resolve(opt("locale", "")));
   // Check before start, because serve creates an empty state.json on startup.
   const keep = has("keep") && fs.existsSync(path.join(CWD, ".grill", NAME || "", "state.json"));
-  log(G(startArgs).split("\n")[0]);
+  for (const line of G(startArgs).trim().split("\n")) log(line);
   if (!keep) {
     log("init: " + G(["init"], JSON.parse(fs.readFileSync(path.join(ROOT, "dev", "fixtures", "init.json"), "utf8"))));
     log("notes: " + G(["apply"], { type: "notes", text: "Simulator uses dev/fixtures/init.json and heuristic grading; project claims are not verified." }));

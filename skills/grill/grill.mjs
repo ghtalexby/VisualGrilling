@@ -2,7 +2,7 @@
 // grill.mjs — local map server + CLI bridge between Claude Code and the grill map in the browser.
 // Node 18+, no dependencies.
 //
-//   node grill.mjs start [--port 4777] [--no-open] [--lang en|ru] [--locale file.json]   start server, set language, open browser
+//   node grill.mjs start [--port 4777] [--no-open] [--lang en|ru] [--locale file.json] [--continue]   start server, set language, open browser; --continue releases a finish boundary
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
 //   node grill.mjs wait   [--timeout 280] [--inline]                 block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] [--inline] wait across timeouts for one event
@@ -23,7 +23,7 @@
 
 import { evidenceNode, reviewContext, deliveryNode as compactNode, focusedContext as contextProjection, branchIds, indexText, ranking, neighbours, vocabulary, applySemantics, validateDuplicates, reconcileLinks, validateLinks } from "./context.mjs";
 import { discussionResult, discussionParts } from "./discussion.mjs";
-import { actionRoutes, initializeActions, acceptAction, waitingActions, activeActions, actionGroup, cancellation, cancelActions, archiveChanges } from "./actions.mjs";
+import { actionRoutes, initializeActions, acceptAction, waitingActions, activeActions, executableActions, actionGroup, cancellation, cancelActions, archiveChanges } from "./actions.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -104,7 +104,11 @@ async function serve() {
   await readUsage();
   const settings = config(false);
   let S = readJSON(STATE) || freshState();
+  // A pre-journal map that already finished keeps later actions paused until explicit continuation.
+  if (!Array.isArray(S.actions) && S.finished && !S.finishPending) S.actionPaused = true;
   initializeActions(S);
+  // A map saved mid-finish by a pre-journal version has no finish action: actions admitted from now on are late.
+  if (S.finishPending && !S.finishHold && !S.actions.some(a => a.route === "/api/finish" && ["queued", "running"].includes(a.status))) S.finishHold = S.actions.length + 1;
   for (const task of S.actionTasks || []) if (task.status === "running") task.status = "interrupted";
   let persistedNodes = structuredClone(S.nodes);
   let transaction = false;
@@ -155,7 +159,7 @@ async function serve() {
   let applying = false;
   let activeStats = null;
   const usageFields = ["input_tokens", "cached_input_tokens", "output_tokens"];
-  const queueLength = () => (S.actionPaused ? 0 : waitingActions(S).length) + S.queue.length + (S.knowledgeJob && !S.queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (S.specJob?.reviewIds?.length ? 1 : 0);
+  const queueLength = () => executableActions(S).length + S.queue.length + (S.knowledgeJob && !S.queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (S.specJob?.reviewIds?.length ? 1 : 0);
   const sessionHint = () => latestUsage?.last_input_tokens > settings.session.rolloverTokens ? "rollover" : null;
   function closeStats() {
     if (!activeStats) return;
@@ -222,7 +226,7 @@ ${S.notes || "—"}
   // Files no chat references (reset chats, deleted branches, interrupted writes) are removed; a frozen spec context still counts.
   const pruneImages = () => {
     if (transaction) return;
-    const used = new Set([...S.nodes, ...S.archive.flatMap(a => a.node ? [a.node] : a.nodes || []), ...(S.specJob?.gradingNodes || [])].flatMap(n => (n.chat || []).flatMap(m => m.images || [])));
+    const used = new Set([...[...S.nodes, ...S.archive.flatMap(a => a.node ? [a.node] : a.nodes || []), ...(S.specJob?.gradingNodes || [])].flatMap(n => (n.chat || []).flatMap(m => m.images || [])), ...S.archive.flatMap(a => a.input?.images || [])]);
     let files; try { files = fs.readdirSync(IMAGES); } catch { return; }
     for (const f of files) if (IMG_RE.test(f) && !used.has(f) || /\.(png|jpg|gif|webp)\.[^.]+\.tmp$/.test(f)) try { fs.unlinkSync(path.join(IMAGES, f)); } catch {}
   };
@@ -671,7 +675,7 @@ ${S.notes || "—"}
       if (j.mode === "full") boundBranch(S.nodes);
       else boundBranch([...focus.map(n => deliveryNode(n)), ...related.map(n => deliveryNode(n, false)), ...S.nodes.filter(n => n.kind === "idea").map(n => deliveryNode(n, false)), { chat: chat.slice(start) }]);
       j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision();
-      return { type: "reread", token: j.token, reserve: S.reserve, coverage: coverage(), title: S.title, brief: S.brief, arch: S.arch, archive: S.archive,
+      return { type: "reread", token: j.token, reserve: S.reserve, coverage: coverage(), title: S.title, brief: S.brief, arch: S.arch, ...archiveEvidence(),
         context: { mode: j.mode, focus: focus.map(n => deliveryNode(n)), related: related.map(n => deliveryNode(n, false)), relatedOmitted: [], index: indexText(S.nodes, new Set([...j.auditIds, ...S.nodes.filter(n => n.kind !== "q").map(n => n.id)])), vocabulary: vocabulary(S.nodes) },
         ideas: S.nodes.filter(n => n.kind === "idea").map(n => deliveryNode(n, false)),
         projectChat: chat.slice(start).map(({ at, readAt, ...m }) => ({ ...m, ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) })) };
@@ -1228,6 +1232,8 @@ ${S.notes || "—"}
         const node = mkQ(decision.question, "root");
         if (!node) throw bad("Пустой вопрос");
         node.archiveSource = entry.id; byId.set(node.id, node);
+      } else if (decision.action === "dismiss") {
+        if (entry.reason === "missing-target" || !clean(decision.reason, 400)) throw bad("Некорректное восстановление архива");
       } else throw bad("Некорректное восстановление архива");
     }
     const nodes = preview.reconcile(S.nodes, [...byId.values()]);
@@ -1258,7 +1264,7 @@ ${S.notes || "—"}
       for (const idea of S.nodes.filter(n => n.kind === "idea" && (n.analysisStarted || n.reviewedAt))) queueIdea(idea, "reread");
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || byId.has(e.id));
     }
-    for (const decision of archiveDecisions) S.archive.find(a => a.id === decision.id).resolution = { ...decision, at: Date.now() };
+    for (const decision of archiveDecisions) S.archive.find(a => a.id === decision.id).resolution = { id: decision.id, action: decision.action, ...(decision.reason ? { reason: clean(decision.reason, 400) } : {}), ...(decision.parentId ? { parentId: clean(decision.parentId, 80) } : {}), at: Date.now() };
     S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
     finish({ changed, summary, audit: [...audit.values()] });
     S.rereadSeen = Object.fromEntries(S.nodes.map(n => [n.id, digest(JSON.stringify(contextNode(n)))]));
@@ -1270,17 +1276,41 @@ ${S.notes || "—"}
     return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length, moved: move.length, removed: remove.length };
   }
 
+  // Archived inputs keep their images as stored files: base64 never enters archive evidence or the journal.
+  function archiveInput(action, reason) {
+    const previous = action.retryOf && S.archive.find(a => a.actionId === action.retryOf && a.reason === reason && !a.resolution);
+    if (previous) { previous.actionId = action.id; return; }
+    const { images, ...input } = structuredClone(action.body);
+    const files = (Array.isArray(images) ? images : []).flatMap(source => {
+      if (typeof source === "string" && IMG_RE.test(source)) return [source];
+      const data = Buffer.from(typeof source === "string" && source.startsWith("data:") ? source.slice(source.indexOf(",") + 1) : "", "base64"), ext = sniffImage(data);
+      if (!ext || data.length > IMG_MAX) return [];
+      const file = `${randomUUID()}.${ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), data); return [file];
+    });
+    if (files.length) action.body.images = files;
+    S.archive.push({ id: randomUUID(), at: Date.now(), reason, actionId: action.id, input: { ...input, ...(files.length ? { images: files } : {}) } });
+  }
+  // Failed-work snapshots are full map copies kept for diagnosis; resolved entries are history. Neither is reread evidence.
+  function archiveEvidence() {
+    const open = S.archive.filter(a => !a.resolution && a.reason !== "failed-work");
+    const withPaths = a => a.input?.images ? { ...a, input: { ...a.input, images: a.input.images.map(f => path.join(IMAGES, f)) } } : a;
+    return { archive: open.slice(-100).map(withPaths), archiveOmitted: Math.max(0, open.length - 100) };
+  }
+  // An image file kept for an archived input can be submitted again by name.
+  const storedImage = name => typeof name === "string" && IMG_RE.test(name) && S.archive.some(a => a.input?.images?.includes(name)) && fs.existsSync(path.join(IMAGES, name));
   function validateAction(p, b) {
     if (!b || typeof b !== "object" || Array.isArray(b)) throw [400, "Некорректный JSON"];
     for (const key of ["id", "parentId", "conversationId"]) if (b[key] !== undefined && (typeof b[key] !== "string" || b[key].length > 80)) throw [400, "Некорректный ID действия"];
     if (["/api/idea", "/api/idea/edit"].includes(p) && clean(b.text, 3001).length > 3000) throw [400, "Нужен текст идеи до 3000 символов"];
     if (["/api/idea", "/api/question"].includes(p) && !/^[a-zA-Z0-9-]{1,80}$/.test(b.id || "")) throw [400, "Нужны текст и идентификатор запроса"];
     for (const [key, limit] of [["answer", 3000], ["message", 2000], ["quote", 400], ["text", 3000], ["q", 220]]) if (b[key] !== undefined) b[key] = clean(b[key], limit);
+    const { images, ...rest } = b;
+    if (JSON.stringify(rest).length > 100000) throw [413, "Слишком большой запрос"];
     if (b.actionId && S.actions.some(a => a.id === b.actionId)) return;
     if (p === "/api/preview/prepare" && b.sourceId === "root" && (!Array.isArray(b.branches) || !b.branches.length)) throw [400, "Выберите ветки превью"];
     if (p === "/api/question" && get(b.parentId) && !["root", "q", "idea"].includes(get(b.parentId).kind)) throw [404, "Вопрос не найден"];
     if (p === "/api/reread" && !qs().length && !waitingActions(S).some(a => a.route === "/api/question")) throw [400, "На карте пока нет вопросов"];
-    if (["/api/answer", "/api/discuss", "/api/chatreset"].includes(p) && !get(b.id) && !S.archive.some(a => a.node?.id === b.id) && !S.replacements[b.id]) throw [404, "Вопрос не найден"];
+    if (["/api/answer", "/api/discuss", "/api/chatreset"].includes(p) && (typeof b.id !== "string" || !get(b.id) && !S.archive.some(a => a.node && a.node.id === b.id)) && !S.replacements[b.id]) throw [404, "Вопрос не найден"];
     if (p === "/api/answer" && get(b.id)?.kind !== "q" && get(b.id)) throw [404, "Вопрос не найден"];
     if (p === "/api/answer" && get(b.id)?.obsolete) throw [409, "Вопрос устарел. Обсудите его и попросите перечитать карту"];
     if (p === "/api/answer" && !b.answer) throw [400, "Пустой ответ"];
@@ -1290,18 +1320,25 @@ ${S.notes || "—"}
       if (b.images !== undefined && (!Array.isArray(b.images) || b.images.length > IMG_COUNT)) throw [400, "Можно вставить не больше 4 картинок"];
       if (!b.message && !b.quote && !b.images?.length) throw [400, "Пустое сообщение"];
       for (const source of b.images || []) {
+        if (storedImage(source)) continue;
         const data = Buffer.from(typeof source === "string" && source.startsWith("data:") ? source.slice(source.indexOf(",") + 1) : "", "base64");
         if (!sniffImage(data) || data.length > IMG_MAX) throw [400, "Неподдерживаемый формат картинки"];
       }
     }
     if (p === "/api/idea/delete" && b.confirm !== true) throw [400, "Подтвердите удаление всей ветки идеи"];
   }
-  const underlyingWork = () => S.queue.length || S.specJob || S.rereadJob || S.knowledgeJob || S.reevaluation || S.questionRequests.length || S.morePending || S.finishPending || S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
+  // A blocked knowledge job waits for the user (clarification answers, retry or skip): it must not stall admitted actions.
+  const underlyingWork = () => S.queue.length || S.specJob || S.rereadJob || S.knowledgeJob && S.knowledgeJob.stage !== "blocked" || S.reevaluation || S.questionRequests.length || S.morePending || S.finishPending || S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
   function completeActions() {
     if (underlyingWork()) return;
     for (const a of activeActions(S)) {
       a.status = "done"; a.completedAt = Date.now();
-      if (a.route === "/api/finish") { S.actionPaused = true; S.finishBoundary = a.sequence; }
+      if (a.route === "/api/finish") { S.actionPaused = true; S.finishBoundary = a.sequence; delete S.finishHold; }
+      // The archived input of a vanished target is settled once a retry of that action has run.
+      for (let origin = a; origin?.retryOf;) {
+        origin = S.actions.find(x => x.id === origin.retryOf);
+        for (const entry of S.archive) if (origin && entry.actionId === origin.id && entry.reason === "missing-target" && !entry.resolution) entry.resolution = { id: entry.id, action: "retried", actionId: a.id, at: Date.now() };
+      }
     }
   }
   function failActive(error) {
@@ -1359,18 +1396,29 @@ ${S.notes || "—"}
     const waiting = waitingActions(S), running = activeActions(S);
     const internal = S.queue.filter(e => !running.some(a => a.route === "/api/" + e.type && (!e.id || a.body.id === e.id)));
     if (S.reevaluation && currentWork?.type !== "reevaluate") internal.push({ type: "reevaluate" });
-    return { paused: S.actionPaused, waiting: waiting.length + internal.length, slots: waiting.length,
-      actions: S.actions.filter(a => !a.retriedBy && ["queued", "running", "failed", "needs-decision"].includes(a.status)).map(a => ({ id: a.id, sequence: a.sequence, type: a.route.slice(5), target: a.body.id, conversationId: a.body.conversationId || "main", text: a.body.message || a.body.answer || a.body.text || a.body.q || "", status: a.status, error: a.error, group: a.group })), internal };
+    return { paused: S.actionPaused || !!S.finishHold && !activeActions(S).length && !executableActions(S).length, held: waitingActions(S).length - executableActions(S).length, waiting: waiting.length + internal.length, slots: waiting.length,
+      actions: S.actions.filter(a => !a.retriedBy && ["queued", "running", "failed", "needs-decision"].includes(a.status)).map(a => ({ id: a.id, sequence: a.sequence, type: a.route.slice(5), target: a.body.id, conversationId: a.body.conversationId || "main", text: a.body.message || a.body.answer || a.body.text || a.body.q || "", status: a.status, error: a.error && t(a.error), group: a.group })), internal };
   }
   function advanceActions(localOnly = false) {
     if (!actionsEnabled) return;
     completeActions();
     if (underlyingWork() || S.actionPaused) return;
     while (waitingActions(S).length && !underlyingWork() && !S.actionPaused) {
-      if (localOnly && !["/api/chatreset", "/api/idea/delete", "/api/spec-migrate", "/api/preview/save", "/api/preview/restore", "/api/preview/policy", "/api/preview/delete"].includes(waitingActions(S)[0].route)) break;
-      const group = actionGroup(S, waitingActions(S)[0]);
+      let next = executableActions(S)[0];
+      if (!next) break;
+      // A prerequisite retried to the tail runs before the action that depends on it.
+      for (const seen = new Set([next.id]);;) {
+        const pending = next.dependencies.map(id => { let a = S.actions.find(x => x.id === id); while (a?.retriedBy) a = S.actions.find(x => x.id === a.retriedBy); return a; }).find(a => a?.status === "queued" && !seen.has(a.id));
+        if (!pending) break;
+        seen.add(pending.id); next = pending;
+      }
+      if (localOnly && !["/api/chatreset", "/api/idea/delete", "/api/spec-migrate", "/api/preview/save", "/api/preview/restore", "/api/preview/policy", "/api/preview/delete"].includes(next.route)) break;
+      // A retried prerequisite may cross the hold; adjacent late inputs may not.
+      const eligible = new Set(executableActions(S).map(a => a.id));
+      const group = actionGroup(S, next, a => a === next || eligible.has(a.id));
       const first = group[0];
-      if (first.dependencies.some(id => ["failed", "needs-decision", "cancelled"].includes(S.actions.find(a => a.id === id)?.status))) {
+      const latest = id => { let a = S.actions.find(x => x.id === id); while (a?.retriedBy) a = S.actions.find(x => x.id === a.retriedBy); return a; };
+      if (first.dependencies.some(id => ["failed", "cancelled"].includes(latest(id)?.status))) {
         first.status = "failed"; first.error = "Не выполнена предпосылка действия"; first.completedAt = Date.now(); save(); continue;
       }
       const before = structuredClone(S);
@@ -1381,18 +1429,33 @@ ${S.notes || "—"}
         }
         for (const a of group.filter(a => a.status === "queued")) {
           a.status = "running"; a.startedAt = Date.now(); a.group = first.id;
+          // Any finish that starts without a boundary (a retry after Continue) forms one.
+          if (a.route === "/api/finish" && !S.finishHold) S.finishHold = a.sequence;
           const body = structuredClone(a.body);
+          if (a.route === "/api/question" && body.parentId && !get(body.parentId)) {
+            archiveInput(a, "missing-target"); a.status = "needs-decision"; a.error = "Карточка исчезла. Данные сохранены в архиве"; continue;
+          }
+          // Sequential edits of one idea: later queued edits were based on the revision their predecessors produced.
+          if (a.route === "/api/idea/edit" && get(body.id)) {
+            let origin = a; while (origin.retryOf) origin = S.actions.find(x => x.id === origin.retryOf) || { at: origin.at };
+            const earlier = S.actions.filter(x => x.route === "/api/idea/edit" && x.body.id === body.id && x.status === "done" && x.completedAt >= origin.at && x.revisionChanged).length;
+            if (body.revision + earlier === get(body.id).revision) body.revision = get(body.id).revision;
+          }
           if (body.id && !get(body.id) && ["/api/answer", "/api/discuss", "/api/idea/edit", "/api/idea/delete", "/api/chatreset"].includes(a.route)) {
             const visited = new Set(); let target = body.id;
             while (S.replacements[target] && !visited.has(target)) { visited.add(target); target = S.replacements[target]; }
             if (get(target) && ["/api/answer", "/api/discuss"].includes(a.route)) { body.id = target; a.redirectedTo = target; }
             else {
-              S.archive.push({ id: randomUUID(), at: Date.now(), reason: "missing-target", actionId: a.id, input: a.body });
+              archiveInput(a, "missing-target");
               a.status = "needs-decision"; a.error = "Карточка исчезла. Данные сохранены в архиве"; continue;
             }
           }
           if (a.resume) { resumeAction(a); continue; }
+          const revisionBefore = a.route === "/api/idea/edit" ? get(body.id)?.revision : undefined;
           actionRoute(a.route, body, { capture: (code, result) => { if (code >= 400) throw [code, result.error]; a.result = result; } });
+          if (a.route === "/api/idea/edit") a.revisionChanged = get(body.id)?.revision !== revisionBefore;
+          // The recorded message owns the image files: keep their names, not megabytes of base64, in the permanent journal.
+          if (a.route === "/api/discuss" && a.body.images?.length) a.body.images = get(body.id)?.chat?.at(-1)?.images || [];
         }
         completeActions();
       } catch (e) {
@@ -1405,15 +1468,24 @@ ${S.notes || "—"}
   const failedKnowledge = () => [...S.actions].reverse().find(a => a.status === "failed" && !a.retriedBy && a.resume?.type === "knowledge");
   function queueRetry(old, actionId, skipKnowledge = false) {
     if (old.retriedBy) return S.actions.find(a => a.id === old.retriedBy);
-    const next = acceptAction(S, old.route, { ...old.body, actionId });
-    if (next !== old) {
-      for (const a of S.actions) if (a.id === old.id || old.group && a.group === old.group) a.retriedBy = next.id;
-      next.retryOf = old.id;
-      if (old.resume) next.resume = { ...structuredClone(old.resume), ...(skipKnowledge ? { skipKnowledge: true } : {}) };
-      const latest = id => { let found = id; for (const a of S.actions) if (a.retryOf === found) found = a.id; return found; };
-      next.dependencies = [...new Set([...next.dependencies, ...old.dependencies.map(latest)])];
+    // Work that failed at the agent shares one resume record. A group stopped before that (vanished card, rejected reducer)
+    // has none: every unfinished member keeps its own input and gets its own tail retry.
+    const members = old.resume || !old.group ? [old] : S.actions.filter(a => a === old || a.group === old.group && !a.retriedBy && ["failed", "needs-decision"].includes(a.status));
+    if (waitingActions(S).length + members.length > 20) throw [429, "В очереди уже 20 действий"];
+    const latest = id => { let found = id; for (const a of S.actions) if (a.retryOf === found) found = a.id; return found; };
+    let result = old;
+    for (const member of members) {
+      const next = acceptAction(S, member.route, { ...member.body, actionId: member === old ? actionId : undefined });
+      if (member === old) result = next;
+      if (next === member) continue;
+      for (const a of S.actions) if (a.id === member.id || old.resume && old.group && a.group === old.group) a.retriedBy = next.id;
+      next.retryOf = member.id;
+      if (member.route === "/api/finish" && !S.finishHold && !S.actionPaused) S.finishHold = next.sequence;
+      if (member.resume) next.resume = { ...structuredClone(member.resume), ...(skipKnowledge ? { skipKnowledge: true } : {}) };
+      // A held finish retry must not depend on the late actions it is holding back.
+      next.dependencies = [...new Set([...(member.route === "/api/finish" && S.finishHold ? next.dependencies.filter(id => S.actions.find(a => a.id === id).sequence < S.finishHold) : next.dependencies), ...member.dependencies.map(latest)])];
     }
-    return next;
+    return result;
   }
   function resumeAction(action) {
     const r = action.resume, n = get(r.id);
@@ -1546,10 +1618,11 @@ ${S.notes || "—"}
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Отправить сообщение можно будет после перечитывания" });
         if ((n.chat || []).filter(m => !conversationId || (m.conversationId || "main") === conversationId).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
         if (sources.length > IMG_COUNT) return send(res, 400, { error: "Можно вставить не больше 4 картинок" });
-        const decoded = sources.map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
+        const stored = sources.filter(storedImage);
+        const decoded = sources.filter(s => !storedImage(s)).map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
         if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (decoded.some(x => x.data.length > IMG_MAX)) return send(res, 400, { error: "Картинка больше 8 МБ" });
-        const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
+        const images = [...stored, ...decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; })];
         const messageIds = n.discuss ? n.discussMessageIds || [] : [];
         delete n.discussError;
         n.semanticsStale = true;
@@ -1709,16 +1782,16 @@ ${S.notes || "—"}
       if (req.method === "GET" && p === "/api/knowledge-document") { const requested = url.searchParams.get("path"); if (!memory.index().documents.some(d => d.path === requested)) throw [404, "Документ не найден в индексе"]; return send(res, 200, memory.read(requested)); }
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
-        const { queue, actions, actionReceipts, actionTasks, replacements, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
+        const { queue, actions, actionReceipts, actionTasks, replacements, archive, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
         const quote = value => "'" + (process.platform === "win32" ? value.replace(/['\u2018\u2019\u201a\u201b]/g, c => c + c) : value.replaceAll("'", "'\"'\"'")) + "'";
         const resume = { project: process.cwd(), dir: BASE, name: NAME, state: STATE, session: path.join(DIR, "session.md"), skill: path.join(HERE, "SKILL.md"), cli: path.join(HERE, "grill.mjs"), language: S.locale.language,
           shell: process.platform === "win32" ? "PowerShell" : "POSIX sh",
-          start: `${process.platform === "win32" ? "Set-Location -LiteralPath" : "cd --"} ${quote(process.cwd())}${process.platform === "win32" ? "; if ($?) { " : " && "}node ${quote(path.join(HERE, "grill.mjs"))} start --dir ${quote(BASE)}${NAME ? " --name " + NAME : ""}${process.platform === "win32" ? " }" : ""}` };
+          start: `${process.platform === "win32" ? "Set-Location -LiteralPath" : "cd --"} ${quote(process.cwd())}${process.platform === "win32" ? "; if ($?) { " : " && "}node ${quote(path.join(HERE, "grill.mjs"))} start --dir ${quote(BASE)}${NAME ? " --name " + NAME : ""} --continue${process.platform === "win32" ? " }" : ""}` };
         rest.resume = resume;
         rest.contextStats = S.contextStats || { recent: [], totals: {} };
         return send(res, 200, { ...rest, sessionUsage: await readUsage(), sessionHint: sessionHint(), failedKnowledgeFinish: !!failedKnowledge()?.resume.finishPending, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : failedKnowledge() ? { stage: "blocked", reason: failedKnowledge().resume.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: false } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: false } : null, actionQueue: publicActions(), queueLength: queueLength(), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
       }
-      if (req.method === "GET" && p === "/api/actions") return send(res, 200, { actions: url.searchParams.has("id") ? S.actions.filter(a => a.id === url.searchParams.get("id")) : S.actions, tasks: url.searchParams.has("id") ? [] : S.actionTasks || [], paused: S.actionPaused });
+      if (req.method === "GET" && p === "/api/actions") return send(res, 200, { actions: (url.searchParams.has("id") ? S.actions.filter(a => a.id === url.searchParams.get("id")) : S.actions).map(a => a.error ? { ...a, error: t(a.error) } : a), tasks: url.searchParams.has("id") ? [] : S.actionTasks || [], paused: S.actionPaused });
       if (req.method === "GET" && p === "/api/archive") return send(res, 200, { archive: S.archive });
       if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
       if (req.method === "GET" && p === "/api/monitor") {
@@ -1783,7 +1856,11 @@ ${S.notes || "—"}
       }
       if (actionRoutes.has(p)) {
         validateAction(p, b);
-        const action = acceptAction(S, p, b);
+        const known = S.actions.some(a => a.id === b.actionId), action = acceptAction(S, p, b);
+        if (!known && action.status === "queued") {
+          if (S.finishHold) action.dependencies = action.dependencies.filter(id => S.actions.find(a => a.id === id).sequence < S.finishHold || p !== "/api/finish");
+          if (p === "/api/finish" && !S.finishHold && !S.actionPaused) S.finishHold = action.sequence;
+        }
         save(); advanceActions(true); pump();
         return send(res, 200, { ok: true, queued: true, actionId: action.id, status: action.status, path: p === "/api/spec" ? S.specFile : undefined });
       }
@@ -1808,7 +1885,11 @@ ${S.notes || "—"}
       }
       if (p === "/api/actions/continue") {
         if (S.finishPending) throw [409, "Дождитесь завершения грилинга и повторите попытку."];
-        actionsEnabled = true; S.actionPaused = false; save(); pump(); return send(res, 200, { ok: true });
+        actionsEnabled = true; S.actionPaused = false; delete S.finishHold;
+        // A finish that was itself waiting behind the old boundary forms the next one.
+        const waitingFinish = waitingActions(S).find(a => a.route === "/api/finish");
+        if (waitingFinish) S.finishHold = waitingFinish.sequence;
+        save(); pump(); return send(res, 200, { ok: true });
       }
       if (["/api/locale", "/api/discuss/read", "/api/conversations", "/api/knowledge-retry", "/api/knowledge-skip"].includes(p)) return actionRoute(p, b, res);
       if (p === "/api/init") {
@@ -1930,7 +2011,7 @@ async function listMaps() {
     const f = path.join(d, "state.json"), s = readJSON(f); if (!s || !Array.isArray(s.nodes)) continue;
     const info = await alive(d); let listening = false;
     if (info) try { listening = !!(await (await fetch(`http://127.0.0.1:${info.port}/api/state`, { headers: { "x-grill": "1" }, signal: AbortSignal.timeout(1500) })).json()).listening; } catch {}
-    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.actionPaused ? 0 : (s.actions || []).filter(a => a.status === "queued").length) + (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
+    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: executableActions({ ...s, actions: s.actions || [] }).length + (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
       updated: fs.statSync(f).mtime.toISOString(), url: info ? info.url : null, listening });
   }
   return out.sort((a, b) => b.updated.localeCompare(a.updated));
@@ -1954,7 +2035,13 @@ async function start() {
     if (!info) { console.error("Не удалось запустить сервер карты. Попробуйте вручную: " + CLI("serve")); process.exit(1); }
   }
   const resumedState = JSON.parse(await api("GET", "/api/state"));
-  if (resumedState.actionPaused) await api("POST", "/api/actions/continue", {});
+  // Only an explicit user continuation releases the finish boundary; recovery restarts keep late actions paused.
+  if (resumedState.finishPending) {
+    if (has("continue")) console.log("Итог ещё формируется: поздние действия останутся в очереди. Продолжите карту после итога.");
+  } else if (resumedState.actionQueue?.paused) {
+    if (has("continue")) await api("POST", "/api/actions/continue", {});
+    else if (resumedState.actionQueue.held) console.log("Поздние действия после итога сохранены и ждут явного продолжения (start --continue или «Продолжить» в окне очереди).");
+  }
   if (selectedLocale) await api("POST", "/api/locale", selectedLocale);
   if (!has("no-open")) openBrowser(info.url);
   console.log(`Грилинг-карта: ${info.url}`);

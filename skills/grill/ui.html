@@ -139,6 +139,18 @@ main{flex:1;position:relative;min-height:0;z-index:0}
 .ph{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--line)}
 .ph .close{border:0;background:none;font-size:22px;line-height:1;cursor:pointer;color:var(--muted);padding:2px 6px;margin-right:-6px}
 .ph .close:hover{color:var(--ink)}
+.project-chat-head{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.project-chat-head .eyebrow{font-size:10px;letter-spacing:.1em}
+.conversation-toolbar{display:flex;align-items:center;gap:8px;min-width:0}
+.conversation-picker{position:relative;flex:1;min-width:0}
+.conversation-picker::after{content:"";position:absolute;right:14px;top:14px;width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg);pointer-events:none}
+#conversationSelect{appearance:none;display:block;width:100%;height:38px;padding:0 36px 0 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:500 13px var(--f-body);text-overflow:ellipsis;cursor:pointer}
+#conversationSelect:hover:not(:disabled){border-color:var(--muted)}
+#conversationSelect:focus-visible{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:2px}
+#conversationSelect option{background:var(--surface);color:var(--ink)}
+.conversation-toolbar .conversation-add{flex:none;width:38px;height:38px;padding:0;border-radius:8px;border-color:color-mix(in srgb,var(--accent) 35%,var(--line));background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent);font-size:24px;line-height:1}
+.conversation-toolbar .conversation-add:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 20%,var(--surface));border-color:var(--accent)}
+#conversationSelect:disabled{opacity:.5;cursor:wait}
 .pb{flex:1;overflow:auto;padding:16px 20px 24px;display:flex;flex-direction:column;gap:14px}
 .pb h2{font-weight:600;font-size:18px;line-height:1.3;margin:0;text-wrap:balance}
 .pb h2+.why{margin-top:-8px}
@@ -385,7 +397,7 @@ async function api(p,body){
   }
   if(!j||typeof j!=="object"||Array.isArray(j))throw new Error("Сервер прислал непонятный ответ. Обновите страницу; если ошибка повторится, перезапустите сервер карты.");
   if(retryKey){try{localStorage.removeItem(retryKey)}catch{}}
-  if(j.queued)$("#queueNotice").textContent="В очереди";
+  if(j.queued&&(!j.status||j.status==="queued"))$("#queueNotice").textContent="В очереди"; /* a replayed ID may already be running or finished */
   return j;
 }
 
@@ -397,17 +409,18 @@ function renderQueue(){
   $("#queueCount").hidden=!q.waiting&&!S.currentWork&&!running.length;
   $("#queueCount").textContent=q.waiting?String(q.waiting):"◌";
   $("#queueIssues").hidden=!issues.length;
+  if(!q.waiting&&!running.length&&!S.currentWork)$("#queueNotice").textContent="";
   const win=$("#queueWindow");if(win.hidden||archiveOpen)return;
   let previous=null;
   const rows=q.actions.map(a=>{
-    const grouped=previous&&a.sequence===previous.sequence+1&&a.type==="discuss"&&previous.type===a.type&&previous.target===a.target&&previous.conversationId===a.conversationId&&previous.status===a.status;
+    const grouped=previous&&a.sequence===previous.sequence+1&&["discuss","answer"].includes(a.type)&&previous.type===a.type&&previous.target===a.target&&previous.conversationId===a.conversationId&&previous.status===a.status;
     previous=a;
-    return `<div class="queue-item${grouped?" grouped":""}"><b>${esc(actionLabels[a.type]||a.type)}</b> · ${a.status==="queued"?"В очереди":a.status==="running"?"Разбор":"Ошибка"}<div>${esc(a.text)}</div>${a.error?`<div class="err">${esc(a.error)}</div>`:""}${a.status==="queued"?`<button class="btn small" data-queue-cancel="${esc(a.id)}">Отменить</button>`:a.status==="failed"||a.status==="needs-decision"?`<button class="btn small" data-queue-retry="${esc(a.id)}">Повторить в конце</button>`:""}</div>`;
+    return `<div class="queue-item${grouped?" grouped":""}"><b>${esc(actionLabels[a.type]||a.type)}</b> · ${a.status==="queued"?"В очереди":a.status==="running"?"Разбор":"Ошибка"}<div>${esc(a.text)}</div>${a.error?`<div class="err">${esc(a.error)}</div>`:""}${a.status==="queued"?`<button class="btn small" data-queue-cancel="${esc(a.id)}">Отменить</button>`:a.status==="failed"||a.status==="needs-decision"?`<button class="btn small" data-queue-retry="${esc(a.id)}">Повторить в конце</button>${a.status==="needs-decision"?`<button class="btn small" data-queue-cancel="${esc(a.id)}">Отменить</button>`:""}`:""}</div>`;
   }).join("");
-  win.innerHTML=`<div class="row"><b>Очередь</b>${queuePinned?'<button class="btn small" data-queue-close>Закрыть</button>':""}</div>${S.currentWork?`<p>Текущая работа: ${esc(actionLabels[S.currentWork.type]||S.currentWork.type)}</p>`:""}${q.paused?'<p>Поздние действия ждут продолжения карты.</p><button class="btn" data-queue-continue>Продолжить</button>':""}${rows}${q.internal.map(a=>`<div class="queue-item">${esc(actionLabels[a.type]||a.type)} · В очереди</div>`).join("")}`;
+  win.innerHTML=`<div class="row"><b>Очередь</b>${queuePinned?'<button class="btn small" data-queue-close>Закрыть</button>':""}</div>${S.currentWork?`<p>Текущая работа: ${esc(actionLabels[S.currentWork.type]||S.currentWork.type)}</p>`:""}${q.paused&&q.held?'<p>Поздние действия ждут продолжения карты.</p><button class="btn" data-queue-continue>Продолжить</button>':""}${rows}${q.internal.map(a=>`<div class="queue-item">${esc(actionLabels[a.type]||a.type)} · В очереди</div>`).join("")}`;
 }
 async function cancelQueued(id){
-  try{const plan=await api("/api/actions/cancel",{id});if(!confirm("Отменить группу и зависимые действия?"+" ("+plan.ids.length+")"))return;await api("/api/actions/cancel",{id,confirmation:plan.confirmation});await poll(true)}catch(e){showError(e.message)}
+  try{const plan=await api("/api/actions/cancel",{id});const rows=(S.actionQueue?.actions||[]).filter(a=>plan.ids.includes(a.id)).map(a=>"• "+(actionLabels[a.type]||a.type)+(a.text?": "+a.text.slice(0,80):""));if(!confirm("Отменить группу и зависимые действия?\n"+rows.join("\n")))return;await api("/api/actions/cancel",{id,confirmation:plan.confirmation});await poll(true)}catch(e){showError(e.message)}
 }
 async function showArchive(){
   try{const result=await api("/api/archive");archiveOpen=true;queuePinned=true;const win=$("#queueWindow");win.hidden=false;win.innerHTML=`<div class="row"><b>Архив</b><button class="btn small" data-queue-close>Закрыть</button></div><p>Агент рассмотрит архив при перечитывании карты.</p><button class="btn" data-archive-reread>Перечитать</button>${result.archive.map(a=>`<details class="queue-item"><summary>${esc(a.node?.q||a.node?.text||a.reason)}</summary><pre style="white-space:pre-wrap">${esc(JSON.stringify(a,null,2))}</pre></details>`).join("")}`}catch(e){showError(e.message)}
@@ -496,7 +509,6 @@ async function previewAction(action){
     }else{await api("/api/preview/policy",{id:panel.id,policy:action==="keep"?"keep":"delete"});await poll(true)}
   }catch(e){showError(e.message);renderPanel()}
 }
-$("#panel").addEventListener("change",e=>{if(e.target.id!=="conversationSelect"||sending)return;projectConversation=e.target.value;panel.confirmChat=false;clearError();renderPanel(true)});
 $("#panel").addEventListener("input",e=>{if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
 $("#panel").addEventListener("change",e=>{if(e.target.id==="previewTarget")panel.previewTarget=e.target.value;if(e.target.matches("[data-preview-branch]"))panel.branches=[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
 $("#panel").addEventListener("click",e=>{const option=e.target.closest("[data-preview-option]");if(option){$("#fPreview").value=option.dataset.previewOption;drafts["p:"+panel.id]=option.dataset.previewOption}const b=e.target.closest("[data-preview]");if(b)previewAction(b.dataset.preview)});
@@ -787,12 +799,14 @@ function nodePanel(n){
 }
 let projectConversation="main";
 const chatKey=id=>id==="root"?id+":"+projectConversation:id;
-function discussTab(n){
+function projectChatPanel(n){
   if(n.kind==="root"&&!(S.projectConversations||[{id:"main"}]).some(c=>c.id===projectConversation))projectConversation="main";
+  return {head:`<div class="project-chat-head"><span class="eyebrow">Общий вопрос агенту</span>${`<div class="conversation-toolbar"><div class="conversation-picker"><select id="conversationSelect" aria-label="Разговор" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=(n.chat||[]).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select></div><button class="btn conversation-add" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`}</div>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)};
+}
+function discussTab(n){
   const chat=(n.chat||[]).filter(m=>n.kind!=="root"||(m.conversationId||"main")===projectConversation);
   let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg copy-block ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
-  if(n.kind==="root")b=`<div class="row" style="flex-wrap:nowrap"><select id="conversationSelect" aria-label="Разговор" style="flex:1;min-width:0" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=(n.chat||[]).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select><button class="btn" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`+b;
   if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
   const busy=false;
   if(busy)b+=working("Агент пишет ответ…");
@@ -924,7 +938,7 @@ function renderPanel(revealDiscussion=false){
   if(!panel){p.hidden=true;p.dataset.key="";return}
   let r;
   if(panel.mode==="summary")r=summaryPanel();
-  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?{head:`<span class="eyebrow">Общий вопрос агенту</span>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)}:nodePanel(n)}
+  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?projectChatPanel(n):nodePanel(n)}
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
   const key=[panel.mode,panel.id,panel.tab,panel.id==="root"?projectConversation:""].join("|"),same=p.dataset.key===key;
   if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */

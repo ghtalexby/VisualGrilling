@@ -44,6 +44,13 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
   await js('openPanel({mode:"project",id:"root",tab:"discuss"})');
+  assert.equal(await js('!!document.querySelector(".ph #conversationSelect")&&!!document.querySelector(".ph [data-act=newconversation]")'), true);
+  await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await js('get("root").chat=[{from:"user",text:"A long conversation title ".repeat(12)}];setPanelWidth(360);renderPanel()');
+  assert.equal(await js('document.querySelector(".ph").scrollWidth<=document.querySelector(".ph").clientWidth'), true);
+  assert.equal(await js('getComputedStyle(document.querySelector("#conversationSelect")).appearance'), "none");
+  if(process.env.GRILL_CHAT_SCREENSHOT){const shot=await cdp("Page.captureScreenshot",{format:"png"});fs.writeFileSync(process.env.GRILL_CHAT_SCREENSHOT,Buffer.from(shot.data,"base64"));}
+  await js('get("root").chat=[];renderPanel()');
   await input("#fMsg", "First draft");
   await click('[data-act="newconversation"]');
   await until(() => js('!sending&&document.querySelectorAll("#conversationSelect option").length===2'));
