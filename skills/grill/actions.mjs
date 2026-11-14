@@ -49,7 +49,7 @@ export function cancellation(s, id) {
 export function cancelActions(s, id, confirmation) {
   const plan = cancellation(s, id);
   if (confirmation !== plan.confirmation) throw [409, "Подтвердите актуальный состав отмены"];
-  for (const a of s.actions) if (plan.ids.includes(a.id)) { a.status = "cancelled"; a.completedAt = Date.now(); }
+  for (const a of s.actions) if (plan.ids.includes(a.id)) { a.cancelledFrom = a.status; a.status = "cancelled"; a.completedAt = Date.now(); }
   for (const entry of s.archive) if (entry.reason === "missing-target" && !entry.resolution && plan.ids.includes(entry.actionId)) entry.resolution = { id: entry.id, action: "cancelled", at: Date.now() };
   return plan;
 }

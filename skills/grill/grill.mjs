@@ -1418,7 +1418,7 @@ ${S.notes || "—"}
       const group = actionGroup(S, next, a => a === next || eligible.has(a.id));
       const first = group[0];
       const latest = id => { let a = S.actions.find(x => x.id === id); while (a?.retriedBy) a = S.actions.find(x => x.id === a.retriedBy); return a; };
-      if (first.dependencies.some(id => ["failed", "cancelled"].includes(latest(id)?.status))) {
+      if (first.dependencies.some(id => { const a = latest(id); return a?.status === "failed" || a?.status === "cancelled" && a.cancelledFrom !== "needs-decision"; })) {
         first.status = "failed"; first.error = "Не выполнена предпосылка действия"; first.completedAt = Date.now(); save(); continue;
       }
       const before = structuredClone(S);
@@ -1482,8 +1482,11 @@ ${S.notes || "—"}
       next.retryOf = member.id;
       if (member.route === "/api/finish" && !S.finishHold && !S.actionPaused) S.finishHold = next.sequence;
       if (member.resume) next.resume = { ...structuredClone(member.resume), ...(skipKnowledge ? { skipKnowledge: true } : {}) };
-      // A held finish retry must not depend on the late actions it is holding back.
-      next.dependencies = [...new Set([...(member.route === "/api/finish" && S.finishHold ? next.dependencies.filter(id => S.actions.find(a => a.id === id).sequence < S.finishHold) : next.dependencies), ...member.dependencies.map(latest)])];
+      // A finish or its retried prerequisite must not acquire dependencies on held late input.
+      const origin = action => { while (action?.retryOf) action = S.actions.find(a => a.id === action.retryOf); return action; };
+      const bounded = S.finishHold && (member.route === "/api/finish" || origin(member)?.sequence < S.finishHold);
+      const dependencies = [...next.dependencies, ...member.dependencies];
+      next.dependencies = [...new Set(dependencies.filter(id => !bounded || origin(S.actions.find(a => a.id === id))?.sequence < S.finishHold).map(latest))];
     }
     return result;
   }

@@ -471,6 +471,37 @@ try {
   assert.equal((await state()).actionQueue.held, 1);
   await request("actions/continue", {});
   e = await wait(); assert.equal(e.type, "discuss"); assert.ok(JSON.stringify(e).includes("After finish")); await reply(e);
+  // Retrying a pre-finish barrier must not make late input a new prerequisite, even on a second retry.
+  [id] = await reset();
+  const failedReview = await request("reread", {}); e = await wait();
+  await request("answer", { id, answer: "Earlier answer" });
+  await request("finish", {});
+  const heldMessage = await request("discuss", { id: "root", message: "Keep beyond the boundary" });
+  await request("apply", { type: "failure", token: e.token, error: "Reread failed" });
+  e = await wait(); assert.equal(e.type, "answer");
+  const firstReviewRetry = await request("actions/retry", { id: failedReview.actionId });
+  await grade(e); e = await wait(); assert.equal(e.type, "reread");
+  await request("apply", { type: "failure", token: e.token, error: "Reread failed again" });
+  await request("actions/retry", { id: firstReviewRetry.actionId });
+  e = await wait(); assert.equal(e.type, "reread"); await review(e);
+  assert.equal((await journal()).find(a => a.id === heldMessage.actionId).status, "queued");
+  e = await wait(); assert.equal(e.type, "knowledge");
+  await request("apply", { type: "knowledge", token: e.token, files: [] });
+  e = await wait(); assert.equal(e.type, "finish");
+  await request("apply", { type: "finish", token: e.token, summary: "Done" });
+  await request("actions/continue", {}); e = await wait(); assert.equal(e.type, "discuss"); await reply(e);
+  // Cancelling nonblocking archived input must not turn it into a failed prerequisite.
+  [id, other] = await reset();
+  await request("reread", {}); e = await wait();
+  const archivedAnswer = await request("answer", { id, answer: "For a removed card" });
+  await request("answer", { id: other, answer: "Independent answer" });
+  await request("spec", {});
+  await review(e, { remove: [id] }); e = await wait(); assert.equal(e.id, other);
+  const archivedPlan = await request("actions/cancel", { id: archivedAnswer.actionId });
+  assert.deepEqual(archivedPlan.ids, [archivedAnswer.actionId]);
+  await request("actions/cancel", { id: archivedAnswer.actionId, confirmation: archivedPlan.confirmation });
+  await grade(e); e = await wait(); assert.equal(e.type, "spec");
+  await request("apply", { type: "failure", token: e.token, error: "Spec not needed" });
   console.log("Durable action queue checks passed");
 } finally {
   await stop(); fs.rmSync(cwd, { recursive: true, force: true });
