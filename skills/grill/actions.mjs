@@ -18,8 +18,8 @@ export function acceptAction(s, route, input) {
 }
 export function actionGroup(s, action) {
   if (!action || action.status !== "queued") throw [409, "Действие уже начато"];
-  if (!["/api/discuss", "/api/answer"].includes(action.route)) return [action];
-  const matches = a => a.status === "queued" && a.route === action.route && a.body.id === action.body.id && (a.body.conversationId || "main") === (action.body.conversationId || "main");
+  if (action.retryOf || action.resume || !["/api/discuss", "/api/answer"].includes(action.route)) return [action];
+  const matches = a => a.status === "queued" && !a.retryOf && !a.resume && a.route === action.route && a.body.id === action.body.id && (a.body.conversationId || "main") === (action.body.conversationId || "main");
   const at = s.actions.indexOf(action); let first = at, last = at;
   while (first && matches(s.actions[first - 1])) first--;
   while (last + 1 < s.actions.length && matches(s.actions[last + 1])) last++;

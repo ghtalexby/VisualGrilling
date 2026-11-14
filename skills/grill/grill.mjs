@@ -1026,14 +1026,16 @@ ${S.notes || "—"}
         queueReview(S.nodes, n.id);
         queueIdea(ideaOf(S.nodes, n.id));
       }
-      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", ...(n.kind === "root" ? { conversationId: n.chat?.at(-1)?.conversationId || "main" } : {}), text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
-      delete n.discussDraft; delete n.discussMapRevision;
+      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", ...(n.kind === "root" ? { conversationId: n.discussConversation || n.chat?.at(-1)?.conversationId || "main" } : {}), text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
+      delete n.discussDraft; delete n.discussMapRevision; delete n.discussMessageIds; delete n.discussConversation;
       for (const id of result.touched) { if (!result.inline.includes(id)) queueReview(S.nodes, id); queueIdea(ideaOf(S.nodes, id)); }
       delete n.discussRevision;
       if (forwarded) {
         const target = get(forwarded.target.id), { message } = forwarded;
         target.semanticsStale = true;
         target.chat = [...(target.chat || []), { id: randomUUID(), from: "user", text: message, at: Date.now() }];
+        if (!target.discuss) target.discussMessageIds = [];
+        target.discussMessageIds?.push(target.chat.at(-1).id);
         if (!target.discuss) { target.discuss = "queued"; S.queue.push({ type: "discuss", id: target.id }); }
       }
       if (result.edited.length) { requestReread(false); if (S.rereadJob) S.rereadJob.settled = true; }
@@ -1308,13 +1310,13 @@ ${S.notes || "—"}
   function abandonAction(error, failedState = S, failedWork = currentWork) {
     const n = failedState.nodes.find(n => n.id === failedWork?.id);
     let messages = n?.chat || [];
-    const conversationId = messages.at(-1)?.conversationId || "main";
+    const conversationId = n?.discussConversation || messages.at(-1)?.conversationId || "main";
     if (n?.kind === "root") messages = messages.filter(m => (m.conversationId || "main") === conversationId);
     let start = messages.length; while (start && messages[start - 1].from === "user") start--;
     for (const a of activeActions(S)) a.resume = {
       type: failedWork?.type || S.queue[0]?.type, id: failedWork?.id, answer: n?.pending?.answer,
       question: failedState.questionRequests.find(j => j.id === failedWork?.id),
-      messageIds: messages.slice(start).map(m => m.id), conversationId,
+      messageIds: n?.discussMessageIds || messages.slice(start).map(m => m.id), conversationId,
       ids: failedState.reevaluation?.ids, reason: failedState.knowledgeJob?.reason,
       operation: failedState.knowledgeJob?.operation, finishPending: failedState.finishPending
     };
@@ -1534,9 +1536,11 @@ ${S.notes || "—"}
         if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (decoded.some(x => x.data.length > IMG_MAX)) return send(res, 400, { error: "Картинка больше 8 МБ" });
         const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
-        delete n.discussError; delete n.discussMessageIds; delete n.discussConversation;
+        const messageIds = n.discuss ? n.discussMessageIds || [] : [];
+        delete n.discussError;
         n.semanticsStale = true;
         n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", ...(conversationId ? { conversationId } : {}), text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
+        n.discussMessageIds = [...messageIds, n.chat.at(-1).id]; n.discussConversation = conversationId;
         if (n.discuss) { save(); return send(res, 200, { ok: true }); }
         n.discuss = "queued"; enqueue({ type: "discuss", id: n.id }); return send(res, 200, { ok: true });
       }
