@@ -202,6 +202,44 @@ try {
   e = await wait(); assert.equal(e.message, "New forwarded request"); await reply(e);
   await request("actions/retry", { id: failedForwardTarget.actionId });
   e = await wait(); assert.equal(e.message, "Failed target"); await reply(e);
+  [id, other] = await reset();
+  await request("answer", { id, answer: "Original" }); await grade(await wait());
+  const failedEdit = await request("answer", { id, answer: "Edited" }); e = await wait();
+  await request("apply", { type: "failure", token: e.token, error: "Grading failed" });
+  await stop(); await start();
+  await request("actions/retry", { id: failedEdit.actionId });
+  e = await wait(); assert.equal(e.answer, "Edited"); await grade(e);
+  e = await wait(); assert.equal(e.type, "reread"); await review(e);
+  assert.equal((await state()).nodes.find(n => n.id === id).verdictHistory.length, 2);
+
+  [id, other] = await reset();
+  for (const [parent, question] of [[id, "First evidence?"], [other, "Second evidence?"]]) {
+    await request("answer", { id: parent, answer: "Parent" }); e = await wait();
+    await request("apply", { type: "answer", id: e.id, token: e.token, status: "weak", verdict: "Needs proof", children: [{ q: question }], ancestors: [] });
+  }
+  const children = (await state()).nodes.filter(n => [id, other].includes(n.parentId));
+  const multi = await request("discuss", { id: "root", message: "Proof for both" }); e = await wait();
+  const messageId = e.context.focus.find(n => n.id === "root").chat.at(-1).id;
+  await request("apply", { type: "discuss", id: "root", token: e.token, reply: "Recorded", answers: children.map(n => ({ id: n.id, messageIds: [messageId], status: "ok", verdict: "Proven" })) });
+  e = await wait(); assert.equal(e.type, "reevaluate");
+  await request("apply", { type: "failure", token: e.token, error: "Review failed" });
+  await request("actions/retry", { id: multi.actionId });
+  const reviewed = [];
+  for (let i = 0; i < 2; i++) {
+    e = await wait(); assert.equal(e.type, "reevaluate"); reviewed.push(...e.ids);
+    await request("apply", { type: "reevaluate", token: e.token, assessments: e.ids.map(id => ({ id, status: "ok", verdict: "Confirmed" })) });
+  }
+  assert.deepEqual(reviewed.sort(), [id, other].sort());
+  assert.equal((await state()).nodes.find(n => n.id === "root").chat.filter(m => m.from === "claude").length, 1);
+  await reset();
+  await request("idea", { id: "retry-idea", text: "Original idea" }); e = await wait();
+  const ideaId = e.id;
+  await request("apply", { type: "idea", id: ideaId, token: e.token, status: "open", verdict: "Needs evidence", children: [{ q: "Idea evidence?", options: ["A", "B"] }] });
+  const ideaEdit = await request("idea/edit", { id: ideaId, revision: 1, text: "Changed idea" }); e = await wait();
+  await request("apply", { type: "failure", token: e.token, error: "Idea worker failed" });
+  await request("actions/retry", { id: ideaEdit.actionId }); e = await wait(); assert.equal(e.reason, "edit");
+  await request("apply", { type: "idea", id: ideaId, token: e.token, status: "open", verdict: "Needs evidence" }, 400);
+  await request("apply", { type: "idea", id: ideaId, token: e.token, status: "open", verdict: "Needs evidence", audit: e.context.focus.filter(n => n.kind === "q").map(n => ({ id: n.id, action: "keep", reason: "Still needed" })) });
   console.log("Durable action queue checks passed");
 } finally {
   await stop(); fs.rmSync(cwd, { recursive: true, force: true });

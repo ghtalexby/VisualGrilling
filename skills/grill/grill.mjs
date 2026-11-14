@@ -1313,11 +1313,24 @@ ${S.notes || "—"}
     const conversationId = n?.discussConversation || messages.at(-1)?.conversationId || "main";
     if (n?.kind === "root") messages = messages.filter(m => (m.conversationId || "main") === conversationId);
     let start = messages.length; while (start && messages[start - 1].from === "user") start--;
+    const reviewIds = [...new Set([...(failedState.reevaluation?.ids || []), ...(failedState.reevaluation?.remaining || [])])];
+    const dependencies = [];
+    if (failedState.rereadJob && failedWork?.type !== "reread") dependencies.push({ type: "reread" });
+    if (reviewIds.length && failedWork?.type !== "reevaluate") dependencies.push({ type: "reevaluate", ids: reviewIds });
+    for (const node of failedState.nodes) {
+      if (node.analysis && !(failedWork?.type === "idea" && failedWork.id === node.id)) dependencies.push({ type: "idea", id: node.id, ideaReason: node.analysis.reason });
+      if (node.discuss && !(failedWork?.type === "discuss" && failedWork.id === node.id)) {
+        const conversationId = node.discussConversation || node.chat?.at(-1)?.conversationId || "main";
+        const chat = (node.chat || []).filter(m => node.kind !== "root" || (m.conversationId || "main") === conversationId);
+        let at = chat.length; while (at && chat[at - 1].from === "user") at--;
+        dependencies.push({ type: "discuss", id: node.id, conversationId, messageIds: node.discussMessageIds || chat.slice(at).map(m => m.id) });
+      }
+    }
     for (const a of activeActions(S)) a.resume = {
       type: failedWork?.type || S.queue[0]?.type, id: failedWork?.id, answer: n?.pending?.answer,
       question: failedState.questionRequests.find(j => j.id === failedWork?.id),
       messageIds: n?.discussMessageIds || messages.slice(start).map(m => m.id), conversationId,
-      ids: failedState.reevaluation?.ids, reason: failedState.knowledgeJob?.reason,
+      ids: reviewIds, dependencies, ideaReason: n?.analysis?.reason, reason: failedState.knowledgeJob?.reason,
       operation: failedState.knowledgeJob?.operation, finishPending: failedState.finishPending
     };
     const owned = activeActions(S).length > 0;
@@ -1420,10 +1433,11 @@ ${S.notes || "—"}
       else if (r.type === "discuss") {
         if (!r.messageIds.length || r.messageIds.some(id => !n.chat?.some(m => m.id === id))) throw [409, "Карточка исчезла. Данные сохранены в архиве"];
         n.discussMessageIds = r.messageIds; n.discussConversation = r.conversationId; n.discuss = "queued"; S.queue.push({ type: "discuss", id: n.id });
-      } else if (r.type === "idea") queueIdea(n, "manual");
+      } else if (r.type === "idea") queueIdea(n, r.ideaReason || "manual");
       else if (r.type === "preview") actionRoute(action.route, action.body, { capture: (code, result) => { if (code >= 400) throw [code, result.error]; } });
       else throw [409, "Нет ошибки для повтора"];
     }
+    for (const dependency of r.dependencies || []) resumeAction({ ...action, resume: dependency });
     if (r.finishPending && !S.queue.some(e => e.type === "finish")) S.queue.push({ type: "finish" });
   }
   function actionRoute(p, b, res) {
