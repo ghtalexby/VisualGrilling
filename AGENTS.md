@@ -36,6 +36,10 @@ Use Node.js 18+ from the repository root. The skill needs no package installatio
 
 Reload the browser after UI edits; restart the server after `grill.mjs` edits.
 
+## Mandatory Release Version
+
+After changes to the skill runtime, UI, protocols, or agent workflow, bump the release version before pushing or updating the installed skill. Run `npm run release` once per completed release (not once per review fix), unless that release already includes a version bump. Commit `package.json`, `skills/grill/version.json`, and the stamped UI templates together, including tracked release mirrors when present. Verify version consistency and the installed Codex skill before reporting the update complete. A push or refreshed skill link alone is not a release update.
+
 ## Coding Style & Naming Conventions
 
 Use ES modules, two-space indentation, semicolons, and double-quoted JavaScript strings. Match existing compact helpers and camelCase names. Keep the skill dependency-free with Node built-ins and vanilla JavaScript; no formatter or linter is configured. Write documentation, skill instructions, and code comments in English. The browser interface and agent-generated content use the language of the user's launch request; select it before opening the browser as described in SKILL.md. CLI diagnostics remain Russian. Preserve exact protocol strings when quoting them, with English explanations where needed.
