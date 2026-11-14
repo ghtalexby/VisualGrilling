@@ -41,6 +41,18 @@ try {
   const reply = e => request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Checked" });
   const review = (e, extra = {}) => request("apply", { type: "reread", token: e.token, audit: e.context.focus.filter(n => n.kind === "q").map(n => ({ id: n.id, action: extra.remove?.includes(n.id) ? "remove" : extra.merge?.some(m => m.ids.includes(n.id)) ? "merge" : "keep", reason: "Checked" })), ...extra });
   let [id, other] = await reset();
+  {
+  const a = await request("answer", { id, answer: "A" });
+  const b = await request("answer", { id, answer: "B" });
+  const dependent = await request("spec", {});
+  const legacyPlan = await request("cancel", { id });
+  assert.deepEqual(legacyPlan.ids, [a.actionId, b.actionId, dependent.actionId]);
+  assert.ok((await journal()).every(a => a.status === "queued"));
+  await request("cancel", { id, confirmation: "outdated" }, 409);
+  await request("cancel", { id, confirmation: legacyPlan.confirmation });
+  assert.ok((await journal()).every(a => a.status === "cancelled"));
+  }
+  [id, other] = await reset();
   const input = { actionId: "first", id, answer: "First answer" };
   await request("answer", input);
   await request("answer", input);

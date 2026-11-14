@@ -137,7 +137,7 @@ try {
   assert.equal(saved.rereadJob, null); assert.ok(saved.nodes.some(n => n.q === "Why?"));
   await reread(e);
   await request("answer", { id: colour, answer: "Allowed again" });
-  await request("cancel", { id: colour });
+  await request("cancel", { id: colour, confirmation: (await request("cancel", { id: colour })).confirmation });
 
   // Chat images reach the rebuild.
   await request("discuss", { id: other, images: ["data:image/png;base64," + Buffer.concat([Buffer.from("89504e470d0a1a0a", "hex"), Buffer.alloc(16)]).toString("base64")] });
@@ -159,10 +159,10 @@ try {
   // Identical text is not an edit, and a withdrawn edit cancels its automatic run.
   await request("answer", { id: other, answer: "Three green buttons" });
   assert.equal((await state()).rereadPending, null);
-  await request("cancel", { id: other });
+  await request("cancel", { id: other, confirmation: (await request("cancel", { id: other })).confirmation });
   await request("answer", { id: other, answer: "Changed my mind" });
   assert.equal((await state()).rereadPending, null);
-  await request("cancel", { id: other });
+  await request("cancel", { id: other, confirmation: (await request("cancel", { id: other })).confirmation });
   s = await state(); assert.equal(s.rereadPending, null); assert.equal(s.queueLength, s.knowledgePending ? 1 : 0);
 
   await request("answer", { id: other, answer: "Changed my mind" });

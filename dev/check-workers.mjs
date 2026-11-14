@@ -241,7 +241,7 @@ try {
   await request("apply", { type: "spec", token: frozen.token, markdown: "# Frozen decision" });
   decision = await assess("Decision before concurrent answer.", { status: "ok", verdict: "Accepted." });
   await request("answer", { id: discussionId, answer: "New submitted answer" });
-  await request("cancel", { id: discussionId });
+  await request("cancel", { id: discussionId, confirmation: (await request("cancel", { id: discussionId })).confirmation });
   // A changed branch must invalidate the assessment, even with a valid delivery token.
   await request("discuss", { id: "root", message: "Changed project premise." });
   await request("question", { id: "discussion-child", parentId: discussionId, q: "New branch evidence?" });

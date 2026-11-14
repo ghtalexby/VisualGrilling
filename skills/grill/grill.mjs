@@ -1785,7 +1785,8 @@ ${S.notes || "—"}
         const action = waitingActions(S).find(a => a.route === "/api/answer" && a.body.id === b.id);
         if (!action) throw [409, "Действие уже начато"];
         const plan = cancellation(S, action.id);
-        cancelActions(S, action.id, plan.confirmation); save(); return send(res, 200, { ok: true });
+        if (b.confirmation) { cancelActions(S, action.id, b.confirmation); save(); }
+        return send(res, 200, { ok: true, ...plan });
       }
       if (p === "/api/actions/continue") {
         if (S.finishPending) throw [409, "Дождитесь завершения грилинга и повторите попытку."];
