@@ -87,6 +87,18 @@ try {
     await api("apply",{type:"answer",id:e.id,token:e.token,status:"ok",verdict:"Checked"});
     await js("poll(true)");
     assert.equal(await js('document.querySelector("#queueCount").textContent'),"4");
+    // Continuation must invoke the host-resume path after releasing the queue.
+    await api("init", { title: "Continue", questions: [{ q: "Later?" }] });
+    await api("finish", {}); e = await api("wait?timeout=5");
+    assert.equal(e.type, "knowledge"); await api("apply", { type: "knowledge", token: e.token, files: [] });
+    e = await api("wait?timeout=5"); await api("apply", { type: "finish", token: e.token, summary: "Done" });
+    await api("more", {}); await js("poll(true)");
+    await js('window.resumeCalls=0;window.realFetch=window.fetch;window.fetch=(input,options)=>String(input).endsWith("/api/resume")?(window.resumeCalls++,Promise.resolve(new Response("{}",{status:200}))):window.realFetch(input,options)');
+    await js('document.querySelector("#queueCount").click();document.querySelector("[data-queue-continue]").click()');
+    await until(() => js("window.resumeCalls===1&&!resumeSending"));
+    assert.equal((await api("state")).actionQueue.paused, false);
+    await js("window.fetch=window.realFetch");
+
   }
   console.log("Action queue browser checks passed in EN and RU");
 } finally {

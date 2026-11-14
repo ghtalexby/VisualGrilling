@@ -45,6 +45,7 @@ try {
   await request("answer", input);
   await request("answer", input);
   assert.equal((await journal()).length, 1);
+  assert.equal((await request("maps")).maps[0].queue, 1);
   let e = await wait(); assert.equal(e.type, "answer");
   await request("discuss", { id, message: "One" });
   await request("discuss", { id, message: "Two" });
@@ -121,6 +122,7 @@ try {
   await request("apply", { type: "finish", token: e.token, summary: "Done" });
   assert.equal((await state()).actionQueue.paused, true);
   assert.equal((await state()).queueLength, 0);
+  assert.equal((await request("maps")).maps[0].queue, 0);
   assert.equal((await state()).actionQueue.waiting, 1);
   await stop(); await start(); assert.equal((await state()).actionQueue.paused, true);
   await request("actions/continue", {});

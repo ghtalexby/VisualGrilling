@@ -53,14 +53,16 @@ try {
     assert.match(await js('document.querySelector("#panel pre").textContent'), /<script>/);
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /Source unavailable/ : /Источник недоступен/);
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /Local source/ : /Локальный источник/);
+    await api("actions/continue", {});
     await api("finish", {}); let event = await api("wait?timeout=5"); assert.equal(event.type, "knowledge");
     await api("apply", { type: "knowledge", token: event.token, error: "Simulated disk failure" });
     await js("poll(true)");
     assert.match(await js('document.querySelector("#panel").textContent'), /Simulated disk failure/);
-    await click('[data-act="knowledge-retry"]'); await until(async () => (await api("state")).knowledgePending.stage === "queued");
+    await click('[data-act="knowledge-retry"]'); await until(async () => (await api("state")).actionQueue.slots === 1);
     event = await api("wait?timeout=5");
     await api("apply", { type: "knowledge", token: event.token, error: "Retry still failed" });
     await js("poll(true)"); await click('[data-act="knowledge-skip"]');
+    await until(async () => (await api("state")).actionQueue.slots === 1);
     event = await api("wait?timeout=5"); assert.equal(event.type, "finish");
     await api("apply", { type: "finish", token: event.token, summary: "Skipped explicitly" });
     await js("poll(true)");

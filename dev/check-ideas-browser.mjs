@@ -47,8 +47,11 @@ try {
   await input("#fIdea", text); await click('[data-act="close"]');
   assert.equal((await api("state")).nodes.length, 2);
   await menu("root"); await click('[data-ctx="attachidea"]'); assert.equal(await js('document.querySelector("#fIdea").value'), text);
-  await click('[data-act="attachidea"]'); await until(() => js('S.nodes.some(n=>n.kind==="idea")'));
+  await click('[data-act="attachidea"]'); await until(async () => (await api("state")).actionQueue.slots === 1);
+  const initial = await api("wait?timeout=5");
+  await until(() => js('S.nodes.some(n=>n.kind==="idea")'));
   const id = (await api("state")).nodes.find(n => n.kind === "idea").id;
+  await until(() => js(`panel?.id==="${id}"`));
   assert.equal(await js("window.injected"), undefined);
   assert.equal(await js('document.querySelector("#panel h2").textContent'), text.trim());
   await input("#fMsg", "Discussion draft"); await menu(id); await click('[data-ctx="editidea"]');
@@ -58,9 +61,10 @@ try {
   assert.equal(await js('document.querySelector("#fIdeaEdit").value'), "Changed idea");
   assert.equal(await js('document.querySelector("#fMsg").value'), "Discussion draft");
   assert.equal(await js("document.activeElement.id"), "fIdeaEdit"); assert.equal(await js("document.activeElement.selectionStart"), 3);
-  await click('[data-act="saveidea"]'); await until(() => js(`get("${id}").analysis`));
-  await menu(id); await click('[data-ctx="removeidea"]'); assert.equal(await js('document.querySelector("[data-act=deleteidea]").disabled'), true);
+  await click('[data-act="saveidea"]'); await until(async () => (await api("state")).actionQueue.slots === 1);
+  await menu(id); await click('[data-ctx="removeidea"]'); assert.equal(await js('document.querySelector("[data-act=deleteidea]").disabled'), false);
   await click('[data-act="cancelideadelete"]');
+  await api("apply", { type: "idea", id, token: initial.token, status: "open", verdict: "Initial" });
   const e = await api("wait?timeout=5"); assert.equal(e.type, "idea");
   await api("apply", { type: "idea", id, token: e.token, capturedForSpec: e.capturedForSpec, status: "open", verdict: "Need evidence", audit: [], children: [{ q: "Idea question", options: ["A", "B"] }] });
   const question = (await api("state")).nodes.find(n => n.parentId === id);

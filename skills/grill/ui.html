@@ -422,7 +422,7 @@ $("#queueWindow").addEventListener("click",async e=>{
     if(b.hasAttribute("data-queue-close")){queuePinned=false;archiveOpen=false;$("#queueWindow").hidden=true}
     else if(b.dataset.queueCancel)await cancelQueued(b.dataset.queueCancel);
     else if(b.dataset.queueRetry){await api("/api/actions/retry",{id:b.dataset.queueRetry,actionId:crypto.randomUUID()});await poll(true)}
-    else if(b.hasAttribute("data-queue-continue")){await api("/api/actions/continue",{});await poll(true)}
+    else if(b.hasAttribute("data-queue-continue")){await api("/api/actions/continue",{});await $("#bPlay").onclick()}
     else if(b.hasAttribute("data-archive-reread"))await requestReread();
   }catch(error){showError(error.message)}
 });
@@ -838,7 +838,7 @@ async function attachIdea(){
   const raw=$("#fIdea")?.value||"",text=raw.trim();if(!text)return;
   ideaRequestId ||= crypto.randomUUID();
   const target=panel,requestId=ideaRequestId;sending=true;clearError();renderPanel();
-  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged)result.id?openPanel({mode:"node",id:result.id}):showQueue(true)}
+  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged){showQueue(true);actionResult(result,true).then(async done=>{await poll(true);if(panel===target){queuePinned=false;$("#queueWindow").hidden=true;openPanel({mode:"node",id:done.id})}},error=>showError(error.message))}}
   catch(e){showError(e.message)}
   finally{sending=false;renderPanel()}
 }

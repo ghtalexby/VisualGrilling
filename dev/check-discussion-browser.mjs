@@ -54,6 +54,8 @@ try {
   await js('document.querySelector("#conversationSelect").selectedIndex=1;document.querySelector("#conversationSelect").dispatchEvent(new Event("change",{bubbles:true}))');
   assert.equal(await js('document.querySelector("#fMsg").value'), "Second draft");
   await click('[data-act="discuss"]');
+  await until(async () => (await api("state")).actionQueue.slots === 1);
+  await api("wait?timeout=5"); await js("poll(true)");
   await until(() => js('!sending&&document.querySelectorAll(".chat .msg").length===1'));
   await js('document.querySelector("#conversationSelect").value="main";document.querySelector("#conversationSelect").dispatchEvent(new Event("change",{bubbles:true}))');
   assert.equal(await js('document.querySelectorAll(".chat .msg").length'), 0);

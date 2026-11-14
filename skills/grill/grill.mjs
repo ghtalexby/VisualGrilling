@@ -1271,15 +1271,19 @@ ${S.notes || "—"}
   function validateAction(p, b) {
     if (!b || typeof b !== "object" || Array.isArray(b)) throw [400, "Некорректный JSON"];
     for (const key of ["id", "parentId", "conversationId"]) if (b[key] !== undefined && (typeof b[key] !== "string" || b[key].length > 80)) throw [400, "Некорректный ID действия"];
+    if (["/api/idea", "/api/idea/edit"].includes(p) && clean(b.text, 3001).length > 3000) throw [400, "Нужен текст идеи до 3000 символов"];
+    if (["/api/idea", "/api/question"].includes(p) && !/^[a-zA-Z0-9-]{1,80}$/.test(b.id || "")) throw [400, "Нужны текст и идентификатор запроса"];
     for (const [key, limit] of [["answer", 3000], ["message", 2000], ["quote", 400], ["text", 3000], ["q", 220]]) if (b[key] !== undefined) b[key] = clean(b[key], limit);
     if (b.actionId && S.actions.some(a => a.id === b.actionId)) return;
     if (p === "/api/preview/prepare" && b.sourceId === "root" && (!Array.isArray(b.branches) || !b.branches.length)) throw [400, "Выберите ветки превью"];
     if (p === "/api/question" && get(b.parentId) && !["root", "q", "idea"].includes(get(b.parentId).kind)) throw [404, "Вопрос не найден"];
     if (p === "/api/reread" && !qs().length && !waitingActions(S).some(a => a.route === "/api/question")) throw [400, "На карте пока нет вопросов"];
     if (["/api/answer", "/api/discuss", "/api/chatreset"].includes(p) && !get(b.id) && !S.archive.some(a => a.node?.id === b.id) && !S.replacements[b.id]) throw [404, "Вопрос не найден"];
+    if (p === "/api/answer" && get(b.id)?.kind !== "q" && get(b.id)) throw [404, "Вопрос не найден"];
     if (p === "/api/answer" && get(b.id)?.obsolete) throw [409, "Вопрос устарел. Обсудите его и попросите перечитать карту"];
     if (p === "/api/answer" && !b.answer) throw [400, "Пустой ответ"];
     if (p === "/api/question" && (!b.q || !b.id || !b.parentId) || ["/api/idea", "/api/idea/edit"].includes(p) && !b.text) throw [400, "Нужен текст"];
+    if (["/api/discuss", "/api/chatreset"].includes(p) && b.id === "root" && b.conversationId !== undefined && !(S.projectConversations || [{ id: "main" }]).some(c => c.id === b.conversationId)) throw [404, "Разговор не найден"];
     if (p === "/api/discuss") {
       if (b.images !== undefined && (!Array.isArray(b.images) || b.images.length > IMG_COUNT)) throw [400, "Можно вставить не больше 4 картинок"];
       if (!b.message && !b.quote && !b.images?.length) throw [400, "Пустое сообщение"];
@@ -1907,7 +1911,7 @@ async function listMaps() {
     const f = path.join(d, "state.json"), s = readJSON(f); if (!s || !Array.isArray(s.nodes)) continue;
     const info = await alive(d); let listening = false;
     if (info) try { listening = !!(await (await fetch(`http://127.0.0.1:${info.port}/api/state`, { headers: { "x-grill": "1" }, signal: AbortSignal.timeout(1500) })).json()).listening; } catch {}
-    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
+    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.actionPaused ? 0 : (s.actions || []).filter(a => a.status === "queued").length) + (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
       updated: fs.statSync(f).mtime.toISOString(), url: info ? info.url : null, listening });
   }
   return out.sort((a, b) => b.updated.localeCompare(a.updated));

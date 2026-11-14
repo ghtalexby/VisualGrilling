@@ -27,9 +27,10 @@ async function rawRequest(route, body, expected = 200) {
   return r.json();
 }
 const state = () => request("state");
-async function wait() {
+async function wait(allowReread = false) {
   for (;;) {
     const e = await request("wait?timeout=5");
+    if (e.type === "reread" && !allowReread) { await reread(e); continue; }
     if (e.type !== "reevaluate") return e;
     await request("apply", { type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
       assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status, verdict: n.verdict }; }) });
@@ -87,7 +88,7 @@ try {
   assert.equal(saved.answerSource.id, "root"); assert.equal(saved.verdictHistory.length, 2);
   assert.equal(s.nodes.find(n => n.id === failover).status, "verify"); assert.equal(s.nodes[0].status, undefined);
   assert.equal(s.nodes[0].chat.at(-1).links.length, 8);
-  await reply(e, transaction, 409); assert.equal((await state()).nodes.length, s.nodes.length);
+  await reply(e, transaction); assert.equal((await state()).nodes.length, s.nodes.length);
 
   // An unchanged direct submission must retain the earlier transfer provenance in history.
   await grade(count, saved.answer);
@@ -97,7 +98,7 @@ try {
   assert.deepEqual(resubmitted.answerHistory.at(-1).source.messageIds, messageIds);
 
   // Current parents remain valid below historical ancestors.
-  await request("reread", {}); e = await wait(); assert.equal(e.type, "reread");
+  await request("reread", {}); e = await wait(true); assert.equal(e.type, "reread");
   await request("apply", { type: "reread", token: e.token, summary: "Historical premise",
     audit: contextCards(e).map(n => ({ id: n.id, action: n.id === other ? "obsolete" : "keep", reason: "Reviewed", ...(n.id === other ? { sources: ["root"] } : {}) })) });
   const activeParent = by(await state(), "Follow-up capacity").id;
@@ -105,26 +106,23 @@ try {
   await reply(e, { questions: [{ key: "$below", parentId: activeParent, q: "Below historical ancestor?", options }], links: ["$below"] });
   assert.equal(by(await state(), "Below historical ancestor?").parentId, activeParent);
 
-  // Captured specifications must not import later discussion answers/cards.
+  // Specifications include every earlier completed discussion transaction.
   await request("discuss", { id: other, message: "Late user decision" });
   await request("spec", {});
-  const snapshot = JSON.parse(fs.readFileSync(path.join(map, "state.json"))).specJob.nodes;
+  assert.ok(!JSON.parse(fs.readFileSync(path.join(map, "state.json"))).specJob);
   e = await wait(); assert.equal(e.type, "discuss");
   await reply(e, { answers: [{ id: count, messageIds: [discussionChat(e).at(-1).id], status: "weak", verdict: "Still incomplete" }] });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(map, "state.json"))).specJob.nodes, snapshot);
+
   const spec = await wait(); assert.equal(spec.type, "spec");
+  assert.equal(spec.nodes.find(n => n.id === count).status, "weak");
   await request("apply", { type: "spec", token: spec.token, markdown: "# Snapshot" });
 
-  // A concurrently submitted answer invalidates all staged work without losing either input.
+  // A later answer waits for the staged transaction, then supersedes its decision.
   e = await begin("root");
   await reply(e, { reply: undefined, part: 0, more: true, questions: [{ key: "$race", q: "Race?", parentId: "root", options }], links: ["$race"] });
   await request("answer", { id: failover, answer: "A real submitted answer" });
-  await reply(e, { part: 1, more: false, answers: [{ id: failover, messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "Must not win" }] }, 409);
-  s = await state(); assert.ok(!by(s, "Race?")); assert.equal(s.nodes.find(n => n.id === failover).pending.answer, "A real submitted answer");
-  // Redelivered project discussion sees the pending target and cannot overwrite it.
-  e = await wait(); assert.equal(e.type, "discuss");
-  await reply(e, { answers: [{ id: failover, messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "Blocked" }] }, 409);
-  await reply(e);
+  await reply(e, { part: 1, more: false, answers: [{ id: failover, messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "Earlier decision" }] });
+  s = await state(); assert.ok(by(s, "Race?"));
   const pending = await wait(); assert.equal(pending.type, "answer");
   await request("apply", { type: "answer", id: pending.id, token: pending.token, status: "ok", verdict: "Checked" });
   assert.equal((await state()).nodes.find(n => n.id === failover).answerSource, undefined);
@@ -140,7 +138,9 @@ try {
   await reply(e, { answers: [{ id: failover, messageIds: [discussionChat(e).at(-1).id], status: "gap", verdict: "Not enough evidence" }] });
 
   // Idea discussion uses the same context and may update question cards, never the idea/root grade.
-  const idea = await request("idea", { id: "idea-request", text: "Add a second region" });
+  await request("idea", { id: "idea-request", text: "Add a second region" });
+  const idea = await wait(); assert.equal(idea.type, "idea");
+  await request("apply", { type: "idea", id: idea.id, token: idea.token, status: "open", verdict: "Needs details" });
   await request("discuss", { id: idea.id, message: "The region is not selected" });
   e = await wait(); assert.equal(e.type, "discuss"); assert.equal(e.scope, "idea");
   await reply(e, { answers: [{ id: count, messageIds: [discussionChat(e).at(-1).id], status: "weak", verdict: "Region missing" }], questions: [{ key: "$region", parentId: idea.id, q: "Which region?", options }], links: ["$region"] });
@@ -164,21 +164,23 @@ try {
   await reply(e, { questions: many, links: many.map(q => q.key) });
   await request("discuss", { id: "root", message: "Preserve this oversized request" });
   await request("answer", { id: leaf, answer: "Independent answer" });
-  await request("wait?timeout=5", undefined, 400);
-  s = await state(); assert.ok(s.nodes[0].discussError); assert.equal(s.nodes[0].discuss, null);
-  assert.equal(s.nodes[0].chat.at(-1).text, "Preserve this oversized request");
-  e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.id, leaf);
+  e = await wait();
+  s = await state();
+  const failed = (await request("actions")).actions.find(a => a.body.message === "Preserve this oversized request");
+  assert.equal(failed.status, "failed"); assert.ok(failed.error);
+  assert.equal(e.type, "answer"); assert.equal(e.id, leaf);
   await request("apply", { type: "answer", id: leaf, token: e.token, status: "ok", verdict: "Independent work completes" });
   await request("init", { title: "Conversations", questions: [{ q: "Scope?", options }] });
   e = await begin("root", "Original conversation"); await reply(e);
   const conversation = await request("conversations", {});
   await request("discuss", { id: "root", conversationId: "missing", message: "Invalid" }, 404);
   await request("discuss", { id: "root", conversationId: conversation.id, message: "Separate topic" });
-  await request("discuss", { id: "root", message: "Wrong conversation" }, 409);
-  await request("chatreset", { id: "root" }, 409);
+  const later = await request("discuss", { id: "root", message: "Later conversation" });
+  const plan = await request("actions/cancel", { id: later.actionId });
+  await request("actions/cancel", { id: later.actionId, confirmation: plan.confirmation });
   for (const conversationId of [" ", "", null, 42]) {
-    await request("chatreset", { id: "root", conversationId }, 404);
-    await request("discuss", { id: "root", conversationId, message: "Invalid" }, 404);
+    await request("chatreset", { id: "root", conversationId }, typeof conversationId === "string" ? 404 : 400);
+    await request("discuss", { id: "root", conversationId, message: "Invalid" }, typeof conversationId === "string" ? 404 : 400);
   }
   e = await wait();
   assert.equal(e.conversationId, conversation.id);

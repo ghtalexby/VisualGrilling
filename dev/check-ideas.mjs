@@ -31,12 +31,13 @@ async function stop() {
   if (!server || server.exitCode !== null) return;
   const ended = new Promise(r => server.once("exit", r)); await api("stop", {}); await ended;
 }
-const state = () => api("state"), wait = () => api("wait?timeout=5");
+let delivered;
+const state = () => api("state"), wait = async () => { if (delivered) { const e = delivered; delivered = null; return e; } return api("wait?timeout=5"); };
 const node = async id => (await state()).nodes.find(n => n.id === id);
 const result = (e, extra = {}, expected = 200) => api("apply", { type: "idea", id: e.id, token: e.token, capturedForSpec: e.capturedForSpec, status: "ok", verdict: "Evidence checked", ...extra }, expected);
 const audit = e => contextCards(e).filter(n => n.kind === "q" && n.parentId === e.id).map(n => ({ id: n.id, action: "keep", reason: "Still relevant" }));
 let seq = 0;
-const attach = async text => (await api("idea", { id: "idea-" + ++seq, text })).id;
+const attach = async text => { await api("idea", { id: "idea-" + ++seq, actionId: "attach-" + seq, text }); delivered = await api("wait?timeout=5"); return delivered.id; };
 const analyze = async id => { await api("idea/analyze", { id }); const e = await wait(); assert.equal(e.type, "idea"); assert.equal(e.id, id); return e; };
 const edit = async (id, text) => api("idea/edit", { id, text, revision: (await node(id)).revision });
 
@@ -48,10 +49,10 @@ try {
   await api("idea", { id: "empty", text: " " }, 400);
   await api("idea", { id: "large", text: "a".repeat(3001) }, 400);
   const id = await attach("<script>idea</script> " + "Long idea ".repeat(35));
-  assert.equal((await state()).queueLength, 1);
-  assert.equal((await node(id)).analysis.stage, "queued");
-  assert.equal((await api("idea", { id: "idea-1", text: (await node(id)).text })).id, id);
-  await api("idea", { id: "idea-1", text: "Different" }, 409);
+  assert.equal((await state()).currentWork.type, "idea");
+  assert.equal((await node(id)).analysis.stage, "thinking");
+  assert.equal((await api("idea", { id: "idea-1", actionId: "attach-1", text: (await node(id)).text })).actionId, "attach-1");
+  await api("idea", { id: "idea-1", actionId: "attach-1", text: "Different" }, 409);
   const initial = await wait(); assert.equal(initial.type, "idea"); assert.equal(initial.id, id);
   await result(initial, { status: "open" });
   await api("reread", {}); const reread = await wait();
@@ -65,27 +66,28 @@ try {
   let e = await wait(); assert.equal(e.scope, "idea"); assert.equal(e.question, (await node(id)).text);
   await api("apply", { type: "discuss", id, token: e.token, reply: "Discussion only" });
   assert.equal((await node(id)).status, "open");
-  e = await analyze(id); await api("idea/analyze", { id });
-  await api("idea/delete", { id, confirm: true }, 409);
+  e = await analyze(id);
+  const deletion = await api("idea/delete", { id, confirm: true });
+  const plan = await api("actions/cancel", { id: deletion.actionId });
+  await api("actions/cancel", { id: deletion.actionId, confirmation: plan.confirmation });
   await result(e, { children: [{ q: "Needed evidence?", options: ["A", "B"] }] }, 400);
   await result(e, { status: "open", children: [{ q: "Needed evidence?", options: ["A", "B"] }] });
-  await result(e, {}, 409);
+  await result(e);
   const child = (await state()).nodes.find(n => n.parentId === id);
   assert.deepEqual(await node(independent.id), independent);
   await api("answer", { id: child.id, answer: "Measured 50 trials" });
   await api("spec", {});
-  e = await wait(); assert.equal(e.type, "answer"); assert.equal(e.capturedForSpec, true);
+  e = await wait(); assert.equal(e.type, "answer"); assert.equal(!!e.capturedForSpec, false);
   assert.equal(e.context.focus.find(n => n.id === id).kind, "idea"); assert.equal(e.context.focus.find(n => n.id === id).text, (await node(id)).text);
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "verify", verdict: "Needs replication" });
-  const frozen = await wait(); assert.equal(frozen.type, "idea"); assert.equal(frozen.capturedForSpec, true);
+  const frozen = await wait(); assert.equal(frozen.type, "idea"); assert.equal(!!frozen.capturedForSpec, false);
   await stop(); await start(); await result(frozen, {}, 409);
-  e = await wait(); assert.equal(e.capturedForSpec, true); assert.notEqual(e.token, frozen.token);
+  e = await wait(); assert.equal(!!e.capturedForSpec, false); assert.notEqual(e.token, frozen.token);
   await result(e);
   e = await wait(); assert.equal(e.type, "spec");
   assert.equal(e.nodes.find(n => n.id === id).status, "ok");
   assert.equal(e.nodes.find(n => n.id === child.id).status, "verify");
   await api("apply", { type: "spec", token: e.token, markdown: "# Frozen plan" });
-  e = await wait(); assert.equal(e.type, "idea"); await result(e);
   assert.equal((await node(id)).status, "ok");
   assert.equal((await node(id)).chat.length, 2);
 
@@ -98,37 +100,34 @@ try {
     assert.ok(e.nodes.some(n => n.id === independent.id));
     await api("apply", { type: "spec", token: e.token, markdown: "# " + status });
   }
-  // A map-context change invalidates a live conclusion.
-  e = await analyze(id); await attach("Unrelated new context"); await result(e, {}, 409);
-  e = await wait(); await result(e);
-  e = await wait(); assert.equal(e.type, "idea"); await result(e);
-  // Edits cancel delivered work, retain history, and require an individual branch audit.
-  const old = await analyze(id); await edit(id, "Revised idea"); await result(old, {}, 409);
+  // Later commands leave the active conclusion valid and execute in FIFO order.
+  e = await analyze(id);
+  await api("idea", { id: "unrelated", text: "Unrelated new context" });
+  await result(e); e = await wait(); assert.equal(e.type, "idea"); await result(e);
+  const old = await analyze(id); await edit(id, "Revised idea"); await result(old);
   e = await wait(); assert.equal(e.reason, "edit"); await result(e, {}, 400);
   await result(e, { audit: audit(e) }); assert.equal((await node(id)).chat.length, 2);
   assert.equal((await node(child.id)).answer, "Measured 50 trials");
-  await api("idea/edit", { id, text: "stale tab", revision: 1 }, 409);
-
-  // Editing while a spec is delivered cancels its token; a fresh snapshot follows reassessment.
+  const stale = await api("idea/edit", { id, text: "stale tab", revision: 1 });
+  await wait();
+  assert.equal((await api("actions?id=" + stale.actionId)).actions[0].status, "failed");
   await api("spec", {}); const oldSpec = await wait(); assert.equal(oldSpec.type, "spec");
   await edit(id, "Latest idea");
-  await api("apply", { type: "spec", token: oldSpec.token, markdown: "# stale" }, 409);
-  assert.equal((await state()).specPending.stage, "refresh");
+  await api("apply", { type: "spec", token: oldSpec.token, markdown: "# earlier snapshot" });
   await stop(); await start();
   e = await wait(); assert.equal(e.type, "idea"); assert.equal(focusCard(e).text, "Latest idea");
   await result(e, { audit: audit(e) });
+  await api("spec", {});
   e = await wait(); assert.equal(e.type, "spec"); assert.equal(e.nodes.find(n => n.id === id).text, "Latest idea");
   await api("apply", { type: "spec", token: e.token, markdown: "# latest" });
-  // Frozen evaluation cannot leak a later answer into the captured document or overwrite it live.
   await api("idea/analyze", { id }); await api("spec", {});
-  e = await wait(); assert.equal(e.capturedForSpec, true);
+  e = await wait(); assert.equal(!!e.capturedForSpec, false);
   await api("answer", { id: independent.id, answer: "Later unrelated answer" });
   await result(e); const spec = await wait(); assert.equal(spec.type, "spec");
   assert.ok(!spec.nodes.find(n => n.id === independent.id).answer);
   await api("apply", { type: "spec", token: spec.token, markdown: "# isolated" });
   e = await wait(); assert.equal(e.type, "answer");
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accepted" });
-  e = await wait(); assert.equal(e.type, "idea"); await result(e);
   assert.equal((await node(independent.id)).answer, "Later unrelated answer");
 
   // Browser renderers preserve full text/history and escape idea content.

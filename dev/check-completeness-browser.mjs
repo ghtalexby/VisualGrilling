@@ -119,7 +119,7 @@ try {
     assert.equal(await js('document.querySelector("#panel .err")'), null);
   }
   await js('api=savedApi');
-  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["conn", "session-usage", "bPlay", "bStop"]);
+  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["conn", "queueControl", "session-usage", "bPlay", "bStop"]);
   await js('listening=false;renderHeader()');
   assert.equal(await js('document.querySelector("#bStop").disabled'), true);
   assert.equal(await js('document.querySelector("#bPlay").disabled'), false);
