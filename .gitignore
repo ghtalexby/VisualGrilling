@@ -12,6 +12,7 @@ test-project/.claude/skills/grill
 /docs/specs/
 /docs/todo/
 /docs/plans/
+/docs/vgril/
 /memory/code-index.db
 /memory/code-index.db-*
 /memory/runtime/
