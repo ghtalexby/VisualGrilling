@@ -900,12 +900,13 @@ function toMarkdown(){
   const c=counts();md+=`Итого: ${ORDER.map(s=>`${STATUS[s]} ${c[s]}`).join(" · ")}\n\n`;
   if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
   kids("root").forEach(r=>{
+    if(r.queuedCreation){md+=`## [В очереди]\n${r.text||r.q}\n\n`;return}
     if(r.kind==="preview"){md+=`## Превью · ${r.q}\n${r.commit||""}\n`;return}
     md+=r.kind==="idea"?`## Идея · [${ideaStatus(r)}]\n${r.text}\n`:`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
     md+=answerHistory(r);if(r.answerSource)md+=`- Ответ из обсуждения: ${r.answerSource.id}\n`;if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;md+=answerHistory(k,ind+"  ");if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.queuedCreation?"В очереди":k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;md+=answerHistory(k,ind+"  ");if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;

@@ -145,6 +145,8 @@ try {
     assert.equal(await js('document.querySelector("#stage").textContent.includes("Pundefined")'),false);
     assert.equal(await js('qs().length'),2);
     assert.equal(await js('counts().open'),2);
+    assert.equal(await js('toMarkdown().includes("undefined")'),false);
+    assert.equal(await js('toMarkdown().includes('+JSON.stringify(language==="en"?"[Queued]":"[В очереди]")+')'),true);
     await js('openPanel({mode:"previewSetup",id:"root"})');
     assert.equal(await js('Array.from(document.querySelectorAll("[data-preview-branch]")).some(e=>e.dataset.previewBranch.startsWith("queued-"))'),false);
     const effects=(await api("state")).actionQueue.effects;
