@@ -493,5 +493,21 @@
   "Карточка исчезла. Данные сохранены в архиве": "The card disappeared. Its data is saved in the archive",
   "Не выполнена предпосылка действия": "An action prerequisite did not complete",
   "Некорректное восстановление архива": "Invalid archive recovery",
-  "Карточку нельзя восстановить": "The card cannot be restored"
+  "Карточку нельзя восстановить": "The card cannot be restored",
+  "Некорректный список исключений знаний": "Invalid knowledge ignore list",
+  "Файл исключён из анализа": "File excluded from analysis",
+  "Некорректное исключение знаний": "Invalid knowledge exclusion",
+  "Не более 1000 исключений знаний": "At most 1000 knowledge exclusions",
+  "Файлы анализа": "Analysis files",
+  "Текстовые документы проекта, доступные для анализа. Исключения действуют для всех карт проекта. Файлы на диске сохраняются.": "Project text documents available for analysis. Exclusions apply to all project maps. Files stay on disk.",
+  "В анализе": "Included",
+  "Игнорируемые": "Ignored",
+  "Предупреждения индекса": "Index warnings",
+  "Нет игнорируемых файлов": "No ignored files",
+  "Нет файлов для анализа": "No files for analysis",
+  "Удалить из игнорируемых и вернуть в анализ": "Remove from ignored files and include in analysis",
+  "Удалить из анализа и добавить в игнорируемые": "Remove from analysis and add to ignored files",
+  "Вернуть": "Restore",
+  "Загрузка…": "Loading…",
+  "Обновить": "Refresh"
 }

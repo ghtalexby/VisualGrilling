@@ -36,6 +36,25 @@ async function stop() {
   const done = new Promise(r => server.once("exit", r)); await api("stop", {}); await done;
 }
 try {
+  // Oversized candidates remain manageable; exclusions survive new store instances.
+  fs.writeFileSync(path.join(cwd, "large.txt"), "x".repeat(200001));
+  const oversized = store.index();
+  assert.match(oversized.files.find(f => f.path === "large.txt").error, /слишком большой/);
+  store.setIgnored("large.txt", true);
+  assert.equal(fs.statSync(path.join(cwd, "large.txt")).size, 200001);
+  assert.equal(store.index().warnings.length, 0);
+  assert.ok(!store.index().files.some(f => f.path === "large.txt"));
+  assert.deepEqual(knowledge(cwd, maps).index().ignored, ["large.txt"]);
+  assert.throws(() => store.read("large.txt"), /исключён/);
+  assert.throws(() => store.commit([], [], oversized.documentsRevision), /Документы изменились/);
+  assert.throws(() => store.setIgnored("../outside.txt", true), /не найден/);
+  assert.throws(() => store.setIgnored("README.md", "true"), /Некорректное/);
+  store.setIgnored("large.txt", false);
+  assert.ok(store.index().warnings.some(w => w.includes("large.txt")));
+  store.setIgnored("large.txt", true);
+  fs.unlinkSync(path.join(cwd, "large.txt"));
+  store.setIgnored("large.txt", false);
+  assert.deepEqual(store.index().ignored, []);
   // Build outputs must not be opened, even when they contain Markdown or deny directory access.
   for (const directory of ["target", "nested/target", "build", "dist", ".cache", "docs/target", "private-docs"]) {
     fs.mkdirSync(path.join(cwd, directory), { recursive: true });
@@ -56,9 +75,9 @@ try {
     assert.ok(!opened.includes("target") && !opened.includes("nested/target"));
     assert.ok(!index.documents.some(d => /^(target|build|dist|\.cache)\//.test(d.path)));
     assert.ok(index.documents.some(d => d.path === "docs/target/README.md"));
-    const expectedRevision = digest(JSON.stringify(index.documents));
+    const expectedRevision = index.documentsRevision;
     denied = "private-empty";
-    assert.equal(digest(JSON.stringify(store.index().documents)), expectedRevision);
+    assert.equal(store.index().documentsRevision, expectedRevision);
     assert.throws(() => store.commit([], [], expectedRevision), /Документы изменились или недоступны/);
     assert.equal(fs.existsSync(path.join(maps, "knowledge-ops/pending.json")), false);
     denied = "private-docs";
@@ -116,7 +135,7 @@ try {
 
   const navigation = store.index();
   fs.writeFileSync(path.join(cwd, "docs/vgril/moved.md"), "Changed while another map was preparing an update");
-  assert.throws(() => store.commit([], [], digest(JSON.stringify(navigation.documents))), /Документы изменились/);
+  assert.throws(() => store.commit([], [], navigation.documentsRevision), /Документы изменились/);
 
   // Several maps racing to reclaim the same dead owner must never enter together.
   fs.writeFileSync(path.join(ops, "lock.json"), JSON.stringify({ pid: 2147483647, id: "dead" }));
@@ -137,6 +156,15 @@ try {
   fs.writeFileSync(path.join(maps, "config.json"), JSON.stringify({ knowledge: { rereadThreshold: 1 } }));
   await start();
   assert.equal((await fetch(url + "api/knowledge")).status, 403);
+  assert.equal((await fetch(url + "api/knowledge-ignore", { method: "POST", body: JSON.stringify({ path: "README.md", ignored: true }) })).status, 403);
+  await api("knowledge-ignore", { path: "README.md", ignored: "true" }, 400);
+  await api("knowledge-ignore", { path: "../outside.txt", ignored: true }, 400);
+  await api("knowledge-ignore", { path: "README.md", ignored: true });
+  await api("knowledge-document?path=README.md", undefined, 404);
+  await stop(); await start();
+  assert.ok((await api("knowledge")).ignored.includes("README.md"));
+  await api("knowledge-ignore", { path: "README.md", ignored: false });
+  assert.equal((await api("knowledge-document?path=README.md")).text, sourceText);
   await api("init", { title: "Knowledge", questions: [{ q: "Define profile" }, { q: "Another topic" }] });
   const id = (await api("state")).nodes.find(n => n.kind === "q").id;
   await api("answer", { id, answer: sourceText });

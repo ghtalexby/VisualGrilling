@@ -360,7 +360,7 @@ ${S.notes || "—"}
     try {
       if (!Array.isArray(b.files)) throw new Error("Нужен массив files, включая пустой после проверки");
       const index = memory.index();
-      if (index.warnings.length || digest(JSON.stringify(index.documents)) !== j.documentsRevision) throw new Error("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
+      if (index.warnings.length || index.documentsRevision !== j.documentsRevision) throw new Error("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
       const validatedSources = [];
       for (const file of b.files) {
         const record = memory.parse(file.text);
@@ -594,7 +594,7 @@ ${S.notes || "—"}
       boundBranch(S.nodes);
       const index = memory.index();
       if (index.warnings.length) throw [400, index.warnings.join("; ").slice(0, 1000)];
-      j.documentsRevision = digest(JSON.stringify(index.documents));
+      j.documentsRevision = index.documentsRevision;
       j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision(); j.nodes = structuredClone(S.nodes.map(contextNode));
       return { type: "knowledge", token: j.token, reason: j.reason, title: S.title, brief: S.brief, arch: S.arch, session: S.knowledgeSession, author: memory.author(), date: new Date().toISOString(),
         sourcePath: path.relative(process.cwd(), STATE).replaceAll("\\", "/"), map: NAME, nodes: j.nodes.map(n => deliveryNode(n, false)), sources: j.nodes.map(n => ({ card: n.id, version: digest(JSON.stringify(n)) })) };
@@ -1279,7 +1279,13 @@ ${S.notes || "—"}
       }
 
       if (req.method === "GET" && p === "/api/ping") return send(res, 200, { ok: true, dir: DIR, port, pid: process.pid });
-      if (req.method === "GET" && p === "/api/knowledge") return send(res, 200, memory.index());
+      if (req.method === "GET" && p === "/api/knowledge") {
+        const index = memory.index();
+        return send(res, 200, { ...index, files: index.files.map(f => f.error ? { ...f, error: t(f.error) } : f), warnings: index.warnings.map(w => {
+          const file = index.files.find(f => f.error && w === `${f.path}: ${f.error}`);
+          return file ? `${file.path}: ${t(file.error)}` : t(w);
+        }) });
+      }
       if (req.method === "GET" && p === "/api/knowledge-document") { const requested = url.searchParams.get("path"); if (!memory.index().documents.some(d => d.path === requested)) throw [404, "Документ не найден в индексе"]; return send(res, 200, memory.read(requested)); }
       if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
       if (req.method === "GET" && p === "/api/state") {
@@ -1339,6 +1345,11 @@ ${S.notes || "—"}
       if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
       // Only a discussion message carries images: base64 of the allowed files plus its text.
       const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
+      if (p === "/api/knowledge-ignore") {
+        if (typeof b.path !== "string" || clean(b.path, 1000) !== b.path || typeof b.ignored !== "boolean") throw [400, "Некорректное исключение знаний"];
+        try { return send(res, 200, memory.setIgnored(b.path, b.ignored)); }
+        catch (e) { throw [400, e.message]; }
+      }
       if (p === "/api/monitor") {
         if (b.action === "stop") { closeStats(); monitor = null; return send(res, 200, monitorStatus()); }
         if (b.action !== "arm") throw [400, "Неизвестное действие монитора"];

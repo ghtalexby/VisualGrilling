@@ -54,6 +54,11 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .map-identity:hover>.copy-button,.map-identity:focus-within>.copy-button,.map-identity>.copy-success{opacity:1;pointer-events:auto}
 @media(hover:none){.map-identity>.copy-button{opacity:1;pointer-events:auto}}
 .actions{display:flex;gap:6px;flex-wrap:wrap}
+.knowledge-file-tabs .btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.knowledge-file{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.knowledge-file>div{flex:1;min-width:0;overflow-wrap:anywhere}
+.knowledge-file .btn{flex:none}
+.knowledge-file-error{color:var(--gap);font-size:13px;margin-top:4px}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 12px;font-size:14px;font-weight:500;cursor:pointer}
 .btn:hover{border-color:var(--ink)}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -254,11 +259,11 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.5">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.6">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
-    <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
+    <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bKnowledgeFiles">Файлы анализа</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
   <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bPlay" aria-label="Продолжить грилинг" title="Продолжить грилинг в текущей сессии агента"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l9 6-9 6z" fill="currentColor"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
   <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
@@ -283,6 +288,26 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 let knowledgeIndex=null,knowledgeDocument=null;
+let knowledgeFiles=null,knowledgeFilesError="",knowledgeFilesBusy=false,knowledgeFilesIgnored=false;
+function knowledgeFilesPanel(){
+  const files=knowledgeFilesIgnored?(knowledgeFiles?.ignored||[]).map(path=>({path})):(knowledgeFiles?.files||[]);
+  let body=`<p class="why">Текстовые документы проекта, доступные для анализа. Исключения действуют для всех карт проекта. Файлы на диске сохраняются.</p><div class="row knowledge-file-tabs"><button class="btn" data-act="files-active" aria-pressed="${!knowledgeFilesIgnored}">В анализе · ${knowledgeFiles?.files.length??0}</button><button class="btn" data-act="files-ignored" aria-pressed="${knowledgeFilesIgnored}">Игнорируемые · ${knowledgeFiles?.ignored.length??0}</button><button class="btn small" data-act="files-refresh" ${knowledgeFilesBusy?"disabled":""}>Обновить</button></div>`;
+  if(knowledgeFilesBusy)body+=`<p role="status">Загрузка…</p>`;
+  if(knowledgeFilesError)body+=`<p class="err" role="alert">${esc(knowledgeFilesError)}</p>`;
+  if(knowledgeFiles?.warnings.length)body+=`<details><summary>Предупреждения индекса</summary>${knowledgeFiles.warnings.map(w=>`<p class="knowledge-file-error">${esc(w)}</p>`).join("")}</details>`;
+  if(knowledgeFiles&&!files.length)body+=`<p>${knowledgeFilesIgnored?"Нет игнорируемых файлов":"Нет файлов для анализа"}</p>`;
+  body+=files.map((f,i)=>`<div class="knowledge-file"><div>${esc(f.path)}${f.error?`<div class="knowledge-file-error">${esc(f.error)}</div>`:""}</div><button id="knowledgeFile${i}" class="btn small" data-ignore-path="${esc(f.path)}" data-ignored="${!knowledgeFilesIgnored}" ${knowledgeFilesBusy?"disabled":""} title="${knowledgeFilesIgnored?"Удалить из игнорируемых и вернуть в анализ":"Удалить из анализа и добавить в игнорируемые"}">${knowledgeFilesIgnored?"Вернуть":"Удалить"}</button></div>`).join("");
+  return{head:"Файлы анализа",body};
+}
+async function refreshKnowledgeFiles(change){
+  if(knowledgeFilesBusy)return;
+  knowledgeFilesBusy=true;knowledgeFilesError="";if(panel?.mode==="files")renderPanel();
+  try{
+    if(change){await api("/api/knowledge-ignore",change);knowledgeIndex=null;knowledgeDocument=null}
+    knowledgeFiles=await api("/api/knowledge");
+  }catch(e){knowledgeFilesError=e.message}
+  finally{knowledgeFilesBusy=false;if(panel?.mode==="files")renderPanel()}
+}
 let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, resumeSending=false;
 let rereadSending=false;
@@ -927,6 +952,7 @@ function summaryPanel(){
 }
 function panelSig(){
   if(!panel)return"";
+  if(panel.mode==="files")return JSON.stringify([knowledgeFiles?.revision,knowledgeFilesError,knowledgeFilesBusy,knowledgeFilesIgnored]);
   if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,knowledgeIndex?.revision,knowledgeDocument,S.knowledgePending,S.knowledgeResult,S.coverage,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,S.reevaluationError,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
@@ -938,6 +964,7 @@ function renderPanel(revealDiscussion=false){
   if(!panel){p.hidden=true;p.dataset.key="";return}
   let r;
   if(panel.mode==="summary")r=summaryPanel();
+  else if(panel.mode==="files")r=knowledgeFilesPanel();
   else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?projectChatPanel(n):nodePanel(n)}
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
   const key=[panel.mode,panel.id,panel.tab,panel.id==="root"?projectConversation:""].join("|"),same=p.dataset.key===key;
@@ -1092,6 +1119,7 @@ $("#bPlay").onclick=async()=>{
 };
 $("#bStop").onclick=()=>act("/api/finish");
 $("#bReread").onclick=requestReread;
+$("#bKnowledgeFiles").onclick=()=>{openPanel({mode:"files"});refreshKnowledgeFiles()};
 $("#closeErrorToast").onclick=clearError;
 $("#bChat").onclick=()=>openPanel({mode:"project",id:"root",tab:"discuss"});
 $("#panel").addEventListener("change",e=>{if(e.target.id!=="conversationSelect"||sending)return;projectConversation=e.target.value;panel.confirmChat=false;clearError();renderPanel(true)});
@@ -1135,8 +1163,12 @@ $("#panel").addEventListener("click",e=>{
   const cb=e.target.closest("[data-copy]");if(cb){clearError();copyText(cb);return}
   const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
   const kd=e.target.closest("[data-document]");if(kd){api("/api/knowledge-document?path="+encodeURIComponent(kd.dataset.document)).then(d=>{knowledgeDocument=d;renderPanel()},err=>showError(err.message));return}
+  const ki=e.target.closest("[data-ignore-path]");if(ki){refreshKnowledgeFiles({path:ki.dataset.ignorePath,ignored:ki.dataset.ignored==="true"});return}
   const a=e.target.closest("[data-act]");if(!a)return;
   switch(a.dataset.act){
+    case "files-active":knowledgeFilesIgnored=false;renderPanel();break;
+    case "files-ignored":knowledgeFilesIgnored=true;renderPanel();break;
+    case "files-refresh":refreshKnowledgeFiles();break;
     case "close":panel=null;render();renderPanel();break;
     case "answer":submitAnswer();break;
     case "explainquestion":{const n=get(panel.id);panel.tab="discuss";renderPanel();submitDiscuss({message:"Объясни вопрос простыми словами и укажи, какие сведения нужны для ответа.",quote:{about:"question",text:n.q}});break}

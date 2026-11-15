@@ -172,3 +172,5 @@ Project chat supports separate conversations selected in the browser. Project `d
 ## Durable action queue
 
 User mutations are accepted into a durable FIFO journal, including during reread and finish. Never ask the user to wait before submitting. Adjacent messages are delivered together; adjacent answer revisions execute the last version. Spec and reread capture state when executed. Main-session Codex monitor uses one fresh prepare-only worker per event (see monitor.md); only the main session applies/rearms. Echo every token, including more. An unrecoverable event can be completed with `{type:"failure",token,error}`; independent actions continue and retry is explicit. A started finish holds later actions, also if it fails; do not drain them. Only an explicit user continuation of the finished map (a chat request, Play or copied continuation context) uses `G start --continue` to release them. Plain `G start` for recovery or reopening keeps them paused.
+
+Honor the knowledge index's `ignored` paths in all file analysis; see `worker.md`.

@@ -425,6 +425,8 @@ If required full branch evidence exceeds the limit, journal-owned reassessment f
 
 See [knowledge.md](knowledge.md) for the shared index, editable record schema, provenance, content-version checks, recovery guarantees, knowledge/finish lifecycle, explicit history import and generated-spec migration. Keep `knowledge.mjs`, `knowledge.md`, worker instructions, UI/locales and `dev/check-knowledge.mjs` synchronized. Run the knowledge check along with existing queue, spec, worker and map checks.
 
+Protected `GET /api/knowledge` also returns `files:[{path,error?}]`, `ignored:[path]`, and `documentsRevision` (hash of documents plus exclusions). Protected `POST /api/knowledge-ignore {path,ignored:boolean}` immediately persists a shared project exclusion under the knowledge writer lock and returns `{ok:true}`; it does not enqueue map work or delete files. Exact paths are limited to 1000 characters, lists to 1000 entries. New exclusions require a discovered candidate, including failed reads; restoration accepts saved missing paths. Ignored documents are omitted from analysis and viewer reads. Changes invalidate in-flight knowledge saves. See [knowledge.md](knowledge.md#analysis-file-exclusions).
+
 ## Discussion questions and shared answers
 
 Discussion delivery uses the focused context envelope above. The focus card's chat carries user message IDs; no separate whole-map nodes, messages or history copies are sent. Full context is bounded with explicit rejection, never silent truncation. `message`, `images`, `scope` and the delivery token remain available. A whole-map content revision now protects every discussion result, including reply-only results.

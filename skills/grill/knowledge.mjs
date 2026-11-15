@@ -21,6 +21,16 @@ const atomic = (file, text) => {
 export function knowledge(project, maps) {
   project = path.resolve(project); maps = path.resolve(maps);
   const runtime = path.join(project, ".grill", "knowledge-ops");
+  const pathKey = relative => process.platform === "win32" ? relative.toLowerCase() : relative;
+  function ignoredPaths() {
+    const file = safe(project, ".grill/knowledge-ignore.json");
+    if (!fs.existsSync(file)) return [];
+    if (fs.statSync(file).size > 2000000) fail("Некорректный список исключений знаний");
+    const paths = json(file);
+    if (!Array.isArray(paths) || paths.length > 1000 || paths.some(p => !bounded(p, 1000) || p.includes("\\") || p.split("/").some(s => !s || s === "." || s === ".." || /[:\x00-\x1f]/.test(s)))) fail("Некорректный список исключений знаний");
+    return paths;
+  }
+  const isIgnored = relative => ignoredPaths().some(p => pathKey(p) === pathKey(relative));
   // All generated destinations are fixed or restricted relative paths. Never follow links.
   function safe(root, relative, create = false) {
     if (!relative || relative.includes("\\") || relative.split("/").some(p => !p || p === "." || p === ".." || /[:\x00-\x1f]/.test(p))) fail("Недопустимый путь знаний");
@@ -70,6 +80,7 @@ export function knowledge(project, maps) {
   }
   function read(relative) {
     const file = safe(project, relative);
+    if (isIgnored(relative)) fail("Файл исключён из анализа");
     if (!fs.existsSync(file)) return { path: relative, version: null, text: null };
     if (fs.statSync(file).size > limit * 4) fail("Документ знаний слишком большой");
     const text = fs.readFileSync(file, "utf8");
@@ -114,7 +125,8 @@ export function knowledge(project, maps) {
     return { path: file.path, expected: file.expected, text };
   }
   function scan() {
-    const documents = [], warnings = [], mapList = [];
+    const documents = [], warnings = [], mapList = [], files = [], ignored = ignoredPaths();
+    const excluded = new Set(ignored.map(pathKey));
     let visited = 0;
     function walk(relative, depth = 0) {
       if (depth > 12) { warnings.push(`Depth limit: ${relative}`); return; }
@@ -130,7 +142,9 @@ export function knowledge(project, maps) {
         if (++visited > 10000) fail("Индекс превышает 10000 объектов; сузьте документацию проекта");
         if (entry.isDirectory()) walk(rel, depth + 1);
         else if (entry.isFile() && /\.(md|mdx|rst|txt)$/i.test(entry.name)) {
+          if (excluded.has(pathKey(rel))) continue;
           if (documents.length >= 1000) fail("Индекс превышает 1000 документов");
+          const candidate = { path: rel }; files.push(candidate);
           try {
             const item = read(rel), lines = item.text.split(/\r?\n/);
             const headings = lines.filter(l => /^#{1,3} /.test(l)).slice(0, 5).join(" · ").slice(0, 300);
@@ -164,7 +178,7 @@ export function knowledge(project, maps) {
               return { path: s.path, card: s.card || null, version: s.version, available, versionMatches, localOnly: !!s.card, snapshot: !!s.snapshot };
             });
             documents.push({ path: rel, version: item.version, headings, description, links, sources, ...(record ? { id: record.id, type: record.type, scope: record.scope, status: record.status } : {}), ...(error ? { error } : {}) });
-          } catch (e) { warnings.push(`${rel}: ${e.message}`); }
+          } catch (e) { candidate.error = e.message; warnings.push(`${rel}: ${e.message}`); }
         }
       }
     }
@@ -175,8 +189,8 @@ export function knowledge(project, maps) {
         mapList.push({ name: dir === maps ? null : path.basename(dir), title: s.title, version: s.version, source: path.relative(project, file).replaceAll("\\", "/"), finished: !!s.finished });
       } catch {}
     }
-    const content = { schema: 1, documents, maps: mapList, warnings };
-    const result = { ...content, revision: digest(JSON.stringify(content)) };
+    const content = { schema: 1, documents, maps: mapList, warnings, ignored, files };
+    const result = { ...content, revision: digest(JSON.stringify(content)), documentsRevision: digest(JSON.stringify({ documents, ignored })) };
     atomic(safe(project, ".grill/knowledge-index.json", true), JSON.stringify(result, null, 2));
     return result;
   }
@@ -211,6 +225,20 @@ export function knowledge(project, maps) {
     if (fs.existsSync(path.join(runtime, "pending.json"))) result.warnings.push("Незавершённая запись знаний: повторите сохранение в исходной карте");
     return result;
   }); }
+  function setIgnored(relative, ignored) {
+    return locked(() => {
+      if (typeof relative !== "string" || !bounded(relative, 1000) || typeof ignored !== "boolean") fail("Некорректное исключение знаний");
+      const paths = ignoredPaths(), key = pathKey(relative), exists = paths.some(p => pathKey(p) === key);
+      if (ignored && !exists) {
+        if (paths.length >= 1000) fail("Не более 1000 исключений знаний");
+        if (!scan().files.some(f => f.path === relative)) fail("Документ не найден в индексе");
+        paths.push(relative);
+      }
+      const next = ignored ? paths : paths.filter(p => pathKey(p) !== key);
+      atomic(safe(project, ".grill/knowledge-ignore.json", true), JSON.stringify(next.sort(), null, 2));
+      return { ok: true };
+    });
+  }
   function reconcile(operation) {
     return locked(() => {
       const file = path.join(runtime, "pending.json");
@@ -231,7 +259,7 @@ export function knowledge(project, maps) {
       if (fs.existsSync(path.join(runtime, "pending.json"))) fail("Незавершённая запись знаний: повторите сохранение в исходной карте");
       const navigation = scan();
       if (navigation.warnings.length) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
-      if (expectedRevision && digest(JSON.stringify(navigation.documents)) !== expectedRevision) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
+      if (expectedRevision && navigation.documentsRevision !== expectedRevision) fail("Документы изменились или недоступны; перечитайте индекс и повторите сохранение");
       const seen = new Set();
       for (const op of files) {
         if (!op || !/^docs\/vgril\/(?!specs\/)[a-z0-9][a-z0-9/-]*\.md$/.test(op.path) || seen.has(op.path) || !bounded(op.text, limit)) fail("Некорректный документ знаний");
@@ -291,5 +319,5 @@ export function knowledge(project, maps) {
       return { path: target, migrated: true, retained: state.specFile, version: digest(text) };
     });
   }
-  return { index, read, parse, edit, commit, author, safe, locked, reconcile, migrateSpec };
+  return { index, setIgnored, read, parse, edit, commit, author, safe, locked, reconcile, migrateSpec };
 }

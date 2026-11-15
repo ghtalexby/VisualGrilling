@@ -46,6 +46,34 @@ try {
   for (const language of ["en", "ru"]) {
     await api("locale", { language }); await js("globalThis.__beforeKnowledgeReload=1"); await cdp("Page.reload");
     await until(() => js(`typeof __beforeKnowledgeReload==="undefined"&&typeof loaded!=="undefined"&&loaded&&typeof renderPanel==="function"&&document.documentElement.lang==="${language}"`));
+    fs.writeFileSync(path.join(cwd, "large.txt"), "x".repeat(200001));
+    await click("#bKnowledgeFiles");
+    await until(() => js('!knowledgeFilesBusy&&!!document.querySelector(\'[data-ignore-path="large.txt"]\')'));
+    assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /too large/ : /слишком большой/);
+    await click('[data-ignore-path="large.txt"]');
+    await until(() => js('!knowledgeFilesBusy&&knowledgeFiles.ignored.includes("large.txt")'));
+    assert.equal((await api("knowledge")).warnings.length, 0);
+    await click('[data-act="files-ignored"]');
+    assert.ok(await js('!!document.querySelector(\'[data-ignore-path="large.txt"]\')'));
+    await click('[data-ignore-path="large.txt"]');
+    await until(() => js('!knowledgeFilesBusy&&!knowledgeFiles.ignored.includes("large.txt")'));
+    await click('[data-act="files-active"]');
+    await click('[data-ignore-path="large.txt"]');
+    await until(() => js('!knowledgeFilesBusy&&knowledgeFiles.ignored.includes("large.txt")'));
+    // Capture both themes and viewport sizes while checking row overflow.
+    for (const width of [390, 1280]) {
+      await cdp("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });
+      await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: width === 390 ? "dark" : "light" }] });
+      await click('[data-act="files-ignored"]');
+      assert.equal(await js('document.querySelector("#panel .pb").scrollWidth<=document.querySelector("#panel .pb").clientWidth'), true);
+      if (process.env.GRILL_FILES_SCREENSHOT) {
+        const shot = await cdp("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(process.env.GRILL_FILES_SCREENSHOT + `-${language}-${width}.png`, Buffer.from(shot.data, "base64"));
+      }
+    }
+    await api("knowledge-ignore", { path: "large.txt", ignored: false });
+    fs.unlinkSync(path.join(cwd, "large.txt"));
+    await click('[data-act="close"]');
     await js('panel={mode:"summary"};renderPanel()');
     await click('[data-act="knowledge-open"]'); await until(() => js('!!document.querySelector("[data-document]")'));
     await click('[data-document="docs/vgril/manual.md"]'); await until(() => js('!!document.querySelector("#panel pre")'));

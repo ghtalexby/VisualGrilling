@@ -32,7 +32,7 @@ Optional `recommendation:{option,reason}` requires an exact option and project-s
 
 ## Context selection
 
-After start at launch, run `G knowledge`. Each event refreshes its absolute index path, revision, document/map counts and warnings. Read the index, select documents by topic, then read current contents and primary sources; inspect code separately. Report scan/parse warnings: missing context is not an empty knowledge base or a complete save.
+After start at launch, run `G knowledge`. Each event refreshes its absolute index path, revision, document/map counts and warnings. Read the index, select documents by topic, then read current contents and primary sources; inspect code separately. Report scan/parse warnings; missing context is not a complete save.
 
 Project cwd bounds knowledge; `--dir` selects map storage. `docs/vgril/` is shared knowledge. Never publish, commit or push it without user instruction.
 
@@ -72,3 +72,5 @@ Never interpolate JSON into shell code; encode JSON string newlines as `\n`.
 Read large-event `inbox` files in chunks; after compaction use status/file, never re-print. `--inline` forces JSON. `answerFromChat:true` means the exact answer is the joined user messages listed by `answerSource.messageIds`.
 
 Project chat is conversation-scoped.
+
+Never read or analyze paths in the knowledge index's `ignored` list, including via filesystem tools.
