@@ -9,6 +9,15 @@ import { fileURLToPath } from "node:url";
 
 const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
 const skillRoot = path.dirname(cli);
+const mirrorRoot = fileURLToPath(new URL("../.claude/skills/grill/", import.meta.url));
+function checkMirror(directory = "") {
+  for (const entry of fs.readdirSync(path.join(skillRoot, directory), { withFileTypes: true })) {
+    const relative = path.join(directory, entry.name);
+    if (entry.isDirectory()) checkMirror(relative);
+    else assert.equal(fs.readFileSync(path.join(mirrorRoot, relative), "utf8").replace(/\r\n/g, "\n"), fs.readFileSync(path.join(skillRoot, relative), "utf8").replace(/\r\n/g, "\n"), `Stale skill mirror: ${relative}`);
+  }
+}
+checkMirror();
 const instruction = file => fs.readFileSync(path.join(skillRoot, file), "utf8");
 const workerRules = instruction("worker.md");
 for (const root of [new URL("../skills/grill/", import.meta.url), new URL("../.claude/skills/grill/", import.meta.url)]) {

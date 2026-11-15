@@ -1,8 +1,4 @@
 ---
-### Codex hybrid: default waiting mode
-
-Read [hybrid.md](hybrid.md). After each completed round use `G wait --timeout 15`; process an arriving event and repeat, or arm monitor on timeout and end the turn. Use plain apply, including for monitored events, then stop the completed subscription before waiting again. Never wait after a new finish.
-
 name: grill
 description: Interactive project grilling in the browser, with a map of questions, answers, and weak spots. Use when the user asks to grill a project, idea, or architecture, stress-test an idea, continue grilling, or list existing grillings, in any language.
 ---
@@ -14,6 +10,14 @@ Run a tough project review: ask critical questions, let the user answer on an in
 Use the user's current Codex or Claude Code session. No separate API key or nested model process is needed. The skill directory contains this `SKILL.md` (use the skill-list path in Codex or Base directory for this skill in Claude Code). Requires Node 18+. Run commands from the user's project, using an absolute path to `grill.mjs`; do not change into the installed skill directory.
 
 A project can have several named maps, such as `arch`, `money`, or `security`, stored in `.grill/<name>/` under the current working directory. Names use lowercase Latin letters, digits, and hyphens, up to 40 characters; Windows reserved names `con`, `prn`, `aux`, `nul`, `com0`–`com9`, and `lpt0`–`lpt9` are forbidden. Every command below means `node "<skill directory>/grill.mjs" <command> --name <name>`, abbreviated as `G <command>`. Pass the current map's `--name` to every command except `list`. Legacy unnamed maps use `.grill/state.json`, appear with `"name": null`, and require commands without `--name`.
+
+## Map storage: choose before the first command
+
+The project working directory and the maps root are different paths. For new maps, use `<project>/.grill` unless the user explicitly requests another storage location. `--dir` is the maps root itself: the CLI does not append `.grill`. Passing `--dir <project>` puts named maps and root-level runtime files directly in the project root; do not do this merely to identify the project.
+
+Keep cwd at the project root. For the default layout, either omit `--dir` consistently or pass the absolute `<project>/.grill` path to every command, including `list`. For a custom root, pass that selected absolute root consistently instead. Before `start` or `init`, resolve the resulting state path: a named map must be `<maps root>/<name>/state.json`, with `.grill` present for the default layout.
+
+When resuming an existing map (including Play or copied continuation context), preserve its supplied maps root and name even if it uses a custom or older layout. Do not silently relocate it or initialize a replacement in `.grill`; moving existing maps is a separate user-requested task. Paths shown as `.grill/<name>/` below assume the default layout; for custom roots, use the selected map directory for locale and other map-state files too.
 
 ## Language: select before opening the page
 
@@ -41,7 +45,7 @@ Always name new maps; do not create unnamed maps.
 
 If a map selected for resumption has an empty `title` and all-zero counts, initialization was interrupted. Follow step 2 with the same name.
 
-Before resuming, if `listening:true` and this map is not in your served-map table, another session may be serving it. Warn the user and proceed only after confirmation that no other session is listening. Then run `G start` with the language option described above and go to step 4.
+Before resuming, if `listening:true` and this map is not in your served-map table, another session may be serving it. Warn the user and proceed only after confirmation that no other session is listening. Then run `G start --continue` with the language option described above and go to step 4; `--continue` releases late actions held after a finish.
 
 When opening a map, name it in a short localized message, for example: Map “arch” is open: <URL>. Levels 1/2 can serve several maps under the dispatcher rules below. At level 0, parallel maps require separate agent sessions; one session listens to one map.
 
@@ -85,7 +89,7 @@ Events use focused context and a compact map index; follow [worker context rules
 
 ## 3. Pass JSON safely
 
-For `init` and every `apply`, follow the canonical [JSON passing instructions](worker.md#pass-json-safely), including quoted heredocs or PowerShell UTF-8 here-strings. `G` is notation, not an installed command. Pass the same `--dir` everywhere, including `list`.
+For `init` and every `apply`, follow the canonical [JSON passing instructions](worker.md#pass-json-safely), including quoted heredocs or PowerShell UTF-8 here-strings. `G` is notation, not an installed command. Keep the maps root selected above: omit `--dir` consistently for the default layout, or pass the same explicit maps root everywhere, including `list`.
 
 ## 4. Grilling loop
 
@@ -99,6 +103,10 @@ Other hosts: prefer level 2 (section 4.4) when foreground workers with shell acc
 - Kimi Code CLI: Bash with `run_in_background=true`, `G watch --max-wait 540` for its default ten-minute background limit. Use a longer value only if the user raised that limit.
 
 Host behavior varies by version: verify automatic completion wake-up and the host's background time limit before relying on level 1; otherwise fall back to level 0. Keep max-wait below that limit.
+
+### Codex hybrid: default waiting mode
+
+Read [hybrid.md](hybrid.md). After each completed round use `G wait --timeout 15`; process an arriving event and repeat, or arm monitor on timeout and end the turn. Use plain apply, including for monitored events, then stop the completed subscription before waiting again. Never wait after a new finish.
 
 ### Codex monitor: event-driven wake-up
 
@@ -163,5 +171,10 @@ The header copy action supplies a continuation request and `resume` metadata fro
 Structural removals prune semantic links; reread merges reconcile the graph and require audit for indirect changes. See `events/reread.md` for graph limits and replacement annotations.
 
 Session cost: answer/question events include `context.questionTitles`; scan these before adding questions. Answer results normally assess `ancestorIds` inline (`ancestors:[]` if unchanged); request separate review when evidence is missing. Omit `ancestors` for `capturedForSpec:true`. If only sibling context changed, the server accepts the card grade and queues ancestor review. In pure Codex monitor use `apply --rearm` for final results. Hybrid uses plain apply and returns to its 15-second wait after stopping the completed subscription. Large events (>20000 characters) use the inbox; read in parts, without reprinting after compaction. `--inline` overrides this. `session.rolloverTokens` defaults to 120000; on `sessionHint:"rollover"`, apply current work, save durable notes and suggest a new session once, without automatic migration. See worker, monitor and event rules.
+
+Project chat supports separate conversations selected in the browser. Project `discuss` events include `conversationId`; use the supplied focus history and reply with the normal root ID and token. New conversations do not discard map evidence.
+
+
+## Durable action queue
 
 User mutations are accepted into a durable FIFO journal, including during reread and finish. Never ask the user to wait before submitting. Adjacent messages are delivered together; adjacent answer revisions execute the last version. Spec and reread capture state when executed. Codex hybrid and pure monitor use one fresh prepare-only worker per event (see hybrid.md and monitor.md); only the main session applies and controls waiting. Echo every token, including more. An unrecoverable event can be completed with `{type:"failure",token,error}`; independent actions continue and retry is explicit. A started finish holds later actions, also if it fails; do not drain them. Only an explicit user continuation of the finished map (a chat request, Play or copied continuation context) uses `G start --continue` to release them. Plain `G start` for recovery or reopening keeps them paused.

@@ -184,7 +184,7 @@ export function previews(directory, state, save, enqueue, translate = text => te
       if (b.confirm !== true) fail("Подтвердите удаление превью");
       const dir = repo(n), parent = all().find(p => p.projectId === n.forkOf);
       if (parent) parent.forkedBranches = [...new Set([...(parent.forkedBranches || []), n.forkBranchId])];
-      state().nodes = state().nodes.filter(x => x.id !== n.id); state().queue = state().queue.filter(e => e.id !== n.id); save(); fs.rmSync(dir, { recursive: true, force: true }); return { ok: true };
+      state().nodes = state().nodes.filter(x => x.id !== n.id); state().queue = state().queue.filter(e => e.id !== n.id); save(); return { ok: true };
     }
     if (endpoint === "/api/preview/save") {
       if (!b.state || typeof b.state !== "object" || Array.isArray(b.state) || JSON.stringify(b.state).length > 60000 || Buffer.byteLength(JSON.stringify(b.state)) > 65536 || Object.values(b.state).some(v => v !== null && !["string", "number", "boolean"].includes(typeof v) || typeof v === "number" && !Number.isFinite(v))) fail("Некорректное состояние превью");
@@ -222,7 +222,8 @@ export function previews(directory, state, save, enqueue, translate = text => te
   };
   const cleanup = () => {
     if (!fs.existsSync(safe())) return;
-    const live = new Set(all().map(n => n.projectId));
+    const archived = (state().archive || []).flatMap(a => a.node ? [a.node] : a.nodes || []).filter(n => n.kind === "preview");
+    const live = new Set([...all(), ...archived].map(n => n.projectId));
     for (const name of fs.readdirSync(root)) if (idPattern.test(name) && !live.has(name)) {
       const dir = safe(name); noLinks(dir); fs.rmSync(dir, { recursive: true, force: true });
     }

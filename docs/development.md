@@ -81,13 +81,13 @@ Exercise grading `gap`, `ok`, and `verify`, discussion, more questions, finish, 
 
 ## Standalone checks
 
-- `node dev/check-monitor.mjs`: real server/CLI with a fake Codex executable; idle silence, single wake per event, sequential arming, waiter conflicts, stale IDs, failed/warned submissions, rebinding, restart recovery and Host/header protection. It never invokes a model.
+- `node dev/check-monitor.mjs` (also run with `--mirror` for the tracked release copy): real server/CLI with a fake Codex executable; idle silence, single wake per event, sequential arming, waiter conflicts, stale IDs, failed/warned submissions, rebinding, restart recovery and Host/header protection. It never invokes a model.
 
 - `node dev/check-copy-browser.mjs`: optional Chromium/Node 22+ checks for copy hover placement, block boundaries, Unicode, history, pending/obsolete answers, clipboard failures, late completions and the unchanged export action. Set `GRILL_COPY_SCREENSHOT` to an output PNG path for a screenshot.
 
 - `node dev/check-maps.mjs`: shared list/API discovery, root and named maps, current flags, stopped maps, watch activity (including the 180-second recent-activity window, not a live-waiter-only assertion), Host/header protection, and inbox/expiry map identity in a temporary project.
 
-- `node dev/check-workers.mjs`: inbox transport, notes isolation and limits, session regeneration/restart, model config validation and protected notes API in a temporary project.
+- `node dev/check-workers.mjs`: source/release-mirror parity, inbox transport, notes isolation and limits, session regeneration/restart, model config validation and protected notes API in a temporary project.
 - `node dev/check-watch.mjs`: real CLI against a temporary server; swallowed timeouts, expiry, connected state, server loss, and unacknowledged event recovery.
 
 - `node dev/check-spec.mjs`: HTTP checks in a temporary project: create/update, answer boundary and locking, explicit branch preservation/restructuring, deduplication, restart, stale tokens, collisions, and missing `x-grill`.

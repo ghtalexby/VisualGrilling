@@ -2,7 +2,7 @@
 // grill.mjs — local map server + CLI bridge between Claude Code and the grill map in the browser.
 // Node 18+, no dependencies.
 //
-//   node grill.mjs start [--port 4777] [--no-open] [--lang en|ru] [--locale file.json]   start server, set language, open browser
+//   node grill.mjs start [--port 4777] [--no-open] [--lang en|ru] [--locale file.json] [--continue]   start server, set language, open browser; --continue releases a finish boundary
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
 //   node grill.mjs wait   [--timeout 280] [--inline]                 block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] [--inline] wait across timeouts for one event
@@ -23,6 +23,7 @@
 
 import { evidenceNode, reviewContext, deliveryNode as compactNode, focusedContext as contextProjection, branchIds, indexText, ranking, neighbours, vocabulary, applySemantics, validateDuplicates, reconcileLinks, validateLinks } from "./context.mjs";
 import { discussionResult, discussionParts } from "./discussion.mjs";
+import { actionRoutes, initializeActions, acceptAction, waitingActions, activeActions, executableActions, actionGroup, cancellation, cancelActions, archiveChanges } from "./actions.mjs";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -103,6 +104,14 @@ async function serve() {
   await readUsage();
   const settings = config(false);
   let S = readJSON(STATE) || freshState();
+  // A pre-journal map that already finished keeps later actions paused until explicit continuation.
+  if (!Array.isArray(S.actions) && S.finished && !S.finishPending) S.actionPaused = true;
+  initializeActions(S);
+  // A map saved mid-finish by a pre-journal version has no finish action: actions admitted from now on are late.
+  if (S.finishPending && !S.finishHold && !S.actions.some(a => a.route === "/api/finish" && ["queued", "running"].includes(a.status))) S.finishHold = S.actions.length + 1;
+  for (const task of S.actionTasks || []) if (task.status === "running") task.status = "interrupted";
+  let persistedNodes = structuredClone(S.nodes);
+  let transaction = false;
   S.contextStats ||= { recent: [], totals: {} };
   S.notes = clean(S.notes, 3000);
   S.locale = has("lang") || has("locale") ? requestedLocale() : locale(S.locale, true);
@@ -117,6 +126,7 @@ async function serve() {
   const memory = knowledge(process.cwd(), BASE);
   try { memory.index(); } catch (e) { S.knowledgeResult = { status: "error", error: knowledgeError(e) }; }
   S.queue = Array.isArray(S.queue) ? S.queue : [];
+  let actionsEnabled = !S.queue.length && !S.actions.some(a => ["queued", "running"].includes(a.status));
   S.reserve ??= null;
   if (S.reevaluation) S.reevaluation = { ids: [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])] };
   S.questionRequests ||= [];
@@ -149,7 +159,7 @@ async function serve() {
   let applying = false;
   let activeStats = null;
   const usageFields = ["input_tokens", "cached_input_tokens", "output_tokens"];
-  const queueLength = () => S.queue.length + (S.knowledgeJob && !S.queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (S.specJob?.reviewIds?.length ? 1 : 0);
+  const queueLength = () => executableActions(S).length + S.queue.length + (S.knowledgeJob && !S.queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (S.specJob?.reviewIds?.length ? 1 : 0);
   const sessionHint = () => latestUsage?.last_input_tokens > settings.session.rolloverTokens ? "rollover" : null;
   function closeStats() {
     if (!activeStats) return;
@@ -167,7 +177,7 @@ async function serve() {
   }
   function rearmMonitor(finish = false) {
     closeStats();
-    if (finish && queueLength() === 0) { monitor = null; return { phase: "stopped", drained: true }; }
+    if (finish && (S.actionPaused || queueLength() === 0)) { monitor = null; return { phase: "stopped", drained: true }; }
     if (workIsCurrent()) return monitorStatus();
     currentWork = null;
     monitor = { phase: "armed", owner: monitor.owner, delivery: null, event: null };
@@ -196,7 +206,11 @@ async function serve() {
       // their complete transaction, not recursively from the middle of apply.
       if (monitor) queueMicrotask(pump);
     }
-    S.version++; const t = STATE + ".tmp"; fs.writeFileSync(t, JSON.stringify(S, null, 2)); fs.renameSync(t, STATE); preview.cleanup();
+    if (transaction) return;
+    archiveChanges(S, persistedNodes);
+    S.version++; const t = STATE + ".tmp"; fs.writeFileSync(t, JSON.stringify(S, null, 2)); fs.renameSync(t, STATE); persistedNodes = structuredClone(S.nodes);
+    try { preview.cleanup(); } catch (error) { S.cleanupError = clean(error.message || error, 1000); }
+    pruneImages();
   };
   const preview = previews(DIR, () => S, save, enqueue, t);
   const writeSession = () => atomicWrite(path.join(DIR, "session.md"), `<!-- Generated by grill.mjs. Do not edit: changes are overwritten. -->
@@ -211,7 +225,8 @@ ${S.notes || "—"}
 `);
   // Files no chat references (reset chats, deleted branches, interrupted writes) are removed; a frozen spec context still counts.
   const pruneImages = () => {
-    const used = new Set([...S.nodes, ...(S.specJob?.gradingNodes || [])].flatMap(n => (n.chat || []).flatMap(m => m.images || [])));
+    if (transaction) return;
+    const used = new Set([...[...S.nodes, ...S.archive.flatMap(a => a.node ? [a.node] : a.nodes || []), ...(S.specJob?.gradingNodes || [])].flatMap(n => (n.chat || []).flatMap(m => m.images || [])), ...S.archive.flatMap(a => a.input?.images || [])]);
     let files; try { files = fs.readdirSync(IMAGES); } catch { return; }
     for (const f of files) if (IMG_RE.test(f) && !used.has(f) || /\.(png|jpg|gif|webp)\.[^.]+\.tmp$/.test(f)) try { fs.unlinkSync(path.join(IMAGES, f)); } catch {}
   };
@@ -629,11 +644,14 @@ ${S.notes || "—"}
       n.discuss = "thinking"; n.discussToken = randomUUID();
       n.discussMapRevision = mapRevision();
       n.discussRevision = branchRevision(n.id);
-      const chat = n.chat || []; let i = chat.length; while (i && chat[i - 1].from === "user") i--;
+      const conversationId = n.kind === "root" ? n.discussConversation || n.chat?.at(-1)?.conversationId || "main" : null;
+      const chat = (n.chat || []).filter(m => !conversationId || (m.conversationId || "main") === conversationId); let i = chat.length; while (i && chat[i - 1].from === "user") i--;
+      const newMessages = n.discussMessageIds ? chat.filter(m => n.discussMessageIds.includes(m.id)) : chat.slice(i);
       return { type: "discuss", id: n.id, token: n.discussToken, scope: n.kind === "root" ? "project" : n.kind === "idea" ? "idea" : "question", question: n.kind === "root" ? S.title : n.text || n.q, area: n.area, level: depth(n), priority: n.kind === "root" ? null : rootOf(n).prio,
-        context: focusedContext(S.nodes, n.id, chat.slice(i).map(m => m.text).join(" "), { index: true, descendants: n.kind !== "root" }),
-        message: chat.slice(i).map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : m.about === "question" ? "вопрос" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
-        images: chat.slice(i).flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
+        ...(conversationId ? { conversationId } : {}),
+        context: focusedContext(S.nodes.map(x => x.id === n.id ? { ...x, chat } : x), n.id, newMessages.map(m => m.text).join(" "), { index: true, descendants: n.kind !== "root" }),
+        message: newMessages.map(m => m.quote ? `[Про ${m.about === "verdict" ? "вердикт" : m.about === "question" ? "вопрос" : "вариант ответа"} «${m.quote}»]${m.text ? " " + m.text : ""}` : m.text).filter(Boolean).join("\n\n"),
+        images: newMessages.flatMap(m => (m.images || []).map(f => path.join(IMAGES, f))),
         };
     }
     if (e.type === "question") {
@@ -657,7 +675,7 @@ ${S.notes || "—"}
       if (j.mode === "full") boundBranch(S.nodes);
       else boundBranch([...focus.map(n => deliveryNode(n)), ...related.map(n => deliveryNode(n, false)), ...S.nodes.filter(n => n.kind === "idea").map(n => deliveryNode(n, false)), { chat: chat.slice(start) }]);
       j.stage = "thinking"; j.token = randomUUID(); j.revision = mapRevision();
-      return { type: "reread", token: j.token, reserve: S.reserve, coverage: coverage(), title: S.title, brief: S.brief, arch: S.arch,
+      return { type: "reread", token: j.token, reserve: S.reserve, coverage: coverage(), title: S.title, brief: S.brief, arch: S.arch, ...archiveEvidence(),
         context: { mode: j.mode, focus: focus.map(n => deliveryNode(n)), related: related.map(n => deliveryNode(n, false)), relatedOmitted: [], index: indexText(S.nodes, new Set([...j.auditIds, ...S.nodes.filter(n => n.kind !== "q").map(n => n.id)])), vocabulary: vocabulary(S.nodes) },
         ideas: S.nodes.filter(n => n.kind === "idea").map(n => deliveryNode(n, false)),
         projectChat: chat.slice(start).map(({ at, readAt, ...m }) => ({ ...m, ...(m.images ? { images: m.images.map(f => path.join(IMAGES, f)) } : {}) })) };
@@ -691,8 +709,13 @@ ${S.notes || "—"}
     for (const key of ["characters", "focus", "related", "index"]) total[key] += entry[key];
   }
   function takeEvent() {
+    if (workIsCurrent()) return null;
+    advanceActions();
+    if (S.actionPaused) return null;
     const context = knowledgeContext();
     const deliver = p => {
+      if (!p.token) p.token = randomUUID();
+      (S.actionTasks ||= []).push({ id: p.token, type: p.type, target: p.id, actionIds: activeActions(S).map(a => a.id), status: "running", at: Date.now() });
       currentWork = { type: p.type, id: p.id, token: p.token, capturedForSpec: p.capturedForSpec };
       closeStats();
       const event = { ...p, knowledge: context, language: S.locale.language, ...(sessionHint() ? { sessionHint: sessionHint() } : {}) };
@@ -704,9 +727,14 @@ ${S.notes || "—"}
     }
     if (S.finishPending && !S.knowledgeJob && S.knowledgeResult?.status !== "skipped" && S.knowledgeResult?.revision !== mapRevision()) { requestKnowledge("finish"); save(); }
     if (cancelStoppedReread()) save();
-    if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) return deliver(reviewPayload(true));
-    if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) return deliver(reviewPayload());
-    if (!S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
+    const reviewDelivery = captured => {
+      const before = structuredClone(S);
+      try { return deliver(reviewPayload(captured)); }
+      catch (error) { if (!activeActions(S).length) throw error; abandonAction(error[1] || error.message || String(error), before, { type: "reevaluate", capturedForSpec: captured }); save(); return takeEvent(); }
+    };
+    if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) return reviewDelivery(true);
+    if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) return reviewDelivery(false);
+    if (!waitingActions(S).length && !activeActions(S).length && !S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
       S.autoRereadRevision = mapRevision();
       S.rereadJob = { stage: "queued", manual: false, edits: [], settled: true, requestedAt: Date.now() };
       S.queue.push({ type: "reread" }); save();
@@ -725,6 +753,7 @@ ${S.notes || "—"}
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) {
+        if (activeActions(S).length) { abandonAction(error[1] || error.message || String(error), S, e); save(); advanceActions(); continue; }
         if (e.type === "knowledge") { S.knowledgeJob.stage = "blocked"; S.knowledgeResult = { status: "error", error: knowledgeError(error[1] || String(error)) }; save(); }
         else if (e.type === "discuss" && error[2] === "context-limit") {
           // Preserve the messages, but release this failed delivery so other work can drain.
@@ -749,7 +778,7 @@ ${S.notes || "—"}
   }
   function pump() {
     // apply may enqueue follow-up work before completing its current transaction.
-    if (applying) return;
+    if (applying || transaction) return;
     // Browser edits can invalidate reserved work before the host fetches/applies it.
     // Keep that active subscription armed; completed work still needs explicit re-arm.
     if (monitor?.event && !monitor.completed && !workIsCurrent()) {
@@ -834,6 +863,13 @@ ${S.notes || "—"}
 
   function apply(b) {
     lastActivity = Date.now();
+    if (b.type === "failure") {
+      if (!currentWork || b.token !== currentWork.token || !workIsCurrent()) throw [409, "Результат устарел, получите событие через wait"];
+      const error = clean(b.error, 1000);
+      if (!error) throw [400, "Нужен текст"];
+      abandonAction(error);
+      save(); return { ok: false, error };
+    }
     if (b.type === "knowledge") return applyKnowledge(b);
     if (b.type === "preview") return preview.apply(b);
     if (b.type === "idea") return applyIdea(b);
@@ -994,14 +1030,16 @@ ${S.notes || "—"}
         queueReview(S.nodes, n.id);
         queueIdea(ideaOf(S.nodes, n.id));
       }
-      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
-      delete n.discussDraft; delete n.discussMapRevision;
+      n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", ...(n.kind === "root" ? { conversationId: n.discussConversation || n.chat?.at(-1)?.conversationId || "main" } : {}), text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
+      delete n.discussDraft; delete n.discussMapRevision; delete n.discussMessageIds; delete n.discussConversation;
       for (const id of result.touched) { if (!result.inline.includes(id)) queueReview(S.nodes, id); queueIdea(ideaOf(S.nodes, id)); }
       delete n.discussRevision;
       if (forwarded) {
         const target = get(forwarded.target.id), { message } = forwarded;
         target.semanticsStale = true;
         target.chat = [...(target.chat || []), { id: randomUUID(), from: "user", text: message, at: Date.now() }];
+        if (!target.discuss) target.discussMessageIds = [];
+        target.discussMessageIds?.push(target.chat.at(-1).id);
         if (!target.discuss) { target.discuss = "queued"; S.queue.push({ type: "discuss", id: target.id }); }
       }
       if (result.edited.length) { requestReread(false); if (S.rereadJob) S.rereadJob.settled = true; }
@@ -1026,6 +1064,7 @@ ${S.notes || "—"}
       save(); return { ok: true, id: q.id };
     }
     if (b.type === "more") {
+      if (!b.token || currentWork?.type !== "more" || b.token !== currentWork?.token) throw [409, "Результат устарел, получите событие через wait"];
       let p = maxPrio();
       const add = (Array.isArray(b.questions) ? b.questions : []).slice(0, 5).map(o => mkQ(o, "root", { prio: ++p })).filter(Boolean);
       validateDuplicates(S.nodes, [...S.nodes, ...add]);
@@ -1176,6 +1215,27 @@ ${S.notes || "—"}
     // The server counts answers itself: the model only checks its own work.
     const kept = new Set(cards.flatMap(n => [n.answer, ...(n.mergedFrom || []).map(m => m.answer)]));
     for (const n of qs()) if (n.answer && !kept.has(n.answer)) throw bad("Ответ пользователя потерян");
+    const archiveDecisions = list(b.archiveDecisions, 100), restored = new Set();
+    for (const decision of archiveDecisions) {
+      const entry = S.archive.find(a => a.id === decision?.id);
+      if (!entry || entry.resolution || restored.has(entry.id)) throw bad("Некорректное восстановление архива");
+      restored.add(entry.id);
+      if (decision.action === "restore") {
+        const original = entry.node;
+        if (!original || !["q", "idea"].includes(original.kind) || byId.has(original.id)) throw bad("Карточку нельзя восстановить");
+        const node = structuredClone(original);
+        node.parentId = decision.parentId || node.parentId;
+        if (!byId.has(node.parentId) || node.parentId === node.id) throw bad("Родитель вопроса не найден");
+        delete node.pending; delete node.discuss; delete node.analysis;
+        byId.set(node.id, node);
+      } else if (decision.action === "question") {
+        const node = mkQ(decision.question, "root");
+        if (!node) throw bad("Пустой вопрос");
+        node.archiveSource = entry.id; byId.set(node.id, node);
+      } else if (decision.action === "dismiss") {
+        if (entry.reason === "missing-target" || !clean(decision.reason, 400)) throw bad("Некорректное восстановление архива");
+      } else throw bad("Некорректное восстановление архива");
+    }
     const nodes = preview.reconcile(S.nodes, [...byId.values()]);
     validateDuplicates(S.nodes, nodes);
     reconcileLinks(S.nodes, nodes, merged);
@@ -1199,10 +1259,12 @@ ${S.notes || "—"}
     if (changed) {
       // Without the running job, so restoring this copy cannot start the same rebuild again.
       atomicWrite(path.join(DIR, "state.before-reread.json"), JSON.stringify({ ...S, rereadJob: null }, null, 2));
+      for (const [from, to] of merged) S.replacements[from] = to;
       S.nodes = preview.branchCopies(nodes); S.brief = brief;
       for (const idea of S.nodes.filter(n => n.kind === "idea" && (n.analysisStarted || n.reviewedAt))) queueIdea(idea, "reread");
       S.queue = S.queue.filter(e => !["answer", "discuss"].includes(e.type) || byId.has(e.id));
     }
+    for (const decision of archiveDecisions) S.archive.find(a => a.id === decision.id).resolution = { id: decision.id, action: decision.action, ...(decision.reason ? { reason: clean(decision.reason, 400) } : {}), ...(decision.parentId ? { parentId: clean(decision.parentId, 80) } : {}), at: Date.now() };
     S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
     finish({ changed, summary, audit: [...audit.values()] });
     S.rereadSeen = Object.fromEntries(S.nodes.map(n => [n.id, digest(JSON.stringify(contextNode(n)))]));
@@ -1214,154 +1276,246 @@ ${S.notes || "—"}
     return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length, moved: move.length, removed: remove.length };
   }
 
-  function send(res, code, body, type = "application/json; charset=utf-8") {
-    if (res.destroyed) return;
-    if (body && typeof body === "object" && typeof body.error === "string") body = { ...body, error: t(body.error) };
-    res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
-    res.end(typeof body === "string" ? body : JSON.stringify(body));
+  // Archived inputs keep their images as stored files: base64 never enters archive evidence or the journal.
+  function archiveInput(action, reason) {
+    const previous = action.retryOf && S.archive.find(a => a.actionId === action.retryOf && a.reason === reason && !a.resolution);
+    if (previous) { previous.actionId = action.id; return; }
+    const { images, ...input } = structuredClone(action.body);
+    const files = (Array.isArray(images) ? images : []).flatMap(source => {
+      if (typeof source === "string" && IMG_RE.test(source)) return [source];
+      const data = Buffer.from(typeof source === "string" && source.startsWith("data:") ? source.slice(source.indexOf(",") + 1) : "", "base64"), ext = sniffImage(data);
+      if (!ext || data.length > IMG_MAX) return [];
+      const file = `${randomUUID()}.${ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), data); return [file];
+    });
+    if (files.length) action.body.images = files;
+    S.archive.push({ id: randomUUID(), at: Date.now(), reason, actionId: action.id, input: { ...input, ...(files.length ? { images: files } : {}) } });
   }
-  const readBody = (req, max = 1e6) => new Promise((ok, fail) => {
-    // Bodies with images span many chunks: decode as a stream so a split multibyte character survives.
-    req.setEncoding("utf8");
-    let s = ""; req.on("data", d => { s += d; if (s.length > max) { fail([413, "Слишком большой запрос"]); req.destroy(); } });
-    req.on("end", () => { try { ok(s ? JSON.parse(s) : {}); } catch { fail([400, "Некорректный JSON"]); } });
-  });
-
-  let port = Number(opt("port", 4777));
-  const server = http.createServer(async (req, res) => {
-    try {
-      const host = (req.headers.host || "").split(":")[0];
-      if (!["127.0.0.1", "localhost"].includes(host)) return send(res, 403, { error: "forbidden host" });
-      const url = new URL(req.url, "http://x");
-      const p = url.pathname;
-      if (req.method === "GET" && (p === "/" || p === "/index.html")) return send(res, 200, page(fs.readFileSync(path.join(HERE, "ui.html"), "utf8"), S.locale, await doubleClickTime()), "text/html; charset=utf-8");
-      if (!p.startsWith("/api/")) return send(res, 404, { error: "not found" });
-      if (req.headers["x-grill"] !== "1") return send(res, 403, { error: "missing x-grill header" });
-      if (req.headers["x-grill-cli"] === "1" && p !== "/api/ping") {
-        await readUsage();
-        if (activeStats) { activeStats.requests++; const total = S.contextStats.totals[activeStats.type]; total.requests = (total.requests || 0) + 1; }
+  // Failed-work snapshots are full map copies kept for diagnosis; resolved entries are history. Neither is reread evidence.
+  function archiveEvidence() {
+    const open = S.archive.filter(a => !a.resolution && a.reason !== "failed-work");
+    const withPaths = a => a.input?.images ? { ...a, input: { ...a.input, images: a.input.images.map(f => path.join(IMAGES, f)) } } : a;
+    return { archive: open.slice(-100).map(withPaths), archiveOmitted: Math.max(0, open.length - 100) };
+  }
+  // An image file kept for an archived input can be submitted again by name.
+  const storedImage = name => typeof name === "string" && IMG_RE.test(name) && S.archive.some(a => a.input?.images?.includes(name)) && fs.existsSync(path.join(IMAGES, name));
+  function validateAction(p, b) {
+    if (!b || typeof b !== "object" || Array.isArray(b)) throw [400, "Некорректный JSON"];
+    for (const key of ["id", "parentId", "conversationId"]) if (b[key] !== undefined && (typeof b[key] !== "string" || b[key].length > 80)) throw [400, "Некорректный ID действия"];
+    if (["/api/idea", "/api/idea/edit"].includes(p) && clean(b.text, 3001).length > 3000) throw [400, "Нужен текст идеи до 3000 символов"];
+    if (["/api/idea", "/api/question"].includes(p) && !/^[a-zA-Z0-9-]{1,80}$/.test(b.id || "")) throw [400, "Нужны текст и идентификатор запроса"];
+    for (const [key, limit] of [["answer", 3000], ["message", 2000], ["quote", 400], ["text", 3000], ["q", 220]]) if (b[key] !== undefined) b[key] = clean(b[key], limit);
+    const { images, ...rest } = b;
+    if (JSON.stringify(rest).length > 100000) throw [413, "Слишком большой запрос"];
+    if (b.actionId && S.actions.some(a => a.id === b.actionId)) return;
+    if (p === "/api/preview/prepare" && b.sourceId === "root" && (!Array.isArray(b.branches) || !b.branches.length)) throw [400, "Выберите ветки превью"];
+    if (p === "/api/question" && get(b.parentId) && !["root", "q", "idea"].includes(get(b.parentId).kind)) throw [404, "Вопрос не найден"];
+    if (p === "/api/reread" && !qs().length && !waitingActions(S).some(a => a.route === "/api/question")) throw [400, "На карте пока нет вопросов"];
+    if (["/api/answer", "/api/discuss", "/api/chatreset"].includes(p) && (typeof b.id !== "string" || !get(b.id) && !S.archive.some(a => a.node && a.node.id === b.id)) && !S.replacements[b.id]) throw [404, "Вопрос не найден"];
+    if (p === "/api/answer" && get(b.id)?.kind !== "q" && get(b.id)) throw [404, "Вопрос не найден"];
+    if (p === "/api/answer" && get(b.id)?.obsolete) throw [409, "Вопрос устарел. Обсудите его и попросите перечитать карту"];
+    if (p === "/api/answer" && !b.answer) throw [400, "Пустой ответ"];
+    if (p === "/api/question" && (!b.q || !b.id || !b.parentId) || ["/api/idea", "/api/idea/edit"].includes(p) && !b.text) throw [400, "Нужен текст"];
+    if (["/api/discuss", "/api/chatreset"].includes(p) && b.id === "root" && b.conversationId !== undefined && !(S.projectConversations || [{ id: "main" }]).some(c => c.id === b.conversationId)) throw [404, "Разговор не найден"];
+    if (p === "/api/discuss") {
+      if (b.images !== undefined && (!Array.isArray(b.images) || b.images.length > IMG_COUNT)) throw [400, "Можно вставить не больше 4 картинок"];
+      if (!b.message && !b.quote && !b.images?.length) throw [400, "Пустое сообщение"];
+      for (const source of b.images || []) {
+        if (storedImage(source)) continue;
+        const data = Buffer.from(typeof source === "string" && source.startsWith("data:") ? source.slice(source.indexOf(",") + 1) : "", "base64");
+        if (!sniffImage(data) || data.length > IMG_MAX) throw [400, "Неподдерживаемый формат картинки"];
       }
-      if (req.method === "GET" && ["/api/node", "/api/branch", "/api/index", "/api/search", "/api/related"].includes(p)) {
-        const token = clean(url.searchParams.get("token"), 80);
-        let nodes = S.nodes;
-        if (url.searchParams.has("token")) {
-          if (!token) throw [400, "Нужен токен снимка"];
-          if (!S.specJob || !(S.specJob.ideaWork?.token === token || S.specJob.reviewWork?.token === token || S.nodes.some(n => specLocked(n.id) && n.pending?.stage === "thinking" && n.pending.token === token))) throw [409, "Снимок события больше недоступен"];
-          nodes = S.specJob.gradingNodes;
+    }
+    if (p === "/api/idea/delete" && b.confirm !== true) throw [400, "Подтвердите удаление всей ветки идеи"];
+  }
+  // A blocked knowledge job waits for the user (clarification answers, retry or skip): it must not stall admitted actions.
+  const underlyingWork = () => S.queue.length || S.specJob || S.rereadJob || S.knowledgeJob && S.knowledgeJob.stage !== "blocked" || S.reevaluation || S.questionRequests.length || S.morePending || S.finishPending || S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
+  function completeActions() {
+    if (underlyingWork()) return;
+    for (const a of activeActions(S)) {
+      a.status = "done"; a.completedAt = Date.now();
+      if (a.route === "/api/finish") { S.actionPaused = true; S.finishBoundary = a.sequence; delete S.finishHold; }
+      // The archived input of a vanished target is settled once a retry of that action has run.
+      for (let origin = a; origin?.retryOf;) {
+        origin = S.actions.find(x => x.id === origin.retryOf);
+        for (const entry of S.archive) if (origin && entry.actionId === origin.id && entry.reason === "missing-target" && !entry.resolution) entry.resolution = { id: entry.id, action: "retried", actionId: a.id, at: Date.now() };
+      }
+    }
+  }
+  function failActive(error) {
+    for (const a of activeActions(S)) { a.status = "failed"; a.error = clean(error, 1000); a.completedAt = Date.now(); }
+  }
+  function abandonAction(error, failedState = S, failedWork = currentWork) {
+    const n = failedState.nodes.find(n => n.id === failedWork?.id);
+    let messages = n?.chat || [];
+    const conversationId = n?.discussConversation || messages.at(-1)?.conversationId || "main";
+    if (n?.kind === "root") messages = messages.filter(m => (m.conversationId || "main") === conversationId);
+    let start = messages.length; while (start && messages[start - 1].from === "user") start--;
+    const reviewIds = [...new Set([...(failedState.reevaluation?.ids || []), ...(failedState.reevaluation?.remaining || [])])];
+    const dependencies = [];
+    if (failedState.rereadJob && failedWork?.type !== "reread") dependencies.push({ type: "reread" });
+    if (reviewIds.length && failedWork?.type !== "reevaluate") dependencies.push({ type: "reevaluate", ids: reviewIds });
+    for (const node of failedState.nodes) {
+      if (node.analysis && !(failedWork?.type === "idea" && failedWork.id === node.id)) dependencies.push({ type: "idea", id: node.id, ideaReason: node.analysis.reason });
+      if (node.discuss && !(failedWork?.type === "discuss" && failedWork.id === node.id)) {
+        const conversationId = node.discussConversation || node.chat?.at(-1)?.conversationId || "main";
+        const chat = (node.chat || []).filter(m => node.kind !== "root" || (m.conversationId || "main") === conversationId);
+        let at = chat.length; while (at && chat[at - 1].from === "user") at--;
+        dependencies.push({ type: "discuss", id: node.id, conversationId, messageIds: node.discussMessageIds || chat.slice(at).map(m => m.id) });
+      }
+    }
+    for (const a of activeActions(S)) a.resume = {
+      type: failedWork?.type || S.queue[0]?.type, id: failedWork?.id, answer: n?.pending?.answer,
+      question: failedState.questionRequests.find(j => j.id === failedWork?.id),
+      messageIds: n?.discussMessageIds || messages.slice(start).map(m => m.id), conversationId,
+      ids: reviewIds, dependencies, ideaReason: n?.analysis?.reason, reason: failedState.knowledgeJob?.reason,
+      operation: failedState.knowledgeJob?.operation, finishPending: failedState.finishPending
+    };
+    const owned = activeActions(S).length > 0;
+    failActive(error);
+    S.archive.push({ id: randomUUID(), at: Date.now(), reason: "failed-work", event: currentWork && structuredClone(currentWork), nodes: structuredClone(S.nodes) });
+    for (const task of S.actionTasks || []) if (task.status === "running" && (owned || task.id === currentWork?.token)) { task.status = "failed"; task.error = clean(error, 1000); }
+    if (!owned) {
+      const { type, id } = currentWork || {};
+      S.queue = S.queue.filter(e => e.type !== type || e.id !== id);
+      const n = get(id);
+      if (type === "answer" && n) delete n.pending;
+      if (type === "discuss" && n) delete n.discuss;
+      if (type === "idea" && n) delete n.analysis;
+      if (type === "preview" && n) delete n.job;
+      if (type === "question") S.questionRequests = S.questionRequests.filter(j => j.id !== id);
+      const field = { spec: "specJob", reread: "rereadJob", knowledge: "knowledgeJob", reevaluate: "reevaluation", more: "morePending", finish: "finishPending" }[type];
+      if (field) S[field] = null;
+      if (S.specJob?.waiting.includes(id)) { S.specJob = null; S.specError = clean(error, 1000); S.queue = S.queue.filter(e => e.type !== "spec"); }
+      return;
+    }
+    S.queue = []; S.specJob = null; S.rereadJob = null; S.knowledgeJob = null; S.reevaluation = null; S.questionRequests = [];
+    S.morePending = false; S.finishPending = false;
+    for (const n of S.nodes) { delete n.pending; delete n.discuss; delete n.analysis; delete n.job; }
+  }
+  function publicActions() {
+    const waiting = waitingActions(S), running = activeActions(S);
+    const internal = S.queue.filter(e => !running.some(a => a.route === "/api/" + e.type && (!e.id || a.body.id === e.id)));
+    if (S.reevaluation && currentWork?.type !== "reevaluate") internal.push({ type: "reevaluate" });
+    return { paused: S.actionPaused || !!S.finishHold && !activeActions(S).length && !executableActions(S).length, held: waitingActions(S).length - executableActions(S).length, waiting: waiting.length + internal.length, slots: waiting.length,
+      actions: S.actions.filter(a => !a.retriedBy && ["queued", "running", "failed", "needs-decision"].includes(a.status)).map(a => ({ id: a.id, sequence: a.sequence, type: a.route.slice(5), target: a.body.id, conversationId: a.body.conversationId || "main", text: a.body.message || a.body.answer || a.body.text || a.body.q || "", status: a.status, error: a.error && t(a.error), group: a.group })), internal };
+  }
+  function advanceActions(localOnly = false) {
+    if (!actionsEnabled) return;
+    completeActions();
+    if (underlyingWork() || S.actionPaused) return;
+    while (waitingActions(S).length && !underlyingWork() && !S.actionPaused) {
+      let next = executableActions(S)[0];
+      if (!next) break;
+      // A prerequisite retried to the tail runs before the action that depends on it.
+      for (const seen = new Set([next.id]);;) {
+        const pending = next.dependencies.map(id => { let a = S.actions.find(x => x.id === id); while (a?.retriedBy) a = S.actions.find(x => x.id === a.retriedBy); return a; }).find(a => a?.status === "queued" && !seen.has(a.id));
+        if (!pending) break;
+        seen.add(pending.id); next = pending;
+      }
+      if (localOnly && !["/api/chatreset", "/api/idea/delete", "/api/spec-migrate", "/api/preview/save", "/api/preview/restore", "/api/preview/policy", "/api/preview/delete"].includes(next.route)) break;
+      // A retried prerequisite may cross the hold; adjacent late inputs may not.
+      const eligible = new Set(executableActions(S).map(a => a.id));
+      const group = actionGroup(S, next, a => a === next || eligible.has(a.id));
+      const first = group[0];
+      const latest = id => { let a = S.actions.find(x => x.id === id); while (a?.retriedBy) a = S.actions.find(x => x.id === a.retriedBy); return a; };
+      if (first.dependencies.some(id => { const a = latest(id); return a?.status === "failed" || a?.status === "cancelled" && a.cancelledFrom !== "needs-decision"; })) {
+        first.status = "failed"; first.error = "Не выполнена предпосылка действия"; first.completedAt = Date.now(); save(); continue;
+      }
+      const before = structuredClone(S);
+      transaction = true;
+      try {
+        if (first.route === "/api/answer" && group.length > 1) {
+          for (const a of group.slice(0, -1)) { a.status = "superseded"; a.supersededBy = group.at(-1).id; a.completedAt = Date.now(); }
         }
-        const id = clean(url.searchParams.get("id"), 80), ids = url.searchParams.getAll("id").map(id => clean(id, 80));
-        if (p === "/api/node") {
-          if (!ids.length || ids.length > 20 || new Set(ids).size !== ids.length) throw [400, "Укажите от 1 до 20 уникальных ID"];
-          if (ids.some(id => !nodes.some(n => n.id === id))) throw [404, "Карточка не найдена"];
-          return send(res, 200, { nodes: ids.map(id => deliveryNode(nodes.find(n => n.id === id))) });
+        for (const a of group.filter(a => a.status === "queued")) {
+          a.status = "running"; a.startedAt = Date.now(); a.group = first.id;
+          // Any finish that starts without a boundary (a retry after Continue) forms one.
+          if (a.route === "/api/finish" && !S.finishHold) S.finishHold = a.sequence;
+          const body = structuredClone(a.body);
+          if (a.route === "/api/question" && body.parentId && !get(body.parentId)) {
+            archiveInput(a, "missing-target"); a.status = "needs-decision"; a.error = "Карточка исчезла. Данные сохранены в архиве"; continue;
+          }
+          // Sequential edits of one idea: later queued edits were based on the revision their predecessors produced.
+          if (a.route === "/api/idea/edit" && get(body.id)) {
+            let origin = a; while (origin.retryOf) origin = S.actions.find(x => x.id === origin.retryOf) || { at: origin.at };
+            const earlier = S.actions.filter(x => x.route === "/api/idea/edit" && x.body.id === body.id && x.status === "done" && x.completedAt >= origin.at && x.revisionChanged).length;
+            if (body.revision + earlier === get(body.id).revision) body.revision = get(body.id).revision;
+          }
+          if (body.id && !get(body.id) && ["/api/answer", "/api/discuss", "/api/idea/edit", "/api/idea/delete", "/api/chatreset"].includes(a.route)) {
+            const visited = new Set(); let target = body.id;
+            while (S.replacements[target] && !visited.has(target)) { visited.add(target); target = S.replacements[target]; }
+            if (get(target) && ["/api/answer", "/api/discuss"].includes(a.route)) { body.id = target; a.redirectedTo = target; }
+            else {
+              archiveInput(a, "missing-target");
+              a.status = "needs-decision"; a.error = "Карточка исчезла. Данные сохранены в архиве"; continue;
+            }
+          }
+          if (a.resume) { resumeAction(a); continue; }
+          const revisionBefore = a.route === "/api/idea/edit" ? get(body.id)?.revision : undefined;
+          actionRoute(a.route, body, { capture: (code, result) => { if (code >= 400) throw [code, result.error]; a.result = result; } });
+          if (a.route === "/api/idea/edit") a.revisionChanged = get(body.id)?.revision !== revisionBefore;
+          // The recorded message owns the image files: keep their names, not megabytes of base64, in the permanent journal.
+          if (a.route === "/api/discuss" && a.body.images?.length) a.body.images = get(body.id)?.chat?.at(-1)?.images || [];
         }
-        if (p === "/api/index") return send(res, 200, { index: indexText(nodes, new Set(), url.searchParams.get("questions") === "1") });
-        if (p === "/api/search") {
-          const topic = clean(url.searchParams.get("topic"), 40).toLowerCase(), text = clean(url.searchParams.get("text"), 2000);
-          if (!topic && !text) throw [400, "Нужен текст или тема поиска"];
-          const matches = topic ? nodes.filter(n => n.topics?.includes(topic)).map(node => ({ node, score: 1 })) : ranking(nodes, text);
-          return send(res, 200, { matches: matches.map(({ node, score }) => ({ id: node.id, score, index: indexText([node]) })) });
-        }
-        if (!nodes.some(n => n.id === id)) throw [404, "Карточка не найдена"];
-        if (p === "/api/related") return send(res, 200, { related: neighbours(nodes, [id]) });
-        const scope = branchIds(nodes, id);
-        return send(res, 200, { nodes: nodes.filter(n => scope.has(n.id)).map(n => deliveryNode(n)) });
-      }
-      if (req.method === "GET" && (p === "/api/preview" || p.startsWith("/api/preview/"))) {
-        const params = Object.fromEntries(url.searchParams);
-        if (p === "/api/preview/document") {
-          if (!/^[a-zA-Z0-9-]{1,80}$/.test(params.instance || "")) throw [400, "Некорректный экземпляр превью"];
-          const project = preview.route("GET", params.key ? "/api/preview/snapshot" : "/api/preview", params);
-          if (!project.files) throw [409, "Превью ещё не готово"];
-          return send(res, 200, { document: previewDocument(project, params.instance), commit: project.commit, epoch: project.epoch || 0 });
-        }
-        return send(res, 200, preview.route("GET", p, params));
-      }
-
-      if (req.method === "GET" && p === "/api/ping") return send(res, 200, { ok: true, dir: DIR, port, pid: process.pid });
-      if (req.method === "GET" && p === "/api/knowledge") {
-        const index = memory.index();
-        return send(res, 200, { ...index, files: index.files.map(f => f.error ? { ...f, error: t(f.error) } : f), warnings: index.warnings.map(w => {
-          const file = index.files.find(f => f.error && w === `${f.path}: ${f.error}`);
-          return file ? `${file.path}: ${t(file.error)}` : t(w);
-        }) });
-      }
-      if (req.method === "GET" && p === "/api/knowledge-document") { const requested = url.searchParams.get("path"); if (!memory.index().documents.some(d => d.path === requested)) throw [404, "Документ не найден в индексе"]; return send(res, 200, memory.read(requested)); }
-      if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
-      if (req.method === "GET" && p === "/api/state") {
-        const { queue, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
-        const quote = value => "'" + (process.platform === "win32" ? value.replace(/['\u2018\u2019\u201a\u201b]/g, c => c + c) : value.replaceAll("'", "'\"'\"'")) + "'";
-        const resume = { project: process.cwd(), dir: BASE, name: NAME, state: STATE, session: path.join(DIR, "session.md"), skill: path.join(HERE, "SKILL.md"), cli: path.join(HERE, "grill.mjs"), language: S.locale.language,
-          shell: process.platform === "win32" ? "PowerShell" : "POSIX sh",
-          start: `${process.platform === "win32" ? "Set-Location -LiteralPath" : "cd --"} ${quote(process.cwd())}${process.platform === "win32" ? "; if ($?) { " : " && "}node ${quote(path.join(HERE, "grill.mjs"))} start --dir ${quote(BASE)}${NAME ? " --name " + NAME : ""}${process.platform === "win32" ? " }" : ""}` };
-        rest.resume = resume;
-        rest.contextStats = S.contextStats || { recent: [], totals: {} };
-        return send(res, 200, { ...rest, sessionUsage: await readUsage(), sessionHint: sessionHint(), knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: ideaBusy(n.id) } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: rereadLocked() } : null, queueLength: queueLength(), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
-      }
-      if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
-      if (req.method === "GET" && p === "/api/monitor") {
-        if (!url.searchParams.has("delivery")) return send(res, 200, monitorStatus());
-        const delivery = clean(url.searchParams.get("delivery"), 80);
-        if (!monitor?.event || monitor.delivery !== delivery || !workIsCurrent() || codexConnection(BASE).id !== monitor.owner) throw [409, "Событие монитора устарело"];
-        return send(res, 200, monitor.event);
-      }
-      if (req.method === "GET" && p === "/api/image") {
-        const file = url.searchParams.get("file") || "";
-        let data; try { if (IMG_RE.test(file)) data = fs.readFileSync(path.join(IMAGES, file)); } catch {}
-        if (!data) return send(res, 404, { error: "Картинка не найдена" });
-        res.writeHead(200, { "content-type": IMG_TYPE[file.split(".").pop()], "cache-control": "no-store", "x-content-type-options": "nosniff" });
-        return res.end(data);
-      }
-      if (req.method === "GET" && p === "/api/wait") {
-        if (monitor) throw [409, "Сначала остановите монитор; wait/watch не могут работать одновременно с ним"];
-        closeStats();
-        currentWork = null;
-        lastActivity = Date.now();
-        recoverKnowledge(); save();
-        preview.recover();
-        for (const job of S.questionRequests.filter(j => j.stage === "thinking")) {
-          job.stage = "queued"; delete job.token;
-          if (!S.queue.some(e => e.type === "question" && e.id === job.id)) S.queue.unshift({ type: "question", id: job.id });
-          save();
-        }
-        if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork || S.specJob?.reviewWork) { recoverSpec(); save(); }
-        for (const n of S.nodes.filter(n => n.analysis?.stage === "thinking")) { queueIdea(n, n.analysis.reason); save(); }
-        if (rereadThinking()) { recoverReread(); save(); }
-        // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
-        // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
-        const lost = S.nodes.filter(n => n.pending && n.pending.stage === "thinking" || n.discuss === "thinking");
-        for (const n of lost.reverse()) {
-          if (n.pending && n.pending.stage === "thinking") { n.pending.stage = "queued"; if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id }); }
-          if (n.discuss === "thinking") { n.discuss = "queued"; if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id }); }
-        }
-        if (lost.length) save();
-        const ev = takeEvent(); if (ev) return send(res, 200, ev);
-        const sec = Math.min(290, Math.max(5, Number(url.searchParams.get("timeout")) || 280));
-        const w = { res, timer: null };
-        w.timer = setTimeout(() => { waiters = waiters.filter(x => x !== w); lastActivity = Date.now(); send(res, 200, { type: "timeout", waitingAnswers: S.nodes.filter(n => n.pending).length, waitingDiscussions: S.nodes.filter(n => n.discuss).length }); }, sec * 1000);
-        res.on("close", () => { clearTimeout(w.timer); waiters = waiters.filter(x => x !== w); });
-        waiters.push(w); return;
-      }
-      if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
-      // Only a discussion message carries images: base64 of the allowed files plus its text.
-      const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
-      if (p === "/api/knowledge-ignore") {
-        if (typeof b.path !== "string" || clean(b.path, 1000) !== b.path || typeof b.ignored !== "boolean") throw [400, "Некорректное исключение знаний"];
-        try { return send(res, 200, memory.setIgnored(b.path, b.ignored)); }
-        catch (e) { throw [400, e.message]; }
-      }
-      if (p === "/api/monitor") {
-        if (b.action === "stop") { closeStats(); monitor = null; return send(res, 200, monitorStatus()); }
-        if (b.action !== "arm") throw [400, "Неизвестное действие монитора"];
-        const binding = codexConnection(BASE);
-        if (clean(b.owner, 80) !== binding.id) throw [409, "Включите монитор из привязанной сессии Codex"];
-        if (waiters.some(w => !w.res.destroyed)) throw [409, "Сначала завершите wait/watch"];
-        if (monitor?.owner === binding.id && (monitor.phase === "armed" || workIsCurrent())) return send(res, 200, monitorStatus());
-        if (currentWork) throw [409, "Сначала завершите обработку текущего события"];
-        closeStats();
-        monitor = { phase: "armed", owner: binding.id, delivery: null, event: null };
-        pump(); return send(res, 200, monitorStatus());
-      }
+        completeActions();
+      } catch (e) {
+        S = before;
+        for (const a of S.actions.filter(a => group.some(g => g.id === a.id))) { a.status = "failed"; a.error = clean(e[1] || e.message || e, 1000); a.completedAt = Date.now(); }
+      } finally { transaction = false; }
+      save();
+    }
+  }
+  const failedKnowledge = () => [...S.actions].reverse().find(a => a.status === "failed" && !a.retriedBy && a.resume?.type === "knowledge");
+  function queueRetry(old, actionId, skipKnowledge = false) {
+    if (old.retriedBy) return S.actions.find(a => a.id === old.retriedBy);
+    // Work that failed at the agent shares one resume record. A group stopped before that (vanished card, rejected reducer)
+    // has none: every unfinished member keeps its own input and gets its own tail retry.
+    const members = old.resume || !old.group ? [old] : S.actions.filter(a => a === old || a.group === old.group && !a.retriedBy && ["failed", "needs-decision"].includes(a.status));
+    if (waitingActions(S).length + members.length > 20) throw [429, "В очереди уже 20 действий"];
+    const latest = id => { let found = id; for (const a of S.actions) if (a.retryOf === found) found = a.id; return found; };
+    let result = old;
+    for (const member of members) {
+      const next = acceptAction(S, member.route, { ...member.body, actionId: member === old ? actionId : undefined });
+      if (member === old) result = next;
+      if (next === member) continue;
+      for (const a of S.actions) if (a.id === member.id || old.resume && old.group && a.group === old.group) a.retriedBy = next.id;
+      next.retryOf = member.id;
+      if (member.route === "/api/finish" && !S.finishHold && !S.actionPaused) S.finishHold = next.sequence;
+      if (member.resume) next.resume = { ...structuredClone(member.resume), ...(skipKnowledge ? { skipKnowledge: true } : {}) };
+      // A finish or its retried prerequisite must not acquire dependencies on held late input.
+      const origin = action => { while (action?.retryOf) action = S.actions.find(a => a.id === action.retryOf); return action; };
+      const bounded = S.finishHold && (member.route === "/api/finish" || origin(member)?.sequence < S.finishHold);
+      const dependencies = [...next.dependencies, ...member.dependencies];
+      next.dependencies = [...new Set(dependencies.filter(id => !bounded || origin(S.actions.find(a => a.id === id))?.sequence < S.finishHold).map(latest))];
+    }
+    return result;
+  }
+  function resumeAction(action) {
+    const r = action.resume, n = get(r.id);
+    if (r.operation) memory.reconcile(r.operation);
+    if (r.finishPending) S.finishPending = true;
+    if (r.type === "knowledge" && r.skipKnowledge) S.knowledgeResult = { status: "skipped", at: Date.now() };
+    else if (r.type === "knowledge") requestKnowledge(r.reason || "import");
+    else if (r.type === "reread") requestReread(true);
+    else if (r.type === "spec") { S.specJob = captureSpec(); S.queue.push({ type: "spec" }); }
+    else if (r.type === "reevaluate") S.reevaluation = { ids: r.ids || [] };
+    else if (r.type === "more") { S.morePending = true; S.queue.push({ type: "more" }); }
+    else if (r.type === "finish") { S.finishPending = true; requestKnowledge("finish"); }
+    else if (r.type === "question") { S.questionRequests.push({ ...r.question, stage: "queued", token: null }); S.queue.push({ type: "question", id: r.id }); }
+    else {
+      if (!n) throw [404, "Вопрос не найден"];
+      if (r.type === "answer") { n.pending = { answer: r.answer, stage: "queued", at: Date.now() }; S.queue.push({ type: "answer", id: n.id }); }
+      else if (r.type === "discuss") {
+        if (!r.messageIds.length || r.messageIds.some(id => !n.chat?.some(m => m.id === id))) throw [409, "Карточка исчезла. Данные сохранены в архиве"];
+        n.discussMessageIds = r.messageIds; n.discussConversation = r.conversationId; n.discuss = "queued"; S.queue.push({ type: "discuss", id: n.id });
+      } else if (r.type === "idea") queueIdea(n, r.ideaReason || "manual");
+      else if (r.type === "preview") actionRoute(action.route, action.body, { capture: (code, result) => { if (code >= 400) throw [code, result.error]; } });
+      else throw [409, "Нет ошибки для повтора"];
+    }
+    for (const dependency of r.dependencies || []) resumeAction({ ...action, resume: dependency });
+    if (r.finishPending && !S.queue.some(e => e.type === "finish")) S.queue.push({ type: "finish" });
+  }
+  function actionRoute(p, b, res) {
       if (p.startsWith("/api/preview/")) {
         if (rereadThinking()) throw [409, "Дождитесь завершения перечитывания"];
         return send(res, 200, preview.route("POST", p, b));
@@ -1447,23 +1601,36 @@ ${S.notes || "—"}
         if (!m.readAt) { m.readAt = Date.now(); save(); }
         return send(res, 200, { ok: true });
       }
+      if (p === "/api/conversations") {
+        const conversations = S.projectConversations || [{ id: "main" }];
+        if (conversations.length >= 100) return send(res, 400, { error: "Слишком много разговоров" });
+        const conversation = { id: randomUUID() };
+        S.projectConversations = [...conversations, conversation]; save();
+        return send(res, 200, conversation);
+      }
       if (p === "/api/discuss") {
         const n = get(b.id); const text = clean(b.message, 2000), quote = clean(b.quote, 400), about = ["verdict", "question"].includes(b.about) ? b.about : "option";
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
+        const conversationId = n.kind === "root" ? clean(b.conversationId === undefined ? "main" : b.conversationId, 80) : null;
+        if (n.kind === "root" && !(S.projectConversations || [{ id: "main" }]).some(c => c.id === conversationId)) return send(res, 404, { error: "Разговор не найден" });
+        if (conversationId && n.discuss && (n.chat?.at(-1)?.conversationId || "main") !== conversationId) return send(res, 409, { error: "Дождитесь ответа агента" });
         const sources = b.images ?? [];
         if (!Array.isArray(sources)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (!text && !quote && !sources.length) return send(res, 400, { error: "Пустое сообщение" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент уже отвечает в обсуждении этого вопроса" });
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Отправить сообщение можно будет после перечитывания" });
-        if ((n.chat || []).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
+        if ((n.chat || []).filter(m => !conversationId || (m.conversationId || "main") === conversationId).length >= 100) return send(res, 400, { error: "Обсуждение слишком длинное" });
         if (sources.length > IMG_COUNT) return send(res, 400, { error: "Можно вставить не больше 4 картинок" });
-        const decoded = sources.map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
+        const stored = sources.filter(storedImage);
+        const decoded = sources.filter(s => !storedImage(s)).map(s => { const data = Buffer.from(typeof s === "string" && s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : "", "base64"); return { data, ext: sniffImage(data) }; });
         if (decoded.some(x => !x.ext)) return send(res, 400, { error: "Неподдерживаемый формат картинки" });
         if (decoded.some(x => x.data.length > IMG_MAX)) return send(res, 400, { error: "Картинка больше 8 МБ" });
-        const images = decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; });
+        const images = [...stored, ...decoded.map(x => { const file = `${randomUUID()}.${x.ext}`; fs.mkdirSync(IMAGES, { recursive: true }); atomicWrite(path.join(IMAGES, file), x.data); return file; })];
+        const messageIds = n.discuss ? n.discussMessageIds || [] : [];
         delete n.discussError;
         n.semanticsStale = true;
-        n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
+        n.chat = [...(n.chat || []), { id: randomUUID(), from: "user", ...(conversationId ? { conversationId } : {}), text, ...(quote ? { quote, about } : {}), ...(images.length ? { images } : {}), at: Date.now() }];
+        n.discussMessageIds = [...messageIds, n.chat.at(-1).id]; n.discussConversation = conversationId;
         if (n.discuss) { save(); return send(res, 200, { ok: true }); }
         n.discuss = "queued"; enqueue({ type: "discuss", id: n.id }); return send(res, 200, { ok: true });
       }
@@ -1472,7 +1639,12 @@ ${S.notes || "—"}
         if (!n) return send(res, 404, { error: "Вопрос не найден" });
         if (n.discuss === "thinking") return send(res, 409, { error: "Агент сейчас отвечает в обсуждении — сбросить можно после ответа" });
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Сбросить чат можно будет после перечитывания" });
-        delete n.chat; n.semanticsStale = true; delete n.discussError; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
+        const conversationId = n.kind === "root" ? clean(b.conversationId === undefined ? "main" : b.conversationId, 80) : null;
+        if (n.kind === "root" && !(S.projectConversations || [{ id: "main" }]).some(c => c.id === conversationId)) return send(res, 404, { error: "Разговор не найден" });
+        if (conversationId && n.discuss && (n.chat?.at(-1)?.conversationId || "main") !== conversationId) return send(res, 409, { error: "Дождитесь ответа агента" });
+        if (conversationId) n.chat = (n.chat || []).filter(m => (m.conversationId || "main") !== conversationId);
+        else delete n.chat;
+        n.semanticsStale = true; delete n.discussError; n.discuss = null; S.queue = S.queue.filter(e => !(e.type === "discuss" && e.id === n.id)); save(); pruneImages();
         return send(res, 200, { ok: true });
       }
       if (p === "/api/cancel") {
@@ -1505,6 +1677,12 @@ ${S.notes || "—"}
         S.questionRequests.push({ id, parentId: parent.id, q, stage: "queued", at: Date.now() });
         enqueue({ type: "question", id }); return send(res, 200, { ok: true, id });
       }
+      if (p === "/api/knowledge-retry" && !S.knowledgeJob && failedKnowledge()) {
+        const next = queueRetry(failedKnowledge()); save(); pump(); return send(res, 200, { ok: true, queued: true, actionId: next.id });
+      }
+      if (p === "/api/knowledge-skip" && !S.knowledgeJob && failedKnowledge()?.resume.finishPending) {
+        const next = queueRetry(failedKnowledge(), undefined, true); save(); pump(); return send(res, 200, { ok: true, queued: true, actionId: next.id });
+      }
       if (p === "/api/knowledge-retry") {
         if (!S.knowledgeJob || S.knowledgeJob.stage !== "blocked") throw [409, "Нет ошибки сохранения знаний"];
         memory.reconcile(S.knowledgeJob.operation); S.knowledgeJob.operation = randomUUID(); S.knowledgeJob.stage = "queued"; requestKnowledge(S.knowledgeJob.reason); save(); pump(); return send(res, 200, { ok: true });
@@ -1534,6 +1712,200 @@ ${S.notes || "—"}
         }
         return send(res, 200, { ok: true, path: S.specFile });
       }
+    return send(res, 404, { error: "not found" });
+  }
+
+  function send(res, code, body, type = "application/json; charset=utf-8") {
+    if (res.capture) { res.capture(code, body); return; }
+    if (res.destroyed) return;
+    if (body && typeof body === "object" && typeof body.error === "string") body = { ...body, error: t(body.error) };
+    res.writeHead(code, { "content-type": type, "cache-control": "no-store" });
+    res.end(typeof body === "string" ? body : JSON.stringify(body));
+  }
+  const readBody = (req, max = 1e6) => new Promise((ok, fail) => {
+    // Bodies with images span many chunks: decode as a stream so a split multibyte character survives.
+    req.setEncoding("utf8");
+    let s = ""; req.on("data", d => { s += d; if (s.length > max) { fail([413, "Слишком большой запрос"]); req.destroy(); } });
+    req.on("end", () => { try { ok(s ? JSON.parse(s) : {}); } catch { fail([400, "Некорректный JSON"]); } });
+  });
+
+  let port = Number(opt("port", 4777));
+  const server = http.createServer(async (req, res) => {
+    try {
+      const host = (req.headers.host || "").split(":")[0];
+      if (!["127.0.0.1", "localhost"].includes(host)) return send(res, 403, { error: "forbidden host" });
+      const url = new URL(req.url, "http://x");
+      const p = url.pathname;
+      if (req.method === "GET" && (p === "/" || p === "/index.html")) return send(res, 200, page(fs.readFileSync(path.join(HERE, "ui.html"), "utf8"), S.locale, await doubleClickTime()), "text/html; charset=utf-8");
+      if (!p.startsWith("/api/")) return send(res, 404, { error: "not found" });
+      if (req.headers["x-grill"] !== "1") return send(res, 403, { error: "missing x-grill header" });
+      if (req.headers["x-grill-cli"] === "1" && p !== "/api/ping") {
+        await readUsage();
+        if (activeStats) { activeStats.requests++; const total = S.contextStats.totals[activeStats.type]; total.requests = (total.requests || 0) + 1; }
+      }
+      if (req.method === "GET" && ["/api/node", "/api/branch", "/api/index", "/api/search", "/api/related"].includes(p)) {
+        const token = clean(url.searchParams.get("token"), 80);
+        let nodes = S.nodes;
+        if (url.searchParams.has("token")) {
+          if (!token) throw [400, "Нужен токен снимка"];
+          if (!S.specJob || !(S.specJob.ideaWork?.token === token || S.specJob.reviewWork?.token === token || S.nodes.some(n => specLocked(n.id) && n.pending?.stage === "thinking" && n.pending.token === token))) throw [409, "Снимок события больше недоступен"];
+          nodes = S.specJob.gradingNodes;
+        }
+        const id = clean(url.searchParams.get("id"), 80), ids = url.searchParams.getAll("id").map(id => clean(id, 80));
+        if (p === "/api/node") {
+          if (!ids.length || ids.length > 20 || new Set(ids).size !== ids.length) throw [400, "Укажите от 1 до 20 уникальных ID"];
+          if (ids.some(id => !nodes.some(n => n.id === id))) throw [404, "Карточка не найдена"];
+          return send(res, 200, { nodes: ids.map(id => deliveryNode(nodes.find(n => n.id === id))) });
+        }
+        if (p === "/api/index") return send(res, 200, { index: indexText(nodes, new Set(), url.searchParams.get("questions") === "1") });
+        if (p === "/api/search") {
+          const topic = clean(url.searchParams.get("topic"), 40).toLowerCase(), text = clean(url.searchParams.get("text"), 2000);
+          if (!topic && !text) throw [400, "Нужен текст или тема поиска"];
+          const matches = topic ? nodes.filter(n => n.topics?.includes(topic)).map(node => ({ node, score: 1 })) : ranking(nodes, text);
+          return send(res, 200, { matches: matches.map(({ node, score }) => ({ id: node.id, score, index: indexText([node]) })) });
+        }
+        if (!nodes.some(n => n.id === id)) throw [404, "Карточка не найдена"];
+        if (p === "/api/related") return send(res, 200, { related: neighbours(nodes, [id]) });
+        const scope = branchIds(nodes, id);
+        return send(res, 200, { nodes: nodes.filter(n => scope.has(n.id)).map(n => deliveryNode(n)) });
+      }
+      if (req.method === "GET" && (p === "/api/preview" || p.startsWith("/api/preview/"))) {
+        const params = Object.fromEntries(url.searchParams);
+        if (p === "/api/preview/document") {
+          if (!/^[a-zA-Z0-9-]{1,80}$/.test(params.instance || "")) throw [400, "Некорректный экземпляр превью"];
+          const project = preview.route("GET", params.key ? "/api/preview/snapshot" : "/api/preview", params);
+          if (!project.files) throw [409, "Превью ещё не готово"];
+          return send(res, 200, { document: previewDocument(project, params.instance), commit: project.commit, epoch: project.epoch || 0 });
+        }
+        return send(res, 200, preview.route("GET", p, params));
+      }
+
+      if (req.method === "GET" && p === "/api/ping") return send(res, 200, { ok: true, dir: DIR, port, pid: process.pid });
+      if (req.method === "GET" && p === "/api/knowledge") {
+        const index = memory.index();
+        return send(res, 200, { ...index, files: index.files.map(f => f.error ? { ...f, error: t(f.error) } : f), warnings: index.warnings.map(w => {
+          const file = index.files.find(f => f.error && w === `${f.path}: ${f.error}`);
+          return file ? `${file.path}: ${t(file.error)}` : t(w);
+        }) });
+      }
+      if (req.method === "GET" && p === "/api/knowledge-document") { const requested = url.searchParams.get("path"); if (!memory.index().documents.some(d => d.path === requested)) throw [404, "Документ не найден в индексе"]; return send(res, 200, memory.read(requested)); }
+      if (req.method === "GET" && p === "/api/maps") return send(res, 200, { maps: (await listMaps()).map(m => ({ ...m, current: m.name === NAME })) });
+      if (req.method === "GET" && p === "/api/state") {
+        const { queue, actions, actionReceipts, actionTasks, replacements, archive, specJob, specOwner, rereadJob, knowledgeJob, finishToken, finishRevision, ...rest } = S;
+        const quote = value => "'" + (process.platform === "win32" ? value.replace(/['\u2018\u2019\u201a\u201b]/g, c => c + c) : value.replaceAll("'", "'\"'\"'")) + "'";
+        const resume = { project: process.cwd(), dir: BASE, name: NAME, state: STATE, session: path.join(DIR, "session.md"), skill: path.join(HERE, "SKILL.md"), cli: path.join(HERE, "grill.mjs"), language: S.locale.language,
+          shell: process.platform === "win32" ? "PowerShell" : "POSIX sh",
+          start: `${process.platform === "win32" ? "Set-Location -LiteralPath" : "cd --"} ${quote(process.cwd())}${process.platform === "win32" ? "; if ($?) { " : " && "}node ${quote(path.join(HERE, "grill.mjs"))} start --dir ${quote(BASE)}${NAME ? " --name " + NAME : ""} --continue${process.platform === "win32" ? " }" : ""}` };
+        rest.resume = resume;
+        rest.contextStats = S.contextStats || { recent: [], totals: {} };
+        return send(res, 200, { ...rest, sessionUsage: await readUsage(), sessionHint: sessionHint(), failedKnowledgeFinish: !!failedKnowledge()?.resume.finishPending, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : failedKnowledge() ? { stage: "blocked", reason: failedKnowledge().resume.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: false } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: false } : null, actionQueue: publicActions(), queueLength: queueLength(), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
+      }
+      if (req.method === "GET" && p === "/api/actions") return send(res, 200, { actions: (url.searchParams.has("id") ? S.actions.filter(a => a.id === url.searchParams.get("id")) : S.actions).map(a => a.error ? { ...a, error: t(a.error) } : a), tasks: url.searchParams.has("id") ? [] : S.actionTasks || [], paused: S.actionPaused });
+      if (req.method === "GET" && p === "/api/archive") return send(res, 200, { archive: S.archive });
+      if (req.method === "GET" && p === "/api/report") return send(res, 200, report(), "text/markdown; charset=utf-8");
+      if (req.method === "GET" && p === "/api/monitor") {
+        if (!url.searchParams.has("delivery")) return send(res, 200, monitorStatus());
+        const delivery = clean(url.searchParams.get("delivery"), 80);
+        if (!monitor?.event || monitor.delivery !== delivery || !workIsCurrent() || codexConnection(BASE).id !== monitor.owner) throw [409, "Событие монитора устарело"];
+        return send(res, 200, monitor.event);
+      }
+      if (req.method === "GET" && p === "/api/image") {
+        const file = url.searchParams.get("file") || "";
+        let data; try { if (IMG_RE.test(file)) data = fs.readFileSync(path.join(IMAGES, file)); } catch {}
+        if (!data) return send(res, 404, { error: "Картинка не найдена" });
+        res.writeHead(200, { "content-type": IMG_TYPE[file.split(".").pop()], "cache-control": "no-store", "x-content-type-options": "nosniff" });
+        return res.end(data);
+      }
+      if (req.method === "GET" && p === "/api/wait") {
+        if (monitor) throw [409, "Сначала остановите монитор; wait/watch не могут работать одновременно с ним"];
+        actionsEnabled = true;
+        closeStats();
+        currentWork = null;
+        lastActivity = Date.now();
+        recoverKnowledge(); save();
+        preview.recover();
+        for (const job of S.questionRequests.filter(j => j.stage === "thinking")) {
+          job.stage = "queued"; delete job.token;
+          if (!S.queue.some(e => e.type === "question" && e.id === job.id)) S.queue.unshift({ type: "question", id: job.id });
+          save();
+        }
+        if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork || S.specJob?.reviewWork) { recoverSpec(); save(); }
+        for (const n of S.nodes.filter(n => n.analysis?.stage === "thinking")) { queueIdea(n, n.analysis.reason); save(); }
+        if (rereadThinking()) { recoverReread(); save(); }
+        // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
+        // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
+        const lost = S.nodes.filter(n => n.pending && n.pending.stage === "thinking" || n.discuss === "thinking");
+        for (const n of lost.reverse()) {
+          if (n.pending && n.pending.stage === "thinking") { n.pending.stage = "queued"; if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id }); }
+          if (n.discuss === "thinking") { n.discuss = "queued"; if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id }); }
+        }
+        if (lost.length) save();
+        const ev = takeEvent(); if (ev) return send(res, 200, ev);
+        const sec = Math.min(290, Math.max(5, Number(url.searchParams.get("timeout")) || 280));
+        const w = { res, timer: null };
+        w.timer = setTimeout(() => { waiters = waiters.filter(x => x !== w); lastActivity = Date.now(); send(res, 200, { type: "timeout", waitingAnswers: S.nodes.filter(n => n.pending).length, waitingDiscussions: S.nodes.filter(n => n.discuss).length }); }, sec * 1000);
+        res.on("close", () => { clearTimeout(w.timer); waiters = waiters.filter(x => x !== w); });
+        waiters.push(w); return;
+      }
+      if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
+      // Only a discussion message carries images: base64 of the allowed files plus its text.
+      const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
+      if (p === "/api/knowledge-ignore") {
+        if (typeof b.path !== "string" || clean(b.path, 1000) !== b.path || typeof b.ignored !== "boolean") throw [400, "Некорректное исключение знаний"];
+        try { return send(res, 200, memory.setIgnored(b.path, b.ignored)); }
+        catch (e) { throw [400, e.message]; }
+      }
+      if (p === "/api/monitor") {
+        if (b.action === "stop") { closeStats(); monitor = null; return send(res, 200, monitorStatus()); }
+        if (b.action !== "arm") throw [400, "Неизвестное действие монитора"];
+        const binding = codexConnection(BASE);
+        if (clean(b.owner, 80) !== binding.id) throw [409, "Включите монитор из привязанной сессии Codex"];
+        if (waiters.some(w => !w.res.destroyed)) throw [409, "Сначала завершите wait/watch"];
+        if (monitor?.owner === binding.id && (monitor.phase === "armed" || workIsCurrent())) return send(res, 200, monitorStatus());
+        if (currentWork) throw [409, "Сначала завершите обработку текущего события"];
+        closeStats();
+        actionsEnabled = true;
+        monitor = { phase: "armed", owner: binding.id, delivery: null, event: null };
+        pump(); return send(res, 200, monitorStatus());
+      }
+      if (actionRoutes.has(p)) {
+        validateAction(p, b);
+        const known = S.actions.some(a => a.id === b.actionId), action = acceptAction(S, p, b);
+        if (!known && action.status === "queued") {
+          if (S.finishHold) action.dependencies = action.dependencies.filter(id => S.actions.find(a => a.id === id).sequence < S.finishHold || p !== "/api/finish");
+          if (p === "/api/finish" && !S.finishHold && !S.actionPaused) S.finishHold = action.sequence;
+        }
+        save(); advanceActions(true); pump();
+        return send(res, 200, { ok: true, queued: true, actionId: action.id, status: action.status, path: p === "/api/spec" ? S.specFile : undefined });
+      }
+      if (p === "/api/actions/cancel") {
+        const result = b.confirmation ? cancelActions(S, b.id, b.confirmation) : cancellation(S, b.id);
+        if (b.confirmation) save();
+        return send(res, 200, { ok: true, ...result });
+      }
+      if (p === "/api/actions/retry") {
+        const old = S.actions.find(a => a.id === b.id);
+        if (!old || !["failed", "needs-decision"].includes(old.status)) throw [409, "Нет ошибки для повтора"];
+        const next = queueRetry(old, b.actionId);
+        save(); pump();
+        return send(res, 200, { ok: true, actionId: next.id });
+      }
+      if (p === "/api/cancel") {
+        const action = waitingActions(S).find(a => a.route === "/api/answer" && a.body.id === b.id);
+        if (!action) throw [409, "Действие уже начато"];
+        const plan = cancellation(S, action.id);
+        if (b.confirmation) { cancelActions(S, action.id, b.confirmation); save(); }
+        return send(res, 200, { ok: true, ...plan });
+      }
+      if (p === "/api/actions/continue") {
+        if (S.finishPending) throw [409, "Дождитесь завершения грилинга и повторите попытку."];
+        actionsEnabled = true; S.actionPaused = false; delete S.finishHold;
+        // A finish that was itself waiting behind the old boundary forms the next one.
+        const waitingFinish = waitingActions(S).find(a => a.route === "/api/finish");
+        if (waitingFinish) S.finishHold = waitingFinish.sequence;
+        save(); pump(); return send(res, 200, { ok: true });
+      }
+      if (["/api/locale", "/api/discuss/read", "/api/conversations", "/api/knowledge-retry", "/api/knowledge-skip"].includes(p)) return actionRoute(p, b, res);
       if (p === "/api/init") {
         if (monitor) throw [409, "Перед инициализацией остановите монитор"];
         const roots = (Array.isArray(b.questions) ? b.questions : []).slice(0, 8);
@@ -1546,6 +1918,7 @@ ${S.notes || "—"}
         activeStats = null;
         S = { ...freshState(), locale: S.locale, version: v, specOwner: S.specOwner, specFile: S.specFile, specUpdatedAt: S.specUpdatedAt, knowledgeSession: randomUUID(),
           title: clean(b.title, 80) || t("Проект"), brief: clean(b.brief, 6000), arch: clean(b.arch, 6000) };
+        initializeActions(S); persistedNodes = []; actionsEnabled = true;
         S.nodes.push(...questions); S.reserve = reserve; S.reserveRevision = reserve === null ? null : mapRevision();
         S.nodes.push(...retainedPreviews);
         lastActivity = Date.now(); save(); writeSession(); pruneImages(); return send(res, 200, { ok: true, questions: S.nodes.length - 1 });
@@ -1560,8 +1933,24 @@ ${S.notes || "—"}
         const { rearm: ignored, owner, ...body } = b;
         let result;
         applying = true;
-        try { result = apply(body); }
+        const receipt = b.token && S.actionReceipts?.[b.token];
+        if (receipt) { applying = false; return send(res, 200, receipt); }
+        transaction = true;
+        const beforeApply = structuredClone(S), failedWork = currentWork && structuredClone(currentWork);
+        try {
+          result = apply(body);
+          if (!result.staged && b.type !== "notes") {
+            if (result.ok === false && activeActions(S).length) abandonAction(result.error || "Ошибка обработки", beforeApply, failedWork);
+            for (const task of S.actionTasks || []) if (task.id === b.token) { task.status = result.ok === false ? "failed" : "done"; task.completedAt = Date.now(); }
+            completeActions();
+            if (b.token) (S.actionReceipts ||= {})[b.token] = result;
+          }
+          transaction = false; save();
+        }
         catch (error) {
+          transaction = false;
+          if (error[0] === 409) save();
+          else { S = beforeApply; currentWork = failedWork; }
           applying = false;
           if (rearm && error[0] === 409) {
             rearmMonitor(); pump();
@@ -1636,7 +2025,7 @@ async function listMaps() {
     const f = path.join(d, "state.json"), s = readJSON(f); if (!s || !Array.isArray(s.nodes)) continue;
     const info = await alive(d); let listening = false;
     if (info) try { listening = !!(await (await fetch(`http://127.0.0.1:${info.port}/api/state`, { headers: { "x-grill": "1" }, signal: AbortSignal.timeout(1500) })).json()).listening; } catch {}
-    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
+    out.push({ name: d === BASE ? null : path.basename(d), title: s.title || "", counts: countQ(s.nodes), queue: executableActions({ ...s, actions: s.actions || [] }).length + (s.queue || []).length + (s.knowledgeJob && !(s.queue || []).some(e => e.type === "knowledge") ? 1 : 0) + (s.reevaluation ? 1 : 0) + (s.specJob?.reviewIds?.length ? 1 : 0), finished: !!s.finished,
       updated: fs.statSync(f).mtime.toISOString(), url: info ? info.url : null, listening });
   }
   return out.sort((a, b) => b.updated.localeCompare(a.updated));
@@ -1658,6 +2047,14 @@ async function start() {
     const ch = spawn(process.execPath, args, { detached: true, stdio: "ignore" }); ch.unref();
     for (let i = 0; i < 40 && !(info = await alive()); i++) await new Promise(r => setTimeout(r, 150));
     if (!info) { console.error("Не удалось запустить сервер карты. Попробуйте вручную: " + CLI("serve")); process.exit(1); }
+  }
+  const resumedState = JSON.parse(await api("GET", "/api/state"));
+  // Only an explicit user continuation releases the finish boundary; recovery restarts keep late actions paused.
+  if (resumedState.finishPending) {
+    if (has("continue")) console.log("Итог ещё формируется: поздние действия останутся в очереди. Продолжите карту после итога.");
+  } else if (resumedState.actionQueue?.paused) {
+    if (has("continue")) await api("POST", "/api/actions/continue", {});
+    else if (resumedState.actionQueue.held) console.log("Поздние действия после итога сохранены и ждут явного продолжения (start --continue или «Продолжить» в окне очереди).");
   }
   if (selectedLocale) await api("POST", "/api/locale", selectedLocale);
   if (!has("no-open")) openBrowser(info.url);

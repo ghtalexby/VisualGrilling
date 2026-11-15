@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-monitor-"));
 const base = path.join(cwd, "maps"), map = path.join(base, "check");
-const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url));
+const cli = fileURLToPath(new URL(process.argv.includes("--mirror") ? "../.claude/skills/grill/grill.mjs" : "../skills/grill/grill.mjs", import.meta.url));
 const owner = "11111111-1111-1111-1111-111111111111";
 const log = path.join(cwd, "calls.jsonl"), mode = path.join(cwd, "mode.txt"), fake = path.join(cwd, "codex.cjs");
 const bindingFile = path.join(base, "agent-connection.json");
