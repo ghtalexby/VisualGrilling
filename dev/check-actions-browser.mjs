@@ -132,6 +132,8 @@ try {
     assert.equal(await js('document.querySelector("#stage").textContent.includes("Pundefined")'),false);
     assert.equal(await js('qs().length'),2);
     assert.equal(await js('counts().open'),2);
+    await js('openPanel({mode:"previewSetup",id:"root"})');
+    assert.equal(await js('Array.from(document.querySelectorAll("[data-preview-branch]")).some(e=>e.dataset.previewBranch.startsWith("queued-"))'),false);
     const effects=(await api("state")).actionQueue.effects;
     await js('openPanel({mode:"node",id:'+JSON.stringify("queued-"+effects.find(e=>e.type==="idea").actionId)+'})');
     assert.equal(await js('document.querySelector(".pb h2").textContent'),"New idea");

@@ -473,7 +473,7 @@ function imgUrl(f){
   return imgUrls[f]=job;
 }
 function pruneImgUrls(){
-  const used=new Set(S.nodes.flatMap(n=>visibleChat(n).flatMap(m=>m.images||[])));
+  const used=new Set(S.nodes.flatMap(n=>(n.chat||[]).flatMap(m=>m.images||[])));
   for(const [f,job] of Object.entries(imgUrls))if(!used.has(f)){delete imgUrls[f];job.then(u=>{if(u)URL.revokeObjectURL(u)},()=>{})}
 }
 const showImages=p=>p.querySelectorAll("img[data-img]").forEach(i=>imgUrl(i.dataset.img).then(u=>{if(u&&i.isConnected)i.src=u},()=>{}));
@@ -511,8 +511,8 @@ const previewRequests=new Map();
 function previewPanel(n){
   if(panel.mode==="previewSetup"){
     const line=new Set([n.id,...ancestors(n).map(a=>a.id)]);
-    const available=S.nodes.filter(p=>p.kind==="preview"&&line.has(p.sourceId)&&!p.orphaned);
-    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p>${esc(n.q||S.title)}</p><label>Экземпляр<select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></label>${n.id==="root"?`<h3>Выберите ветки</h3>${kids("root").filter(n=>n.kind!=="preview").map(n=>`<label><input type="checkbox" data-preview-branch="${esc(n.id)}" ${(panel.branches||[]).includes(n.id)?"checked":""}>${esc(n.q||n.text)}</label>`).join("")}`:""}<button class="btn primary" data-preview="prepare">Предложить варианты</button>`};
+    const available=S.nodes.filter(p=>p.kind==="preview"&&!p.queuedCreation&&line.has(p.sourceId)&&!p.orphaned);
+    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p>${esc(n.q||S.title)}</p><label>Экземпляр<select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></label>${n.id==="root"?`<h3>Выберите ветки</h3>${kids("root").filter(n=>n.kind!=="preview"&&!n.queuedCreation).map(n=>`<label><input type="checkbox" data-preview-branch="${esc(n.id)}" ${(panel.branches||[]).includes(n.id)?"checked":""}>${esc(n.q||n.text)}</label>`).join("")}`:""}<button class="btn primary" data-preview="prepare">Предложить варианты</button>`};
   }
   return {head:"Превью",body:`<h2>${esc(n.q)}</h2>${n.orphaned?"<p>Источник удалён. Проект сохранён отдельно.</p>":""}<p>${n.job?"Агент готовит превью…":n.stale?`Устарело: ${n.stale}`:""}</p>${n.error?`<p class="err">${esc(friendlyError(n.error))}</p>`:""}${n.commit?`<button class="btn primary" data-preview="open">Открыть превью</button>`:""}<h3>${esc(n.question||"Подготовка вариантов")}</h3>${(n.options||[]).map(o=>`<button class="btn" data-preview-option="${esc(o)}">${esc(o)}</button>`).join("")}<label>Запрос<textarea id="fPreview" rows="4">${esc(drafts["p:"+n.id]??n.request??"")}</textarea></label><button class="btn primary" data-preview="build" ${n.job||!n.question?"disabled":""}>Создать новую версию</button><h3>При удалении источника</h3><p>Выберите судьбу проекта до удаления ветки агентом.</p><button class="btn" data-preview="keep" ${n.deletionPolicy==="keep"?"disabled":""}>Сохранить отдельно</button><button class="btn" data-preview="deletePolicy" ${n.deletionPolicy==="delete"?"disabled":""}>Удалить вместе</button><button class="btn" data-preview="delete">Удалить превью</button>`};
 }
@@ -613,7 +613,7 @@ addEventListener("keydown",async e=>{if(e.key==="Escape"&&previewView&&!previewV
 const ideaStatus=n=>n.status==="open"?"Открыта":n.status==="ok"?"Закрыта":STATUS[n.status];
 const coverageText=()=>S.coverage?.stale?"Охват требует обновления":S.coverage?.percent==null?"Охват не оценён":`Охват ${S.coverage.percent}%`;
 const hasUnread=n=>(n.chat||[]).some(m=>m.from==="claude"&&!m.readAt);
-const chatBadge=n=>visibleChat(n).length?`<button type="button" class="rmeta chat-link" data-chat>Обсуждение: ${visibleChat(n).length}${hasUnread(n)?" · Новый ответ":""}</button>`:`<span class="rmeta">Обсуждение: ${0}</span>`;
+const chatBadge=n=>(n.chat||[]).length?`<button type="button" class="rmeta chat-link" data-chat>Обсуждение: ${(n.chat||[]).length}${hasUnread(n)?" · Новый ответ":""}</button>`:`<span class="rmeta">Обсуждение: ${0}</span>`;
 const copyButton=text=>`<button class="btn small copy-button" data-copy="${esc(text||"")}" title="Скопировать" aria-label="Скопировать"><svg class="copy-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg><svg class="copy-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>`;
 const copyBlock=(text,body,classes="note",attrs="")=>`<div class="copy-block ${classes}"${attrs}>${body}${copyButton(text)}</div>`;
 function renderResumeCopy(){
@@ -795,7 +795,7 @@ function nodePanel(n){
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
   const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note copy-history">${copyBlock(m.q,`<b>${esc(m.q)}</b>`)}${m.answer?copyBlock(m.answer,`<p>Ваш ответ: ${esc(m.answer)}</p>`):""}${m.verdict?copyBlock(m.verdict,`<p>Вердикт: ${esc(m.verdict)}</p>`):""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>copyBlock(v.verdict,`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>`)).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
   if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${mergedHistory(n.mergedFrom)}`;
-  const tab=panel.tab||"answer",cn=visibleChat(n).length;
+  const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
   else if(n.obsolete){if(n.answer)b+=copyBlock(n.answer,`<p>Ваш ответ: ${esc(n.answer)}</p>`);if(n.verdict)b+=copyBlock(n.verdict,`<p>${esc(n.verdict)}</p>`)}
@@ -825,15 +825,13 @@ function nodePanel(n){
   return{head,body:b};
 }
 let projectConversation="main";
-// Queued messages are a view of durable receipts, not evidence for the active worker.
-const visibleChat=n=>n.chat||[];
 const chatKey=id=>id==="root"?id+":"+projectConversation:id;
 function projectChatPanel(n){
   if(n.kind==="root"&&!(S.projectConversations||[{id:"main"}]).some(c=>c.id===projectConversation))projectConversation="main";
-  return {head:`<div class="project-chat-head"><span class="eyebrow">Общий вопрос агенту</span>${`<div class="conversation-toolbar"><div class="conversation-picker"><select id="conversationSelect" aria-label="Разговор" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=visibleChat(n).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select></div><button class="btn conversation-add" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`}</div>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)};
+  return {head:`<div class="project-chat-head"><span class="eyebrow">Общий вопрос агенту</span>${`<div class="conversation-toolbar"><div class="conversation-picker"><select id="conversationSelect" aria-label="Разговор" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=(n.chat||[]).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select></div><button class="btn conversation-add" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`}</div>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)};
 }
 function discussTab(n){
-  const chat=visibleChat(n).filter(m=>n.kind!=="root"||(m.conversationId||"main")===projectConversation);
+  const chat=(n.chat||[]).filter(m=>n.kind!=="root"||(m.conversationId||"main")===projectConversation);
   let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg copy-block ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
   if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
@@ -961,7 +959,7 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([S.projectConversations,n.queuedActions,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,visibleChat(n),n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([S.projectConversations,n.queuedActions,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,(n.chat||[]),n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(revealDiscussion=false){
   const p=$("#panel");
@@ -1088,7 +1086,11 @@ function projectQueuedState(state){
     if(["idea/delete","preview/delete"].includes(type)&&n){
       const removed=new Set([n.id]);
       for(let size=-1;size!==removed.size;){size=removed.size;for(const child of state.nodes)if(removed.has(child.parentId))removed.add(child.id)}
-      state.nodes=state.nodes.filter(child=>{if(!removed.has(child.id))return true;if(child.kind==="preview"&&type==="idea/delete"&&child.deletionPolicy==="keep"){child.parentId="root";child.sourceId="root";child.orphaned=true;return true}return false});
+      state.nodes=state.nodes.filter(child=>{
+        const affectedPreview=type==="idea/delete"&&child.kind==="preview"&&(removed.has(child.id)||removed.has(child.sourceId)||removed.has(child.job?.sourceId)||(child.branches||[]).some(id=>removed.has(id)));
+        if(affectedPreview&&child.deletionPolicy==="keep"){child.parentId="root";child.sourceId="root";child.branches=[];child.orphaned=true;delete child.job;return true}
+        return !removed.has(child.id)&&!affectedPreview;
+      });
     }
     if(type==="more")state.morePending=true;
     if(type==="finish")state.finishPending=true;

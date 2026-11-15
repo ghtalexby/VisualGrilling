@@ -45,6 +45,17 @@ assert.equal(s.nodes.some(n => n.id === "preview"), false);
 s = view([effect("idea", { id: "new-idea", text: "New" }), effect("question", { id: "new-question", parentId: "root", q: "New?" }), effect("preview/prepare", { sourceId: "q" })]);
 assert.equal(s.nodes.filter(n => n.queuedCreation).length, 3);
 assert.equal(s.questionRequests[0].q, "New?");
+const rootPreviews = structuredClone(base);
+rootPreviews.nodes.push(
+  { id: "root-delete", kind: "preview", parentId: "root", sourceId: "root", branches: ["idea"], deletionPolicy: "delete" },
+  { id: "root-keep", kind: "preview", parentId: "root", sourceId: "root", branches: ["idea"], deletionPolicy: "keep", job: { sourceId: "idea" } }
+);
+rootPreviews.actionQueue = { effects: [effect("idea/delete", { id: "idea" })] };
+s = project(rootPreviews);
+assert.equal(s.nodes.some(n => n.id === "root-delete"), false);
+assert.equal(s.nodes.find(n => n.id === "root-keep").orphaned, true);
+assert.deepEqual(s.nodes.find(n => n.id === "root-keep").branches, []);
+assert.equal(s.nodes.find(n => n.id === "root-keep").job, undefined);
 const types = ["more", "finish", "spec", "reread", "knowledge-import", "spec-migrate", "preview/save", "preview/restore"];
 s = view(types.map(type => effect(type, type.startsWith("preview/") ? { id: "preview" } : {})));
 for (const field of ["morePending", "finishPending", "specPending", "rereadPending", "knowledgePending"]) assert.ok(s[field], field);
