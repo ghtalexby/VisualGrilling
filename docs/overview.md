@@ -113,3 +113,5 @@ The project chat keeps its conversation dropdown on the left and compact + butto
 
 
 Every mutation receives a durable action receipt before execution. The header queue circle counts waiting messages and internal tasks, separately from current work and the 20-action admission limit. Hover to inspect, click to pin, and use the problem icon to revisit errors. Root offers an archive of removed cards and preserved inputs; reread reviews that evidence. Submission remains available while the agent works. Codex monitor delegates each event to a fresh prepare-only worker and keeps apply/rearm in the main session.
+
+Accepted actions update the browser immediately: submitted answers, chat messages, idea edits, new cards and deletions are visible while processing waits in FIFO order. Pending cards remain read-only until created. Cancellation or failure restores canonical content; failures are available in queue problems.

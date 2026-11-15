@@ -25,7 +25,8 @@ try {
   const ids = (await api("state")).nodes.filter(n => n.kind === "q").slice(0, 3).map(n => n.id);
   for (const [i, answer] of ["не знаю", "Есть 30 клиентов и 12 подтверждённых заказов", "думаю что спрос будет расти"].entries()) await api("answer", { id: ids[i], answer });
   await until(async () => (await api("state")).nodes.filter(n => ids.includes(n.id)).every(n => n.answer && !n.pending));
-  assert.deepEqual(ids.map(id => JSON.parse(fs.readFileSync(path.join(map, "state.json"))).nodes.find(n => n.id === id).status), ["gap", "ok", "verify"]);
+  const graded = await api("state");
+  assert.deepEqual(ids.map(id => graded.nodes.find(n => n.id === id).status), ["gap", "ok", "verify"]);
   await api("discuss", { id: "root", message: "Explain the priorities" });
   await api("more", {});
   await api("finish", {});

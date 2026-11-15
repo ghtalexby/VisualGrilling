@@ -1397,6 +1397,7 @@ ${S.notes || "—"}
     const internal = S.queue.filter(e => !running.some(a => a.route === "/api/" + e.type && (!e.id || a.body.id === e.id)));
     if (S.reevaluation && currentWork?.type !== "reevaluate") internal.push({ type: "reevaluate" });
     return { paused: S.actionPaused || !!S.finishHold && !activeActions(S).length && !executableActions(S).length, held: waitingActions(S).length - executableActions(S).length, waiting: waiting.length + internal.length, slots: waiting.length,
+      effects: waiting.filter(a => !a.resume).map(a => ({ actionId: a.id, type: a.route.slice(5), at: a.at, input: Object.fromEntries(["id", "parentId", "sourceId", "conversationId", "message", "quote", "about", "answer", "text", "q", "request", "policy"].filter(k => typeof a.body[k] === "string").map(k => [k, a.body[k]])), images: a.route === "/api/discuss" ? (a.body.images || []).map((_, i) => `action:${a.id}:${i}`) : [] })),
       actions: S.actions.filter(a => !a.retriedBy && ["queued", "running", "failed", "needs-decision"].includes(a.status)).map(a => ({ id: a.id, sequence: a.sequence, type: a.route.slice(5), target: a.body.id, conversationId: a.body.conversationId || "main", text: a.body.message || a.body.answer || a.body.text || a.body.q || "", status: a.status, error: a.error && t(a.error), group: a.group })), internal };
   }
   function advanceActions(localOnly = false) {
@@ -1810,8 +1811,19 @@ ${S.notes || "—"}
         return send(res, 200, monitor.event);
       }
       if (req.method === "GET" && p === "/api/image") {
-        const file = url.searchParams.get("file") || "";
-        let data; try { if (IMG_RE.test(file)) data = fs.readFileSync(path.join(IMAGES, file)); } catch {}
+        let file = url.searchParams.get("file") || "", data;
+        const queued = /^action:([a-zA-Z0-9-]{1,80}):([0-3])$/.exec(file);
+        if (queued) {
+          const action = S.actions.find(a => a.id === queued[1] && a.route === "/api/discuss");
+          const source = action?.body.images?.[Number(queued[2])];
+          if (typeof source === "string" && source.startsWith("data:")) {
+            data = Buffer.from(source.slice(source.indexOf(",") + 1), "base64");
+            const ext = sniffImage(data);
+            if (!ext || data.length > IMG_MAX) data = null;
+            else file = `queued.${ext}`;
+          } else file = typeof source === "string" ? source : "";
+        }
+        try { if (IMG_RE.test(file)) data = fs.readFileSync(path.join(IMAGES, file)); } catch {}
         if (!data) return send(res, 404, { error: "Картинка не найдена" });
         res.writeHead(200, { "content-type": IMG_TYPE[file.split(".").pop()], "cache-control": "no-store", "x-content-type-options": "nosniff" });
         return res.end(data);

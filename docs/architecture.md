@@ -272,3 +272,5 @@ Project chat conversations share the root message log: messages carry `conversat
 ## Action journal and archive
 
 `actions.mjs` owns persistent admission identities, grouping, cancellation plans and archive projections. `grill.mjs` serializes reducer activation, generated dependencies, result receipts and finish boundaries. See [the durable action contract](contract.md#durable-user-actions). Pending actions never mutate the evidence of active work. Legacy reducers recover before newly queued actions. State writes capture removed records before image pruning. The header queue separates current work, waiting messages/internal tasks and problems; hover opens temporarily, click pins, Close dismisses. Root exposes Archive.
+
+The browser replays `actionQueue.effects` into each fresh state response to show admitted answers, chat, edits, additions, deletions and pending work immediately. These display-only changes never enter worker evidence or revisions before their FIFO action executes. Images are fetched on demand through the protected image endpoint.

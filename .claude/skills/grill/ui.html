@@ -259,7 +259,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.7">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.8">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -327,8 +327,8 @@ function depth(n){let d=0;while(n&&n.parentId){d++;n=get(n.parentId)}return d}
 function ancestors(n){const a=[];let p=get(n.parentId);while(p&&p.kind!=="root"){a.unshift(p);p=get(p.parentId)}return a}
 function rootPrio(n){let p=n;while(p.parentId&&p.parentId!=="root")p=get(p.parentId);return p.prio}
 function descendants(id){const out=[];kids(id).forEach(k=>{out.push(k.id,...descendants(k.id))});return out}
-const qs=()=>S.nodes.filter(n=>n.kind==="q");
-const vis=n=>n.pending||n.analysis?"think":n.status;
+const qs=()=>S.nodes.filter(n=>n.kind==="q"&&!n.queuedCreation);
+const vis=n=>n.queuedCreation||n.pending||n.analysis?"think":n.status;
 
 // Dictionary keys stay intact even when a phrase contains Latin product or file-format names.
 const ERROR_MESSAGES = [
@@ -386,6 +386,7 @@ function showError(message){
 function stateErrors(state){
   return new Map([
     ["knowledge",state.knowledgeResult?.error],
+    ...(state.actionQueue?.actions||[]).filter(a=>a.status==="failed"||a.status==="needs-decision").map(a=>["action:"+a.id,a.error||"Ошибка"]),
     ["spec",state.specError],
     ["reread",state.rereadResult?.error],
     ["reevaluation",state.reevaluationError?.error],
@@ -427,7 +428,7 @@ async function api(p,body){
 }
 
 let queuePinned=false, archiveOpen=false, queueLeaveTimer;
-const actionLabels={answer:"Ответ",discuss:"Сообщение",spec:"Спека",reread:"Перечитать",finish:"Итог",reevaluate:"Переоценка",knowledge:"Знания",question:"Вопрос",idea:"Идея",more:"Вопросы"};
+const actionLabels={"chatreset":"Сбросить чат","idea/edit":"Редактировать идею","idea/delete":"Удалить идею","idea/analyze":"Разобрать идею","preview/prepare":"Подготовка вариантов","preview/build":"Создать новую версию","preview/policy":"При удалении источника","preview/delete":"Удалить превью","preview/save":"Сохранить","preview/restore":"Восстановить","knowledge-import":"Знания","spec-migrate":"Спека",answer:"Ответ",discuss:"Сообщение",spec:"Спека",reread:"Перечитать",finish:"Итог",reevaluate:"Переоценка",knowledge:"Знания",question:"Вопрос",idea:"Идея",more:"Вопросы"};
 function showQueue(pin=false){archiveOpen=false;queuePinned=pin||queuePinned;$("#queueWindow").hidden=false;renderQueue()}
 function renderQueue(){
   const q=S.actionQueue||{actions:[],internal:[],waiting:0},running=q.actions.filter(a=>a.status==="running"),issues=q.actions.filter(a=>["failed","needs-decision"].includes(a.status));
@@ -472,7 +473,7 @@ function imgUrl(f){
   return imgUrls[f]=job;
 }
 function pruneImgUrls(){
-  const used=new Set(S.nodes.flatMap(n=>(n.chat||[]).flatMap(m=>m.images||[])));
+  const used=new Set(S.nodes.flatMap(n=>visibleChat(n).flatMap(m=>m.images||[])));
   for(const [f,job] of Object.entries(imgUrls))if(!used.has(f)){delete imgUrls[f];job.then(u=>{if(u)URL.revokeObjectURL(u)},()=>{})}
 }
 const showImages=p=>p.querySelectorAll("img[data-img]").forEach(i=>imgUrl(i.dataset.img).then(u=>{if(u&&i.isConnected)i.src=u},()=>{}));
@@ -521,8 +522,8 @@ async function previewAction(action){
     if(action==="prepare"){
       const target=panel;
       const result=await api("/api/preview/prepare",{sourceId:panel.id,id:$("#previewTarget").value||undefined,branches:[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
-      await poll(true);showQueue(true);
-      actionResult(result,true).then(async done=>{await poll(true);if(panel===target){queuePinned=false;$("#queueWindow").hidden=true;openPanel({mode:"node",id:done.id})}},error=>showError(error.message));
+      await poll(true);const pending=get("queued-"+result.actionId);if(pending){panel={mode:"node",id:pending.id};render();renderPanel()}const waitingPanel=panel;
+      actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||!panel)openPanel({mode:"node",id:done.id})},error=>showError(error.message));
     }else if(action==="open")await openPreview(panel.id);
     else if(action==="build"){
       if(previewView?.id===panel.id&&!await guardPreview())return;
@@ -612,7 +613,7 @@ addEventListener("keydown",async e=>{if(e.key==="Escape"&&previewView&&!previewV
 const ideaStatus=n=>n.status==="open"?"Открыта":n.status==="ok"?"Закрыта":STATUS[n.status];
 const coverageText=()=>S.coverage?.stale?"Охват требует обновления":S.coverage?.percent==null?"Охват не оценён":`Охват ${S.coverage.percent}%`;
 const hasUnread=n=>(n.chat||[]).some(m=>m.from==="claude"&&!m.readAt);
-const chatBadge=n=>(n.chat||[]).length?`<button type="button" class="rmeta chat-link" data-chat>Обсуждение: ${n.chat.length}${hasUnread(n)?" · Новый ответ":""}</button>`:`<span class="rmeta">Обсуждение: ${0}</span>`;
+const chatBadge=n=>visibleChat(n).length?`<button type="button" class="rmeta chat-link" data-chat>Обсуждение: ${visibleChat(n).length}${hasUnread(n)?" · Новый ответ":""}</button>`:`<span class="rmeta">Обсуждение: ${0}</span>`;
 const copyButton=text=>`<button class="btn small copy-button" data-copy="${esc(text||"")}" title="Скопировать" aria-label="Скопировать"><svg class="copy-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M13 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/></svg><svg class="copy-check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg></button>`;
 const copyBlock=(text,body,classes="note",attrs="")=>`<div class="copy-block ${classes}"${attrs}>${body}${copyButton(text)}</div>`;
 function renderResumeCopy(){
@@ -653,6 +654,7 @@ function nodeHTML(n){
   return (n.kind==="root"?body:`<button type="button" class="node-main">${body}</button>`)+(n.kind==="preview"?"":chatBadge(n));
 }
 function nodeBody(n){
+  if(n.queuedCreation)return `<span class="nhead"><span class="pill s-think">В очереди</span></span><span class="qtext">${esc(n.text||n.q)}</span>`;
   if(n.kind==="preview")return `<span class="nhead"><span class="area">▧ Превью</span><span class="pill">${n.job?"В очереди":n.stale?`Устарело: ${n.stale}`:""}</span></span><span class="qtext">${esc(n.q)}</span>${n.error?`<span class="ans">${esc(friendlyError(n.error))}</span>`:""}`;
   if(n.kind==="root"){
     const q=qs().filter(n=>!n.obsolete),open=q.filter(x=>x.status==="open"&&!x.pending).length;
@@ -705,7 +707,7 @@ function render(){
   stage.style.width=W+"px";stage.style.height=H+"px";applyView();
   renderHeader();
 }
-function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};S.nodes.filter(n=>["q","idea"].includes(n.kind)&&!n.obsolete).forEach(n=>c[n.status]++);return c}
+function counts(){const c={open:0,ok:0,weak:0,gap:0,verify:0};S.nodes.filter(n=>["q","idea"].includes(n.kind)&&!n.obsolete&&!n.queuedCreation).forEach(n=>c[n.status]++);return c}
 function renderHeader(){
   const jobs=[S.rereadPending,S.specPending,S.reevaluation,...(S.questionRequests||[]),...S.nodes.flatMap(n=>[n.pending,n.analysis,n.job,{stage:n.discuss}])];
   const pending=loaded&&!!(rereadSending||S.queueLength||S.morePending||S.finishPending||jobs.some(j=>j?.stage)||(!S.title&&!S.finished));
@@ -777,7 +779,7 @@ $("#usageTotal").addEventListener("keydown",e=>{if(e.key==="Escape")hideUsage()}
 window.addEventListener("resize",hideUsage);
 
 function waitNote(){return listening?"":`<div class="note">Агент сейчас не слушает карту. Ответ встанет в очередь и будет разобран, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`}
-function nextOpen(){const o=[];const w=id=>kids(id).forEach(k=>{o.push(k);w(k.id)});w("root");return o.find(n=>n.kind==="q"&&!n.obsolete&&n.status==="open"&&!n.pending)}
+function nextOpen(){const o=[];const w=id=>kids(id).forEach(k=>{o.push(k);w(k.id)});w("root");return o.find(n=>n.kind==="q"&&!n.obsolete&&!n.queuedCreation&&n.status==="open"&&!n.pending)}
 function nodePanel(n){
   const head=`<span class="eyebrow">${rootPrio(n)?"P"+rootPrio(n):"Идея"} · ${esc(n.area)} · уровень ${depth(n)}</span>`;
   let b="";const anc=ancestors(n);
@@ -793,7 +795,7 @@ function nodePanel(n){
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
   const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note copy-history">${copyBlock(m.q,`<b>${esc(m.q)}</b>`)}${m.answer?copyBlock(m.answer,`<p>Ваш ответ: ${esc(m.answer)}</p>`):""}${m.verdict?copyBlock(m.verdict,`<p>Вердикт: ${esc(m.verdict)}</p>`):""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>copyBlock(v.verdict,`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>`)).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
   if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${mergedHistory(n.mergedFrom)}`;
-  const tab=panel.tab||"answer",cn=(n.chat||[]).length;
+  const tab=panel.tab||"answer",cn=visibleChat(n).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
   if(tab==="discuss")b+=discussTab(n);
   else if(n.obsolete){if(n.answer)b+=copyBlock(n.answer,`<p>Ваш ответ: ${esc(n.answer)}</p>`);if(n.verdict)b+=copyBlock(n.verdict,`<p>${esc(n.verdict)}</p>`)}
@@ -815,7 +817,7 @@ function nodePanel(n){
     b+=S.rereadPending?.locked?`<div class="note">Карта перестраивается. Ответить можно будет после перечитывания, черновик сохранится.</div>`:waitNote();
     b+=`<div class="chips">${(n.options||[]).map(o=>`<button class="chip${n.recommendation?.option===o?" recommended":""}" aria-pressed="${(selections[n.id]||[]).includes(o)}" data-chip="${esc(o)}"${n.recommendation?.option===o?' aria-describedby="recommendation"':""}>${n.recommendation?.option===o?"★ ":""}${esc(o)}</button>`).join("")}<button class="chip idk" aria-pressed="${(selections[n.id]||[]).includes("Не знаю")}" data-chip="Не знаю">Не знаю</button></div>`;
     if(n.recommendation&&(n.options||[]).includes(n.recommendation.option))b+=`<div class="note" id="recommendation"><b>Рекомендация агента:</b> ${esc(n.recommendation.reason)}</div>`;
-    b+=`<label class="fl">Комментарий к выбранным вариантам или свой ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?n.answer:""))}</textarea></label>`;
+    b+=`<label class="fl">Комментарий к выбранным вариантам или свой ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?(n.pending?.answer||n.answer):""))}</textarea></label>`;
     b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending||S.rereadPending?.locked?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
   }
   if(n.verdictHistory?.length>1)b+=`<details><summary>История вердиктов</summary>${n.verdictHistory.map(v=>copyBlock(v.verdict,`<span class="pill s-${v.status}">${STATUS[v.status]}</span><p>${esc(v.verdict)}</p>`)).join("")}</details>`;
@@ -823,19 +825,21 @@ function nodePanel(n){
   return{head,body:b};
 }
 let projectConversation="main";
+// Queued messages are a view of durable receipts, not evidence for the active worker.
+const visibleChat=n=>n.chat||[];
 const chatKey=id=>id==="root"?id+":"+projectConversation:id;
 function projectChatPanel(n){
   if(n.kind==="root"&&!(S.projectConversations||[{id:"main"}]).some(c=>c.id===projectConversation))projectConversation="main";
-  return {head:`<div class="project-chat-head"><span class="eyebrow">Общий вопрос агенту</span>${`<div class="conversation-toolbar"><div class="conversation-picker"><select id="conversationSelect" aria-label="Разговор" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=(n.chat||[]).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select></div><button class="btn conversation-add" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`}</div>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)};
+  return {head:`<div class="project-chat-head"><span class="eyebrow">Общий вопрос агенту</span>${`<div class="conversation-toolbar"><div class="conversation-picker"><select id="conversationSelect" aria-label="Разговор" ${sending?"disabled":""}>${(S.projectConversations||[{id:"main"}]).map((c,i)=>{const first=visibleChat(n).find(m=>(m.conversationId||"main")===c.id&&m.from==="user");return `<option value="${esc(c.id)}" ${c.id===projectConversation?"selected":""}>${i+1}. ${esc(first?.text?.slice(0,80)||"Новый разговор")}</option>`}).join("")}</select></div><button class="btn conversation-add" data-act="newconversation" aria-label="Новый разговор" title="Новый разговор" ${sending?"disabled":""}>+</button></div>`}</div>`,body:`<h2>${esc(S.title)}</h2>`+discussTab(n)};
 }
 function discussTab(n){
-  const chat=(n.chat||[]).filter(m=>n.kind!=="root"||(m.conversationId||"main")===projectConversation);
+  const chat=visibleChat(n).filter(m=>n.kind!=="root"||(m.conversationId||"main")===projectConversation);
   let b=chat.length?`<div class="chat">${chat.map(m=>`<div data-message="${esc(m.id||"")}" class="msg copy-block ${m.from==="claude"?"claude":"user"}"><span class="who">${m.from==="claude"?"Агент":"Вы"}</span>${m.quote?`<span class="quote">${QLABEL[m.about]||QLABEL.option}: «${esc(m.quote)}»</span>`:""}${esc(m.text)}${(m.links||[]).map(l=>`<br><button class="btn" data-card-link="${esc(l.id)}">${esc(l.q)}</button>`).join("")}${copyButton(m.text)}${(m.images||[]).map(f=>`<img class="chatimg" data-img="${esc(f)}" alt="Картинка">`).join("")}</div>`).join("")}</div>`
     :n.kind==="idea"?`<p class="why">Обсудите идею здесь. Разбор запускается после прикрепления.</p>`:n.kind==="root"?`<p class="why">Задайте вопрос о проекте или попросите агента перечитать карту либо изменить статус указанного вопроса.</p>`:`<p class="why">Непонятен вопрос, не согласны с вердиктом или хотите подумать вслух — спросите агента здесь. Когда в обсуждении принято решение, агент автоматически обновит статус вопроса.</p>`;
   if(n.discussError)b+=`<div class="note">${esc(n.discussError)}<p>После устранения ограничения отправьте сообщение снова. Переписка сохранена.</p></div>`;
   const busy=false;
   if(busy)b+=working("Агент пишет ответ…");
-  else if(n.discuss)b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
+  else if(n.discuss||chat.some(m=>m.queued))b+=`<div class="note">Сообщение в очереди. Можно дописать ещё — Агент ответит на всё сразу.</div>`;
   else if(!listening)b+=`<div class="note">Агент сейчас не слушает карту. Сообщение встанет в очередь и будет разобрано, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`;
   if(panel.quote)b+=`<div class="qbox"><span>Обсуждаем — ${QLABEL[panel.quote.about].toLowerCase()}: «${esc(panel.quote.text)}»</span><button data-act="unquote" aria-label="Убрать цитату" title="Убрать цитату">×</button></div>`;
   const imgs=draftImages[chatKey(n.id)]||[];
@@ -877,7 +881,7 @@ async function attachIdea(){
   const raw=$("#fIdea")?.value||"",text=raw.trim();if(!text)return;
   ideaRequestId ||= crypto.randomUUID();
   const target=panel,requestId=ideaRequestId;sending=true;clearError();renderPanel();
-  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged){showQueue(true);actionResult(result,true).then(async done=>{await poll(true);if(panel===target){queuePinned=false;$("#queueWindow").hidden=true;openPanel({mode:"node",id:done.id})}},error=>showError(error.message))}}
+  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged){const pending=S.nodes.find(n=>n.requestId===requestId);if(pending){panel={mode:"node",id:pending.id};render();renderPanel()}const waitingPanel=panel;actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||!panel){openPanel({mode:"node",id:done.id})}},error=>showError(error.message))}}
   catch(e){showError(e.message)}
   finally{sending=false;renderPanel()}
 }
@@ -957,7 +961,7 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([S.projectConversations,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,n.chat,n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([S.projectConversations,n.queuedActions,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,visibleChat(n),n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(revealDiscussion=false){
   const p=$("#panel");
@@ -965,7 +969,9 @@ function renderPanel(revealDiscussion=false){
   let r;
   if(panel.mode==="summary")r=summaryPanel();
   else if(panel.mode==="files")r=knowledgeFilesPanel();
-  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?projectChatPanel(n):nodePanel(n)}
+  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=n.queuedCreation?{head:"В очереди",body:`<h2>${esc(n.text||n.q)}</h2><p>В очереди</p>`}:panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?projectChatPanel(n):nodePanel(n)}
+  const queued=(get(panel.id||(panel.mode==="summary"?"root":null))?.queuedActions||[]).filter(a=>!["answer","discuss"].includes(a.type));
+  if(queued.length)r.body=`<div class="note">${queued.map(a=>`${esc(actionLabels[a.type]||a.type)} · В очереди`).join("<br>")}</div>`+r.body;
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
   const key=[panel.mode,panel.id,panel.tab,panel.id==="root"?projectConversation:""].join("|"),same=p.dataset.key===key;
   if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
@@ -1059,6 +1065,41 @@ async function submitQuestion(){
   sending=null;renderPanel();
 }
 
+// Replay admitted inputs only into this browser view. Worker evidence remains canonical.
+function projectQueuedState(state){
+  for(const effect of state.actionQueue?.effects||[]){
+    const b=effect.input,type=effect.type,n=state.nodes.find(n=>n.id===b.id);
+    const target=n||state.nodes.find(n=>n.id===(b.sourceId||b.parentId||"root"));
+    if(target)(target.queuedActions||=[]).push({id:effect.actionId,type});
+    if(type==="answer"&&n)n.pending={answer:b.answer,stage:"queued"};
+    if(type==="discuss"&&n){
+      (n.chat||=[]).push({id:"action-"+effect.actionId,from:"user",text:b.message||"",quote:b.quote,about:["verdict","question"].includes(b.about)?b.about:"option",images:effect.images,conversationId:b.conversationId||"main",at:effect.at,queued:true});
+    }
+    if(type==="chatreset"&&n)n.chat=(n.chat||[]).filter(m=>n.kind==="root"&&(m.conversationId||"main")!==(b.conversationId||"main"));
+    if(type==="question"&&!(state.questionRequests||[]).some(j=>j.id===b.id)){
+      (state.questionRequests||=[]).push({id:b.id,parentId:b.parentId,q:b.q,stage:"queued"});
+    }
+    if(type==="idea"&&!state.nodes.some(n=>n.requestId===b.id))state.nodes.push({id:"queued-"+effect.actionId,parentId:"root",kind:"idea",q:b.text?.slice(0,220),text:b.text,requestId:b.id,status:"open",analysis:{stage:"queued"},queuedCreation:true});
+    if(type==="idea/edit"&&n){n.text=b.text;n.q=b.text?.slice(0,220);n.analysis={stage:"queued"}}
+    if(type==="idea/analyze"&&n)n.analysis={stage:"queued"};
+    if(type==="preview/prepare"&&!n)state.nodes.push({id:"queued-"+effect.actionId,parentId:b.sourceId,sourceId:b.sourceId,kind:"preview",q:"Превью",job:{stage:"queued"},queuedCreation:true});
+    if(["preview/build","preview/prepare"].includes(type)&&n){n.job={stage:"queued"};if(b.request)n.request=b.request}
+    if(type==="preview/policy"&&n)n.deletionPolicy=b.policy;
+    if(["idea/delete","preview/delete"].includes(type)&&n){
+      const removed=new Set([n.id]);
+      for(let size=-1;size!==removed.size;){size=removed.size;for(const child of state.nodes)if(removed.has(child.parentId))removed.add(child.id)}
+      state.nodes=state.nodes.filter(child=>{if(!removed.has(child.id))return true;if(child.kind==="preview"&&type==="idea/delete"&&child.deletionPolicy==="keep"){child.parentId="root";child.sourceId="root";child.orphaned=true;return true}return false});
+    }
+    if(type==="more")state.morePending=true;
+    if(type==="finish")state.finishPending=true;
+    if(type==="spec")state.specPending||={stage:"queued",waiting:0};
+    if(type==="reread")state.rereadPending||={stage:"queued",locked:false};
+    if(type==="knowledge-import")state.knowledgePending||={stage:"queued",reason:"import"};
+  }
+  for(const job of state.questionRequests||[])if(!state.nodes.some(n=>n.requestId===job.id)&&state.nodes.some(n=>n.id===job.parentId))state.nodes.push({id:"queued-question-"+job.id,parentId:job.parentId,kind:"q",q:job.q,requestId:job.id,status:"open",queuedCreation:true});
+  return state;
+}
+
 async function poll(force){
   try{
     const d=await api("/api/state");
@@ -1067,7 +1108,7 @@ async function poll(force){
     S.sessionUsage=d.sessionUsage;S.sessionHint=d.sessionHint;renderUsage();
     if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
       const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
-      const first=!loaded,previousErrors=stateErrors(S);S=d;listening=d.listening;loaded=true;pruneImgUrls();
+      const first=!loaded,previousErrors=stateErrors(S);S=projectQueuedState(d);listening=d.listening;loaded=true;pruneImgUrls();
       if(first){try{showObsolete=localStorage.getItem(obsoleteKey())==="true"}catch{showObsolete=false}}
       const newErrors=[...stateErrors(S)].filter(([key,error])=>previousErrors.get(key)!==error).map(([,error])=>error);
       if(!first&&newErrors.length)showError(newErrors.map(friendlyError).join("\n\n"));
@@ -1189,7 +1230,7 @@ $("#panel").addEventListener("click",e=>{
     case "chatreset":{const id=panel.id;panel.confirmChat=false;clearError();
       api("/api/chatreset",{id,conversationId:id==="root"?projectConversation:undefined}).then(()=>{delete draftQuotes[id];if(panel&&panel.id===id)panel.quote=null;return poll(true)},err=>{showError(err.message);renderPanel()});break}
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
-    case "cancel":{const a=S.actionQueue?.actions.find(a=>a.type==="answer"&&a.target===panel.id&&a.status==="queued");if(a)cancelQueued(a.id);else showQueue(true);break}
+    case "cancel":{const a=S.actionQueue?.actions.filter(a=>a.type==="answer"&&a.target===panel.id&&a.status==="queued").at(-1);if(a)cancelQueued(a.id);else showQueue(true);break}
     case "reread":requestReread();break;
     case "knowledge-open":api("/api/knowledge").then(d=>{knowledgeIndex=d;renderPanel()},err=>showError(err.message));break;
     case "knowledge-retry":act("/api/knowledge-retry");break;
@@ -1229,7 +1270,7 @@ $("#panel").addEventListener("contextmenu",e=>{
 $("#stage").addEventListener("contextmenu",e=>{
   const target=e.target.closest(".node");if(!target||selBefore)return;
   e.preventDefault();clearTimeout(clickTimer);
-  const id=target.dataset.id,el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
+  const id=target.dataset.id;if(get(id)?.queuedCreation)return;const el=document.createElement("div");el.id="ctxmenu";el.setAttribute("role","menu");
   el.innerHTML=id==="root"?`<button role="menuitem" data-ctx="archive">Архив</button><button role="menuitem" data-ctx="project">Общий чат</button><button role="menuitem" data-ctx="reread">Перечитать</button><button role="menuitem" data-ctx="attachidea">Прикрепить идею</button>`:get(id)?.kind==="idea"?`<button role="menuitem" data-ctx="analyzeidea" ${get(id).analysis?"disabled":""}>Разобрать идею</button><button role="menuitem" data-ctx="editidea">Редактировать идею</button><button role="menuitem" data-ctx="removeidea">Удалить идею</button>`:`<button role="menuitem" data-ctx="create">Добавить свой вопрос</button>`;
   if(get(id)?.kind!=="preview")el.innerHTML+=`<button role="menuitem" data-ctx="preview">Создать превью</button>`;
   else el.innerHTML=`<button role="menuitem" data-ctx="previewopen">Открыть превью</button>`;

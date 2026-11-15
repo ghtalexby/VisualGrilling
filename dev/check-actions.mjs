@@ -63,9 +63,16 @@ try {
   await request("discuss", { id, message: "Two" });
   await request("discuss", { id, message: "Three" });
   assert.equal((await state()).actionQueue.waiting, 3);
+  assert.deepEqual((await state()).actionQueue.effects.filter(e => e.type === "discuss").map(e => e.input.message), ["One", "Two", "Three"]);
+  assert.equal((await state()).nodes.find(n => n.id === id).chat?.length || 0, 0);
+  await stop(); await start();
+  assert.deepEqual((await state()).actionQueue.effects.filter(e => e.type === "discuss").map(e => e.input.message), ["One", "Two", "Three"]);
+  e = await wait();
   await grade(e, "gap");
   await grade(e, "gap"); // Lost apply response: receipt, no second mutation.
   e = await wait(); assert.equal(e.message, "One\n\nTwo\n\nThree");
+  assert.equal((await state()).actionQueue.effects.length, 0);
+  assert.equal((await state()).nodes.find(n => n.id === id).chat.length, 3);
   await request("discuss", { id, message: "Next" });
   await reply(e);
   e = await wait(); assert.equal(e.message, "Next"); await reply(e);
