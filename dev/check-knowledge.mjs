@@ -47,8 +47,12 @@ try {
   assert.deepEqual(knowledge(cwd, maps).index().ignored, ["large.txt"]);
   assert.throws(() => store.read("large.txt"), /исключён/);
   assert.throws(() => store.commit([], [], oversized.documentsRevision), /Документы изменились/);
-  assert.throws(() => store.setIgnored("../outside.txt", true), /не найден/);
+  assert.throws(() => store.setIgnored("../outside.txt", true), /Некорректное/);
   assert.throws(() => store.setIgnored("README.md", "true"), /Некорректное/);
+  for (const invalid of ["notes:old.md", "folder\\file.md", "bad\nname.txt", "../outside.txt"]) {
+    assert.throws(() => store.setIgnored(invalid, true), /Некорректное/);
+    assert.deepEqual(store.index().ignored, ["large.txt"]);
+  }
   store.setIgnored("large.txt", false);
   assert.ok(store.index().warnings.some(w => w.includes("large.txt")));
   store.setIgnored("large.txt", true);

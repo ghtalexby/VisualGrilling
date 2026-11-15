@@ -22,12 +22,13 @@ export function knowledge(project, maps) {
   project = path.resolve(project); maps = path.resolve(maps);
   const runtime = path.join(project, ".grill", "knowledge-ops");
   const pathKey = relative => process.platform === "win32" ? relative.toLowerCase() : relative;
+  const validIgnorePath = p => bounded(p, 1000) && !p.includes("\\") && !p.split("/").some(s => !s || s === "." || s === ".." || /[:\x00-\x1f]/.test(s));
   function ignoredPaths() {
     const file = safe(project, ".grill/knowledge-ignore.json");
     if (!fs.existsSync(file)) return [];
     if (fs.statSync(file).size > 2000000) fail("Некорректный список исключений знаний");
     const paths = json(file);
-    if (!Array.isArray(paths) || paths.length > 1000 || paths.some(p => !bounded(p, 1000) || p.includes("\\") || p.split("/").some(s => !s || s === "." || s === ".." || /[:\x00-\x1f]/.test(s)))) fail("Некорректный список исключений знаний");
+    if (!Array.isArray(paths) || paths.length > 1000 || paths.some(p => !validIgnorePath(p))) fail("Некорректный список исключений знаний");
     return paths;
   }
   const isIgnored = relative => ignoredPaths().some(p => pathKey(p) === pathKey(relative));
@@ -227,7 +228,7 @@ export function knowledge(project, maps) {
   }); }
   function setIgnored(relative, ignored) {
     return locked(() => {
-      if (typeof relative !== "string" || !bounded(relative, 1000) || typeof ignored !== "boolean") fail("Некорректное исключение знаний");
+      if (!validIgnorePath(relative) || typeof ignored !== "boolean") fail("Некорректное исключение знаний");
       const paths = ignoredPaths(), key = pathKey(relative), exists = paths.some(p => pathKey(p) === key);
       if (ignored && !exists) {
         if (paths.length >= 1000) fail("Не более 1000 исключений знаний");
