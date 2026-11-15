@@ -11,6 +11,12 @@ const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url))
 const skillRoot = path.dirname(cli);
 const instruction = file => fs.readFileSync(path.join(skillRoot, file), "utf8");
 const workerRules = instruction("worker.md");
+for (const root of [new URL("../skills/grill/", import.meta.url), new URL("../.claude/skills/grill/", import.meta.url)]) {
+  const skill = fs.readFileSync(new URL("SKILL.md", root), "utf8");
+  const policy = skill.indexOf("Before any initial project-content inspection");
+  assert.ok(policy >= 0 && policy < skill.indexOf("2. Otherwise inspect"), "Load project exclusions before initial document analysis");
+  assert.ok(skill.slice(policy, skill.indexOf("2. Otherwise inspect")).includes(".grill/knowledge-ignore.json"));
+}
 const eventFiles = ["answer", "discuss", "question", "reread", "reevaluate", "idea", "spec", "finish"].map(name => `events/${name}.md`);
 for (const file of [...eventFiles, "knowledge.md", "preview-format.md"]) {
   assert.ok(instruction(file).trim(), `Missing rules: ${file}`);
