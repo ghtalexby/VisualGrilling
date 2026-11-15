@@ -8,7 +8,7 @@ The interaction takes place on a browser map:
 
 - The agent works in the user's **current Codex or Claude Code session**, without an additional API key.
 - The map is a local page at `http://127.0.0.1:<port>/`, served by `grill.mjs`.
-- Codex checks its current host's launch mode: a confirmed --no-daemon host uses blocking wait; otherwise it defaults to an event-driven monitor without repeating wake-up verification (except explicit user requests or diagnosed transport failures): it ends its turn while idle, and the map server wakes the same session for one event at a time.
+- Codex checks its current host's launch mode: a confirmed --no-daemon host uses blocking wait; otherwise it defaults to hybrid waiting: after each round it waits up to 15 seconds for an event, then on timeout arms an event-driven monitor without repeating wake-up verification (except explicit user requests or diagnosed transport failures): it ends its turn while idle, and the map server wakes the same session for one event at a time.
 - The browser queues events on the local server; the agent retrieves them with `wait` calls or a background `watch` on hosts with automatic wake-up and responds with `apply`.
 
 ## User workflow
@@ -53,7 +53,8 @@ skills/grill/          working skill; edit this copy
   SKILL.md             map setup and waiting-mode selection
   worker.md            shared procedure and event routing
   events/              rules loaded only for the current event
-  monitor.md           Codex event monitor workflow
+  hybrid.md            Default Codex 15-second wait, then monitor workflow
+  monitor.md           Explicit pure monitor workflow
   dispatcher.md        level 2 foreground worker dispatch
   parallel-maps.md     multi-map routing for levels 1/2
   config.default.json  griller model (inherit) and knowledge threshold

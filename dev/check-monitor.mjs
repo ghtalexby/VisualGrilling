@@ -246,7 +246,77 @@ try {
   status = await pending(); e = await event(status.delivery);
   assert.equal(e.type, "reevaluate"); assert.deepEqual(e.ids, [ancestor]);
   await api("apply", { type: "reevaluate", token: e.token, assessments: [{ id: ancestor, status: "verify", verdict: "Review both proofs" }], rearm: true, owner });
-  console.log("Monitor checks passed: idle, wake, serial delivery, CLI, conflicts, stale events, restart, errors, rebinding and API protection");
+  // Hybrid uses the existing primitives sequentially, without waking the host during the fast path.
+  await stop(); await api("init", { title: "Hybrid", questions: [{ q: "Keep open?" }] });
+  const hybridCalls = calls().length;
+  const cliResult = async (args, body) => {
+    const result = await run(args, body).done;
+    assert.equal(result.code, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  for (let i = 0; i < 2; i++) {
+    const fastWait = run(["wait", "--timeout", "15"]);
+    await sleep(300);
+    await api("discuss", { id: "root", message: `Fast reply ${i}` });
+    const result = await fastWait.done;
+    assert.equal(result.code, 0, result.stderr);
+    e = JSON.parse(result.stdout); assert.equal(e.type, "discuss");
+    await cliResult(["apply"], { type: "discuss", id: e.id, token: e.token, reply: "Fast result" });
+    assert.equal(calls().length, hybridCalls, "Fast events must not wake Codex");
+    assert.equal((await api("monitor")).phase, "off");
+  }
+  const idleAt = Date.now();
+  assert.equal((await cliResult(["wait", "--timeout", "15"])).type, "timeout");
+  assert.ok(Date.now() - idleAt >= 14500, "Hybrid must wait the full 15-second idle window");
+  assert.equal(calls().length, hybridCalls);
+  // The timeout/arm gap must preserve a board submission.
+  await api("discuss", { id: "root", message: "At the transition" });
+  await cliResult(["monitor"]); status = await pending();
+  assert.equal(calls().length, hybridCalls + 1);
+  assert.ok(calls().at(-1)[4].includes("hybrid.md"));
+  assert.ok(!calls().at(-1)[4].includes("drain queued work"));
+  e = await cliResult(["monitor", "--event", status.delivery]);
+  const hybridPart = { type: "discuss", id: e.id, token: e.token };
+  await api("apply", { ...hybridPart, part: 0, more: true, questions: [] });
+  assert.equal((await api("monitor")).delivery, status.delivery);
+  await api("wait?timeout=15", undefined, 409);
+  await cliResult(["apply"], { ...hybridPart, part: 1, more: false, reply: "Monitored result" });
+  assert.equal((await api("monitor")).phase, "ready");
+  // Work accepted after apply and before stop remains available to the next wait.
+  await api("discuss", { id: "root", message: "Back to fast waiting" });
+  assert.equal((await api("monitor")).phase, "ready");
+  await cliResult(["monitor", "--stop"]);
+  e = await cliResult(["wait", "--timeout", "15"]);
+  assert.equal(e.type, "discuss");
+  assert.equal(calls().length, hybridCalls + 1, "Completed monitor must not notify before stop");
+  await cliResult(["apply"], { type: "discuss", id: e.id, token: e.token, reply: "Fast again" });
+  await api("finish", {});
+  e = await cliResult(["wait", "--timeout", "15"]);
+  if (e.type === "knowledge") {
+    await cliResult(["apply"], { type: "knowledge", token: e.token, files: [] });
+    e = await cliResult(["wait", "--timeout", "15"]);
+  }
+  assert.equal(e.type, "finish");
+  await api("discuss", { id: "root", message: "After finish" });
+  await cliResult(["apply"], { type: "finish", token: e.token, summary: "Hybrid finished" });
+  const report = await run(["report"]).done; assert.equal(report.code, 0, report.stderr);
+  assert.equal((await api("state")).actionQueue.paused, true);
+  assert.equal((await api("monitor")).phase, "off");
+  assert.equal(calls().length, hybridCalls + 1);
+  // Completing a failed monitored event must also return control to hybrid's short wait.
+  await api("actions/continue", {});
+  await arm(); status = await pending(); e = await event(status.delivery);
+  assert.equal(e.type, "discuss");
+  await api("discuss", { id: "root", message: "Independent follow-up" });
+  const failureCalls = calls().length;
+  await cliResult(["apply"], { type: "failure", token: e.token, error: "Cannot prepare this event" });
+  assert.equal((await api("monitor")).phase, "ready");
+  await sleep(200); assert.equal(calls().length, failureCalls, "Failure completion must not implicitly re-arm");
+  await cliResult(["monitor", "--stop"]);
+  e = await cliResult(["wait", "--timeout", "15"]);
+  assert.equal(e.type, "discuss");
+  await cliResult(["apply"], { type: "discuss", id: e.id, token: e.token, reply: "Follow-up handled" });
+  console.log("Monitor checks passed: hybrid 15-second wait, wake/fast-path transitions, finish, idle, serial delivery, CLI, conflicts, stale events, restart, errors, rebinding and API protection");
 } finally {
   clearTimeout(watchdog);
   for (const child of children) child.kill();

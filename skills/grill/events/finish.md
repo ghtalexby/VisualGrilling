@@ -19,4 +19,4 @@ G report
 
 Finish events carry `ideas` as context separately from question counts. Finish waits for saved knowledge or explicit user skip.
 
-A new finish closes the executable boundary. Later actions stay saved but paused; do not drain or re-arm them. Only an explicit user continuation releases them through `G start --continue`; plain `G start` keeps them paused. In Codex monitor delegation return only prepared summary JSON; the main session applies, rearms/stops and writes report.
+A new finish closes the executable boundary. Later actions stay saved but paused; do not drain or re-arm them. Only an explicit user continuation releases them through `G start --continue`; plain `G start` keeps them paused. In Codex hybrid or pure monitor delegation return only prepared summary JSON; the main session applies, stops listening and writes the report.

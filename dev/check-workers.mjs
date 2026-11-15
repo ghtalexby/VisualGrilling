@@ -22,7 +22,7 @@ for (const file of [...eventFiles, "knowledge.md", "preview-format.md"]) {
   assert.ok(instruction(file).trim(), `Missing rules: ${file}`);
   assert.ok(workerRules.includes(`](${file})`), `Missing worker route: ${file}`);
 }
-for (const file of ["monitor.md", "dispatcher.md", "parallel-maps.md"]) {
+for (const file of ["hybrid.md", "monitor.md", "dispatcher.md", "parallel-maps.md"]) {
   assert.ok(instruction(file).trim(), `Missing workflow: ${file}`);
   assert.ok(instruction("SKILL.md").includes(`](${file})`), `Missing mode route: ${file}`);
 }
@@ -30,7 +30,7 @@ const answerInstructionBytes = Buffer.byteLength(workerRules) + Buffer.byteLengt
 assert.ok(answerInstructionBytes < 12000, `Answer instructions exceed budget: ${answerInstructionBytes} bytes`);
 assert.ok(answerInstructionBytes <= 11000, `Keep at least 1000 bytes of instruction headroom: ${answerInstructionBytes} bytes`);
 // Every local Markdown link in the split instruction package must resolve.
-for (const file of ["SKILL.md", "worker.md", "knowledge.md", "preview-format.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles]) {
+for (const file of ["SKILL.md", "worker.md", "knowledge.md", "preview-format.md", "hybrid.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles]) {
   for (const match of instruction(file).matchAll(/\]\(([^)]+)\)/g)) {
     const target = match[1].split("#")[0];
     if (!target || /^[a-z]+:/i.test(target)) continue;

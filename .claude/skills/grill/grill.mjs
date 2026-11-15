@@ -1572,7 +1572,7 @@ ${S.notes || "—"}
         }
         applying = false;
         const event = monitor?.event;
-        if (event && event.type === b.type && event.id === b.id && event.token === b.token && !workIsCurrent()) monitor.completed = true;
+        if (event && (event.type === b.type && event.id === b.id || b.type === "failure") && event.token === b.token && !workIsCurrent()) monitor.completed = true;
         if (rearm && !result.staged && !workIsCurrent()) result.monitor = rearmMonitor(b.type === "finish");
         pump();
         if (result.monitor && result.monitor.phase !== "stopped") result.monitor = monitorStatus();

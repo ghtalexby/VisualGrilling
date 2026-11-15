@@ -1,6 +1,6 @@
 # 4.4 Level 2: dispatcher and per-event worker
 
-Use this level only with verified level 1 background wake-up AND a foreground subagent with shell access (Claude Code Agent tool; Kimi Code CLI `Agent`). Verify that the chosen worker model can run `G apply` before relying on this level. Otherwise keep level 1 or 0. Codex monitor uses its own prepare-only worker procedure in monitor.md; the main session owns apply. Level 0 handles events in-session.
+Use this level only with verified level 1 background wake-up AND a foreground subagent with shell access (Claude Code Agent tool; Kimi Code CLI `Agent`). Verify that the chosen worker model can run `G apply` before relying on this level. Otherwise keep level 1 or 0. Codex hybrid/pure monitor use their prepare-only worker procedures in hybrid.md/monitor.md; the main session owns apply. Level 0 handles events in-session.
 
 Setup after init or when resuming:
 

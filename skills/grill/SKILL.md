@@ -95,7 +95,7 @@ For `init` and every `apply`, follow the canonical [JSON passing instructions](w
 
 ### 4.0 Choose how to wait
 
-Codex: use the monitor workflow below by default for new and continued maps. Shared-server wake-up is already confirmed for this setup; do not require a new probe or choose level 0 merely because the current conversation lacks verification history. Check the current host's launch mode as described below. Use blocking wait only when the user explicitly requests it, the current host is running standalone with --no-daemon, or a concrete diagnosed host/transport failure prevents monitor operation; explain the reason before falling back.
+Codex: use the hybrid workflow below by default for new and continued maps: wait up to 15 seconds after each round, then arm monitor only on timeout. Pure monitor remains available on explicit request. Shared-server wake-up is already confirmed for this setup; do not require a new probe or choose level 0 merely because the current conversation lacks verification history. Check the current host's launch mode as described below. Use the continuous level 0 blocking-wait loop only when the user explicitly requests it, the current host is running standalone with --no-daemon, or a concrete diagnosed host/transport failure prevents monitor operation; explain the reason before falling back.
 
 Other hosts: prefer level 2 (section 4.4) when foreground workers with shell access are verified as well. Use level 1 only if the host supports a background shell command and automatically resumes you on completion. Otherwise use level 0.
 
@@ -104,9 +104,13 @@ Other hosts: prefer level 2 (section 4.4) when foreground workers with shell acc
 
 Host behavior varies by version: verify automatic completion wake-up and the host's background time limit before relying on level 1; otherwise fall back to level 0. Keep max-wait below that limit.
 
+### Codex hybrid: default waiting mode
+
+Read [hybrid.md](hybrid.md). After each completed round use `G wait --timeout 15`; process an arriving event and repeat, or arm monitor on timeout and end the turn. Use plain apply, including for monitored events, then stop the completed subscription before waiting again. Never wait after a new finish.
+
 ### Codex monitor: event-driven wake-up
 
-When selecting monitor, read [monitor.md](monitor.md) and follow that workflow.
+When explicitly selecting pure monitor (immediate arm without the 15-second wait), read [monitor.md](monitor.md) and follow that workflow.
 
 ### 4.1 Level 1: background wait
 
@@ -131,7 +135,7 @@ When selecting level 2, read [dispatcher.md](dispatcher.md).
 
 ## 4.5 Parallel maps (levels 1 and 2 only)
 
-At levels 1/2 read [parallel-maps.md](parallel-maps.md), including for a single map: it defines routing, finish draining and continuation. Do not load it for Codex monitor or level 0.
+At levels 1/2 read [parallel-maps.md](parallel-maps.md), including for a single map: it defines routing, finish draining and continuation. Do not load it for Codex hybrid, pure monitor or level 0.
 
 ## Troubleshooting
 
@@ -166,11 +170,11 @@ The header copy action supplies a continuation request and `resume` metadata fro
 
 Structural removals prune semantic links; reread merges reconcile the graph and require audit for indirect changes. See `events/reread.md` for graph limits and replacement annotations.
 
-Session cost: answer/question events include `context.questionTitles`; scan these before adding questions. Answer results normally assess `ancestorIds` inline (`ancestors:[]` if unchanged); request separate review when evidence is missing. Omit `ancestors` for `capturedForSpec:true`. If only sibling context changed, the server accepts the card grade and queues ancestor review. In Codex monitor use `apply --rearm` for final results. Large events (>20000 characters) use the inbox; read in parts, without reprinting after compaction. `--inline` overrides this. `session.rolloverTokens` defaults to 120000; on `sessionHint:"rollover"`, apply current work, save durable notes and suggest a new session once, without automatic migration. See worker, monitor and event rules.
+Session cost: answer/question events include `context.questionTitles`; scan these before adding questions. Answer results normally assess `ancestorIds` inline (`ancestors:[]` if unchanged); request separate review when evidence is missing. Omit `ancestors` for `capturedForSpec:true`. If only sibling context changed, the server accepts the card grade and queues ancestor review. In pure Codex monitor use `apply --rearm` for final results. Hybrid uses plain apply and returns to its 15-second wait after stopping the completed subscription. Large events (>20000 characters) use the inbox; read in parts, without reprinting after compaction. `--inline` overrides this. `session.rolloverTokens` defaults to 120000; on `sessionHint:"rollover"`, apply current work, save durable notes and suggest a new session once, without automatic migration. See worker, monitor and event rules.
 
 Project chat supports separate conversations selected in the browser. Project `discuss` events include `conversationId`; use the supplied focus history and reply with the normal root ID and token. New conversations do not discard map evidence.
 
 
 ## Durable action queue
 
-User mutations are accepted into a durable FIFO journal, including during reread and finish. Never ask the user to wait before submitting. Adjacent messages are delivered together; adjacent answer revisions execute the last version. Spec and reread capture state when executed. Main-session Codex monitor uses one fresh prepare-only worker per event (see monitor.md); only the main session applies/rearms. Echo every token, including more. An unrecoverable event can be completed with `{type:"failure",token,error}`; independent actions continue and retry is explicit. A started finish holds later actions, also if it fails; do not drain them. Only an explicit user continuation of the finished map (a chat request, Play or copied continuation context) uses `G start --continue` to release them. Plain `G start` for recovery or reopening keeps them paused.
+User mutations are accepted into a durable FIFO journal, including during reread and finish. Never ask the user to wait before submitting. Adjacent messages are delivered together; adjacent answer revisions execute the last version. Spec and reread capture state when executed. Codex hybrid and pure monitor use one fresh prepare-only worker per event (see hybrid.md and monitor.md); only the main session applies and controls waiting. Echo every token, including more. An unrecoverable event can be completed with `{type:"failure",token,error}`; independent actions continue and retry is explicit. A started finish holds later actions, also if it fails; do not drain them. Only an explicit user continuation of the finished map (a chat request, Play or copied continuation context) uses `G start --continue` to release them. Plain `G start` for recovery or reopening keeps them paused.
