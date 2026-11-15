@@ -126,9 +126,22 @@ try {
     const canonical=await api("state");assert.equal(canonical.nodes.find(n=>n.id==="root").chat?.length||0,0);
     await api("chatreset",{id:"root",conversationId:conversation.id});await js("poll(true)");
     assert.equal(await js('document.querySelectorAll(".chat .msg").length'),0);
-    await api("idea",{id:"queued-idea",text:"New idea"});await api("question",{id:"queued-question",parentId:"root",q:"New question?"});
+    await js('window.realActionResult=actionResult;actionResult=()=>({then:ok=>{window.finishCreation=()=>ok({id:"root"})}});openPanel({mode:"ideaDraft",id:"root"});document.querySelector("#fIdea").value="New idea";attachIdea()');
+    assert.equal(await js('get(panel.id).queuedCreation'),true);
+    await js('document.querySelector("[data-act=close]").click();finishCreation()');
+    assert.equal(await js('panel'),null);
+    // A placeholder removed by polling may still transition to the real card.
+    await js('openPanel({mode:"ideaDraft",id:"root"});document.querySelector("#fIdea").value="Another idea";attachIdea()');
+    await js('S.nodes=S.nodes.filter(n=>n.id!==panel.id);render();finishCreation()');
+    assert.equal(await js('panel.id'),"root");
+    // Navigating during preview admission must preserve the newly chosen drawer.
+    await js('window.realApi=api;api=async(p,b)=>{const r=await window.realApi(p,b);if(p==="/api/preview/prepare")openPanel({mode:"project",id:"root",tab:"discuss"});return r};openPanel({mode:"previewSetup",id:"root"});document.querySelector("[data-preview-branch]").checked=true;previewAction("prepare")');
+    assert.equal(await js('panel.mode'),"project");
+    await js('finishCreation()');assert.equal(await js('panel.mode'),"project");
+    await js('api=window.realApi;actionResult=window.realActionResult');
+    await api("question",{id:"queued-question",parentId:"root",q:"New question?"});
     await js("poll(true)");
-    assert.equal(await js('S.nodes.filter(n=>n.queuedCreation).length'),2);
+    assert.equal(await js('S.nodes.filter(n=>n.queuedCreation).length'),4);
     assert.equal(await js('document.querySelector("#stage").textContent.includes("Pundefined")'),false);
     assert.equal(await js('qs().length'),2);
     assert.equal(await js('counts().open'),2);

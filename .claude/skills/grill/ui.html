@@ -522,8 +522,8 @@ async function previewAction(action){
     if(action==="prepare"){
       const target=panel;
       const result=await api("/api/preview/prepare",{sourceId:panel.id,id:$("#previewTarget").value||undefined,branches:[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
-      await poll(true);const pending=get("queued-"+result.actionId);if(pending){panel={mode:"node",id:pending.id};render();renderPanel()}const waitingPanel=panel;
-      actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||!panel)openPanel({mode:"node",id:done.id})},error=>showError(error.message));
+      await poll(true);const pending=get("queued-"+result.actionId);let waitingPanel=target;if(pending&&panel===target){panel={mode:"node",id:pending.id};waitingPanel=panel;render();renderPanel()}
+      actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||waitingPanel?.missing&&!panel)openPanel({mode:"node",id:done.id})},error=>showError(error.message));
     }else if(action==="open")await openPreview(panel.id);
     else if(action==="build"){
       if(previewView?.id===panel.id&&!await guardPreview())return;
@@ -676,7 +676,7 @@ function render(){
   else{
     S.nodes.forEach(n=>{if(n.obsolete?!showObsolete:flt&&(!["q","idea"].includes(n.kind)||n.status!==flt))return;hit.add(n.id);chain(n)});
   }
-  if(panel?.id&&!shown.has(panel.id)){panel=null;renderPanel()}
+  if(panel?.id&&!shown.has(panel.id)){if(!get(panel.id))panel.missing=true;panel=null;renderPanel()}
   $("#bIsolation").hidden=!isolated;
   existing.forEach((e,id)=>{if(!shown.has(id))e.remove()});
   const vk=id=>kids(id).filter(k=>shown.has(k.id));
@@ -879,7 +879,7 @@ async function attachIdea(){
   const raw=$("#fIdea")?.value||"",text=raw.trim();if(!text)return;
   ideaRequestId ||= crypto.randomUUID();
   const target=panel,requestId=ideaRequestId;sending=true;clearError();renderPanel();
-  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged){const pending=S.nodes.find(n=>n.requestId===requestId);if(pending){panel={mode:"node",id:pending.id};render();renderPanel()}const waitingPanel=panel;actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||!panel){openPanel({mode:"node",id:done.id})}},error=>showError(error.message))}}
+  try{const result=await api("/api/idea",{id:requestId,text});const unchanged=drafts.idea===undefined||drafts.idea===raw;if(unchanged)delete drafts.idea;if(ideaRequestId===requestId)ideaRequestId=null;await poll(true);if(panel===target&&unchanged){const pending=S.nodes.find(n=>n.requestId===requestId);if(pending){panel={mode:"node",id:pending.id};render();renderPanel()}const waitingPanel=panel;actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||waitingPanel?.missing&&!panel){openPanel({mode:"node",id:done.id})}},error=>showError(error.message))}}
   catch(e){showError(e.message)}
   finally{sending=false;renderPanel()}
 }
@@ -967,7 +967,7 @@ function renderPanel(revealDiscussion=false){
   let r;
   if(panel.mode==="summary")r=summaryPanel();
   else if(panel.mode==="files")r=knowledgeFilesPanel();
-  else{const n=get(panel.id);if(!n){panel=null;p.hidden=true;return}r=n.queuedCreation?{head:"В очереди",body:`<h2>${esc(n.text||n.q)}</h2><p>В очереди</p>`}:panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?projectChatPanel(n):nodePanel(n)}
+  else{const n=get(panel.id);if(!n){panel.missing=true;panel=null;p.hidden=true;return}r=n.queuedCreation?{head:"В очереди",body:`<h2>${esc(n.text||n.q)}</h2><p>В очереди</p>`}:panel.mode==="previewSetup"||n.kind==="preview"?previewPanel(n):panel.mode==="ideaDraft"?ideaDraftPanel():panel.mode==="question"?questionPanel():n.kind==="idea"?ideaPanel(n):n.kind==="root"?projectChatPanel(n):nodePanel(n)}
   const queued=(get(panel.id||(panel.mode==="summary"?"root":null))?.queuedActions||[]).filter(a=>!["answer","discuss"].includes(a.type));
   if(queued.length)r.body=`<div class="note">${queued.map(a=>`${esc(actionLabels[a.type]||a.type)} · В очереди`).join("<br>")}</div>`+r.body;
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
