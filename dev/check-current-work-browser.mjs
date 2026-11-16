@@ -45,9 +45,11 @@ try {
     const shot = await cdp("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(process.env.GRILL_CONNECTION_SCREENSHOT, Buffer.from(shot.data, "base64"));
   }
+  assert.equal(await js('document.querySelector("#notificationControl").hidden'), true);
   // Header notices remain collapsed and do not change header height or drawer state.
   await js('window.noticePoll=poll;poll=async()=>{};window.noticeHeaderHeight=document.querySelector("header").offsetHeight;document.querySelector("#resumeNotice").textContent="Request sent to the session.";document.querySelector("#resumeNotice").hidden=false;document.querySelector("#finishedNotice").textContent="Map finished. Continue this map in the session.";document.querySelector("#finishedNotice").hidden=false');
   assert.equal(await js('document.querySelector("#notificationCount").textContent'), "2");
+  assert.equal(await js('document.querySelector("#notificationControl").hidden'), false);
   assert.equal(await js('document.querySelector("#notificationsPanel").hidden'), true);
   assert.equal(await js('document.querySelector("header").offsetHeight===noticeHeaderHeight'), true);
   await js('openPanel({mode:"summary"});document.querySelector("#finishedNotice").hidden=false;document.querySelector("#bNotifications").click()');
@@ -71,7 +73,9 @@ try {
   }
   await js('document.querySelector("#resumeNotice").hidden=true;document.querySelector("#finishedNotice").hidden=true;document.querySelector("#queueNotice").textContent=""');
   assert.equal(await js('document.querySelector("#notificationCount").textContent'), "0");
-  assert.equal(await js('document.querySelector("#notificationsEmpty").hidden'), false);
+  assert.equal(await js('document.querySelector("#notificationControl").hidden'), true);
+  assert.equal(await js('document.querySelector("#notificationsPanel").hidden'), true);
+  assert.equal(await js('document.activeElement.id'), "bConnection");
   assert.equal(await js('document.querySelector("#notificationsEmpty").textContent'), "No notifications");
   await js('closeNotifications();panel=null;renderPanel();poll=noticePoll;poll(true)');
   await cdp("Emulation.clearDeviceMetricsOverride");
