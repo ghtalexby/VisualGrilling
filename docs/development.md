@@ -81,6 +81,8 @@ Exercise grading `gap`, `ok`, and `verify`, discussion, more questions, finish, 
 
 ## Standalone checks
 
+- `node dev/check-current-work-browser.mjs`: Chromium checks for the split spec/summary control, independent navigation during generation, read-only Summary, knowledge recovery in Analysis files, keyboard behavior, responsive placement and agent status. Set `GRILL_SPEC_SCREENSHOT_DIR` to capture desktop/mobile light/dark screenshots.
+
 - `node dev/check-monitor.mjs` (also run with `--mirror` for the tracked release copy): real server/CLI with a fake Codex executable; idle silence, single wake per event, sequential arming, waiter conflicts, stale IDs, failed/warned submissions, rebinding, restart recovery and Host/header protection. It never invokes a model.
 
 - `node dev/check-copy-browser.mjs`: optional Chromium/Node 22+ checks for copy hover placement, block boundaries, Unicode, history, pending/obsolete answers, clipboard failures, late completions and the unchanged export action. Set `GRILL_COPY_SCREENSHOT` to an output PNG path for a screenshot.

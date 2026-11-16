@@ -40,6 +40,58 @@ try {
   ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
+  // The split spec control keeps read-only navigation independent of generation.
+  await js('window.specPoll=poll;poll=async()=>{};window.specAct=act;window.specCalls=[];act=async p=>{specCalls.push(p)}');
+  assert.equal(await js('document.querySelector("#bSpec").textContent'), "Create spec");
+  assert.equal(await js('document.querySelector(".actions").lastElementChild.id'), "specControl");
+  await js('openPanel({mode:"summary"});document.querySelector("#bSpec").click()');
+  assert.deepEqual(await js('specCalls'), ["/api/spec"]);
+  assert.equal(await js('panel.mode'), "summary");
+  await js('S.specUpdatedAt=Date.now();renderHeader()');
+  assert.equal(await js('document.querySelector("#bSpec").textContent'), "Update spec");
+  await js('S.specPending={stage:"thinking"};renderHeader();document.querySelector("#bSpecMenu").focus()');
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown" });
+  assert.equal(await js('document.activeElement.id'), "bSummary");
+  assert.equal(await js('document.querySelector("#bSpecMenu").getAttribute("aria-expanded")'), "true");
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+  assert.equal(await js('document.querySelector("#specMenu").hidden'), true);
+  assert.equal(await js('document.activeElement.id'), "bSpecMenu");
+  assert.equal(await js('panel.mode'), "summary", "Escape closes the menu without closing the drawer");
+  await js('document.querySelector("#bSpecMenu").click();document.querySelector("#bSummary").click()');
+  assert.equal(await js('panel.mode'), "summary");
+  assert.deepEqual(await js('specCalls'), ["/api/spec"], "Opening Summary never sends spec or finish");
+  await js('S.knowledgePending={stage:"blocked"};S.knowledgeResult={error:"Save failed"};S.failedKnowledgeFinish=true;renderPanel()');
+  assert.deepEqual(await js('[...document.querySelectorAll("#panel [data-act]")].map(b=>b.dataset.act).filter(a=>!["close","copy","knowledge-open"].includes(a))'), []);
+  await js('document.querySelector("#bKnowledgeFiles").click()');
+  await until(() => js('!knowledgeFilesBusy'));
+  assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-retry]")'), true);
+  assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-skip]")'), true);
+  await js('document.querySelector("#panel [data-act=knowledge-retry]").click();document.querySelector("#panel [data-act=knowledge-skip]").click()');
+  assert.deepEqual(await js('specCalls'), ["/api/spec", "/api/knowledge-retry", "/api/knowledge-skip"]);
+  assert.equal(await js('(()=>{const before=panelSig();S.knowledgePending=null;S.knowledgeResult=null;S.failedKnowledgeFinish=false;return before!==panelSig()})()'), true);
+  await js('renderPanel()');
+  assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-retry]")'), false);
+  for (const width of [1280, 390]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    for (const scheme of ["light", "dark"]) {
+      await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+      await js('openPanel({mode:"summary"});openSpecMenu()');
+      assert.equal(await js('(()=>{const r=document.querySelector("#specMenu").getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'), true);
+      if (process.env.GRILL_SPEC_SCREENSHOT_DIR) {
+        fs.mkdirSync(process.env.GRILL_SPEC_SCREENSHOT_DIR, { recursive: true });
+        const shot = await cdp("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(path.join(process.env.GRILL_SPEC_SCREENSHOT_DIR, `spec-${width}-${scheme}.png`), Buffer.from(shot.data, "base64"));
+      }
+    }
+  }
+  await js('document.querySelector("#ptitle").dispatchEvent(new PointerEvent("pointerdown",{bubbles:true}));');
+  assert.equal(await js('document.querySelector("#specMenu").hidden'), true);
+  await js('openSpecMenu();document.querySelector("#bSummary").focus();document.querySelector("#bChat").focus()');
+  assert.equal(await js('document.querySelector("#specMenu").hidden'), true);
+  await js('panel=null;renderPanel();act=specAct;poll=specPoll;poll(true)');
+  await cdp("Emulation.clearDeviceMetricsOverride");
+  await cdp("Emulation.setEmulatedMedia", { features: [] });
+
 
   if (process.env.GRILL_CONNECTION_SCREENSHOT) {
     const shot = await cdp("Page.captureScreenshot", { format: "png" });

@@ -516,5 +516,7 @@
   "Агент на связи. Проверка завершена.": "Agent is connected. Check complete.",
   "Связи нет. Пытаемся подключить агента…": "Disconnected. Trying to reconnect the agent…",
   "Уведомления": "Notifications",
-  "Нет уведомлений": "No notifications"
+  "Нет уведомлений": "No notifications",
+  "Показать сводку": "Show summary",
+  "Для восстановления сохранения знаний откройте «Файлы анализа» в шапке.": "To recover knowledge saving, open Analysis files in the header."
 }

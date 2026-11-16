@@ -86,6 +86,8 @@ try {
     await api("apply", { type: "knowledge", token: event.token, error: "Simulated disk failure" });
     await js("poll(true)");
     assert.match(await js('document.querySelector("#panel").textContent'), /Simulated disk failure/);
+    assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-retry]")'), false);
+    await click('#bKnowledgeFiles'); await until(() => js('!knowledgeFilesBusy'));
     await click('[data-act="knowledge-retry"]'); await until(async () => (await api("state")).actionQueue.slots === 1);
     event = await api("wait?timeout=5");
     await api("apply", { type: "knowledge", token: event.token, error: "Retry still failed" });
@@ -94,6 +96,7 @@ try {
     event = await api("wait?timeout=5"); assert.equal(event.type, "finish");
     await api("apply", { type: "finish", token: event.token, summary: "Skipped explicitly" });
     await js("poll(true)");
+    await js('openPanel({mode:"summary"})');
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /Knowledge saving skipped by the user/ : /Сохранение знаний пропущено пользователем/);
   }
   console.log("Knowledge browser checks passed: documents, snapshots, link availability, retry, explicit skip, RU/EN");
