@@ -1,6 +1,6 @@
 # Visual explanations
 
-Preview cards are local explanatory projects, not changes to the application under review. Use Create preview on a project or card menu, choose an existing instance or a separate project, then ask the agent for options. Root requests require explicit branch selection. Choose an option or enter a request to build. Generation shares the sequential event queue; it does not run in parallel with grading.
+Preview cards are local explanatory projects, not changes to the application under review. Use Create preview on a project or card menu, choose an existing instance or a separate project, then ask the agent for options. The setup panel opens on Chat for an optional description (up to 3000 characters). Branches is the second tab; drafts and selections survive tab switches. The instance selector is hidden when only Create separately is available. Root requests require explicit branch selection; submitting without it opens Branches. Choose an option or enter a request to build. Generation shares the sequential event queue; it does not run in parallel with grading.
 
 Double-click a preview to open the full-screen viewer. Polling retains the iframe and its controls. A published replacement is offered through Refresh viewer; this also protects an open version while values are unsaved. Save values stores settings for the displayed commit without enqueuing agent work, including when publication has selected a newer commit. Unknown or deleted projects/commits are rejected; restore still requires the selected commit and epoch. Create new version starts with model defaults; Restore selects an old commit and that commit's last saved settings. Closing, refreshing, restoring, deleting or rebuilding the open instance offers Save / Continue without saving / Cancel. Closing the browser tab uses its native unsaved-changes prompt, which cannot offer a custom asynchronous Save button.
 
@@ -41,7 +41,7 @@ All routes are protected by Host validation and `x-grill: 1`, with the unchanged
 
 | Route | Request / result |
 |---|---|
-| `POST /api/preview/prepare` | `{sourceId,id?,branches?:[]}`; existing ID chooses refinement, omitted ID creates separately; returns preview node ID |
+| `POST /api/preview/prepare` | `{sourceId,id?,branches?:[],request?:string}`; existing ID chooses refinement, omitted ID creates separately; returns preview node ID |
 | `POST /api/preview/build` | `{id,request}` (1–3000 characters); queues build after prepared options |
 | `GET /api/preview?id=…` | Public card, committed files and that commit's saved state |
 | `GET /api/preview/document?id=…&instance=…` | Prepared srcdoc, commit, epoch; `key` instead of `id` loads an immutable snapshot |

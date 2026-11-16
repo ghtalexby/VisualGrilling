@@ -525,5 +525,13 @@
   "Поиск каталогов": "Search directories",
   "Поиск файлов": "Search files",
   "Поиск по имени или пути": "Search by name or path",
-  "Ничего не найдено": "No matches found"
+  "Ничего не найдено": "No matches found",
+  "Чат": "Chat",
+  "Ветки": "Branches",
+  "Опишите, что хотите увидеть. Агент предложит варианты превью.": "Describe what you want to see. The agent will suggest preview options.",
+  "Описание превью": "Preview description",
+  "Например: покажи экран результатов и переход к подробностям": "For example: show the results screen and how to open details",
+  "Выберите ветки, которые нужно включить в превью.": "Select the branches to include in the preview.",
+  "Нет доступных веток.": "No branches available.",
+  "Превью будет использовать текущую ветку.": "The preview will use the current branch."
 }

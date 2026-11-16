@@ -170,7 +170,7 @@ export function previews(directory, state, save, enqueue, translate = text => te
         if (branched) { n = fork(n, source.id); state().nodes.push(n); }
       }
       if (!n) { n = { id: "p" + randomUUID(), projectId: randomUUID(), kind: "preview", parentId: source.id, sourceId: source.id, branches, q: translate("Превью"), versions: [] }; state().nodes.push(n); }
-      n.sourceId = source.id; n.branches = branches; queue(n, "prepare"); return { ok: true, id: n.id };
+      n.sourceId = source.id; n.branches = branches; n.request = text(b.request, 3000); queue(n, "prepare"); return { ok: true, id: n.id };
     }
     const n = get(b.id);
     if (endpoint === "/api/preview/build") {

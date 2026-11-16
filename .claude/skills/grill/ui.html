@@ -167,10 +167,17 @@ main{flex:1;position:relative;min-height:0;z-index:0}
 .conversation-toolbar{display:flex;align-items:center;gap:8px;min-width:0}
 .conversation-picker{position:relative;flex:1;min-width:0}
 .conversation-picker::after{content:"";position:absolute;right:14px;top:14px;width:7px;height:7px;border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);transform:rotate(45deg);pointer-events:none}
-#conversationSelect{appearance:none;display:block;width:100%;height:38px;padding:0 36px 0 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:500 13px var(--f-body);text-overflow:ellipsis;cursor:pointer}
-#conversationSelect:hover:not(:disabled){border-color:var(--muted)}
-#conversationSelect:focus-visible{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:2px}
-#conversationSelect option{background:var(--surface);color:var(--ink)}
+#conversationSelect,#previewTarget{appearance:none;display:block;width:100%;height:38px;padding:0 36px 0 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:500 13px var(--f-body);text-overflow:ellipsis;cursor:pointer}
+#conversationSelect:hover:not(:disabled),#previewTarget:hover{border-color:var(--muted)}
+#conversationSelect:focus-visible,#previewTarget:focus-visible{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:2px}
+#conversationSelect option,#previewTarget option{background:var(--surface);color:var(--ink)}
+.preview-field{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:13px}
+.preview-content{display:flex;flex-direction:column;gap:16px}
+.preview-branches{display:flex;flex-direction:column;gap:4px}
+.preview-branch{display:flex;align-items:flex-start;gap:12px;padding:12px 8px;border-radius:6px;font-size:14px;line-height:1.45;cursor:pointer;overflow-wrap:anywhere}
+.preview-branch:hover{background:var(--bg)}
+.preview-branch input{flex:none;width:16px;height:16px;margin:2px 0 0;accent-color:var(--accent)}
+.preview-branch:has(input:checked){background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
 .conversation-toolbar .conversation-add{flex:none;width:38px;height:38px;padding:0;border-radius:8px;border-color:color-mix(in srgb,var(--accent) 35%,var(--line));background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--accent);font-size:24px;line-height:1}
 .conversation-toolbar .conversation-add:hover:not(:disabled){background:color-mix(in srgb,var(--accent) 20%,var(--surface));border-color:var(--accent)}
 #conversationSelect:disabled{opacity:.5;cursor:wait}
@@ -277,7 +284,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.17">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.18">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -549,7 +556,9 @@ function previewPanel(n){
   if(panel.mode==="previewSetup"){
     const line=new Set([n.id,...ancestors(n).map(a=>a.id)]);
     const available=S.nodes.filter(p=>p.kind==="preview"&&!p.queuedCreation&&line.has(p.sourceId)&&!p.orphaned);
-    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p>${esc(n.q||S.title)}</p><label>Экземпляр<select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></label>${n.id==="root"?`<h3>Выберите ветки</h3>${kids("root").filter(n=>n.kind!=="preview"&&!n.queuedCreation).map(n=>`<label><input type="checkbox" data-preview-branch="${esc(n.id)}" ${(panel.branches||[]).includes(n.id)?"checked":""}>${esc(n.q||n.text)}</label>`).join("")}`:""}<button class="btn primary" data-preview="prepare">Предложить варианты</button>`};
+    const tab=panel.previewTab||"chat",branches=kids("root").filter(n=>n.kind!=="preview"&&!n.queuedCreation);
+    if(!available.some(p=>p.id===panel.previewTarget))panel.previewTarget="";
+    return {head:"Создать превью",body:`<h2>Визуальное пояснение</h2><p class="why">${esc(n.q||S.title)}</p>${available.length?`<div class="preview-field"><label for="previewTarget">Экземпляр</label><div class="conversation-picker"><select id="previewTarget"><option value="">Создать отдельное</option>${available.map(p=>`<option value="${esc(p.id)}" ${panel.previewTarget===p.id?"selected":""}>${esc(p.q)}</option>`).join("")}</select></div></div>`:""}<div class="tabs" role="tablist" aria-label="Создать превью">${["chat","branches"].map(t=>`<button class="tab" role="tab" id="preview-tab-${t}" data-preview-tab="${t}" aria-controls="preview-content" aria-selected="${tab===t}" tabindex="${tab===t?0:-1}">${t==="chat"?"Чат":"Ветки"}</button>`).join("")}</div><div class="preview-content" id="preview-content" role="tabpanel" aria-labelledby="preview-tab-${tab}">${tab==="chat"?`<p class="why">Опишите, что хотите увидеть. Агент предложит варианты превью.</p><label class="preview-field" for="fPreviewSetup">Описание превью<textarea id="fPreviewSetup" rows="5" maxlength="3000" placeholder="Например: покажи экран результатов и переход к подробностям">${esc(drafts["ps:"+n.id]||"")}</textarea></label>`:n.id==="root"?`<p class="why">Выберите ветки, которые нужно включить в превью.</p><div class="preview-branches">${branches.map(b=>`<label class="preview-branch"><input type="checkbox" data-preview-branch="${esc(b.id)}" ${(panel.branches||[]).includes(b.id)?"checked":""}><span>${esc(b.q||b.text)}</span></label>`).join("")||'<p class="why">Нет доступных веток.</p>'}</div>`:`<p class="why">Превью будет использовать текущую ветку.</p>`}</div><div class="row"><button class="btn primary" data-preview="prepare">Предложить варианты</button></div>`};
   }
   return {head:"Превью",body:`<h2>${esc(n.q)}</h2>${n.orphaned?"<p>Источник удалён. Проект сохранён отдельно.</p>":""}<p>${n.job?"Агент готовит превью…":n.stale?`Устарело: ${n.stale}`:""}</p>${n.error?`<p class="err">${esc(friendlyError(n.error))}</p>`:""}${n.commit?`<button class="btn primary" data-preview="open">Открыть превью</button>`:""}<h3>${esc(n.question||"Подготовка вариантов")}</h3>${(n.options||[]).map(o=>`<button class="btn" data-preview-option="${esc(o)}">${esc(o)}</button>`).join("")}<label>Запрос<textarea id="fPreview" rows="4">${esc(drafts["p:"+n.id]??n.request??"")}</textarea></label><button class="btn primary" data-preview="build" ${n.job||!n.question?"disabled":""}>Создать новую версию</button><h3>При удалении источника</h3><p>Выберите судьбу проекта до удаления ветки агентом.</p><button class="btn" data-preview="keep" ${n.deletionPolicy==="keep"?"disabled":""}>Сохранить отдельно</button><button class="btn" data-preview="deletePolicy" ${n.deletionPolicy==="delete"?"disabled":""}>Удалить вместе</button><button class="btn" data-preview="delete">Удалить превью</button>`};
 }
@@ -558,7 +567,8 @@ async function previewAction(action){
   try{
     if(action==="prepare"){
       const target=panel;
-      const result=await api("/api/preview/prepare",{sourceId:panel.id,id:$("#previewTarget").value||undefined,branches:[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
+      if(target.id==="root"&&!(target.branches||[]).length){target.previewTab="branches";renderPanel();showError("Выберите ветки превью");return}
+      const result=await api("/api/preview/prepare",{sourceId:target.id,id:target.previewTarget||undefined,branches:target.branches||[],request:drafts["ps:"+target.id]||""});
       await poll(true);const pending=get("queued-"+result.actionId);let waitingPanel=target;if(pending&&panel===target){panel={mode:"node",id:pending.id};waitingPanel=panel;render();renderPanel()}
       actionResult(result,true).then(async done=>{await poll(true);if(panel===waitingPanel||waitingPanel?.missing&&!panel)openPanel({mode:"node",id:done.id})},error=>showError(error.message));
     }else if(action==="open")await openPreview(panel.id);
@@ -572,9 +582,11 @@ async function previewAction(action){
     }else{await api("/api/preview/policy",{id:panel.id,policy:action==="keep"?"keep":"delete"});await poll(true)}
   }catch(e){showError(e.message);renderPanel()}
 }
-$("#panel").addEventListener("input",e=>{if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
+$("#panel").addEventListener("input",e=>{if(e.target.id==="fPreviewSetup")drafts["ps:"+panel.id]=e.target.value;if(e.target.id==="fPreview")drafts["p:"+panel.id]=e.target.value});
 $("#panel").addEventListener("change",e=>{if(e.target.id==="previewTarget")panel.previewTarget=e.target.value;if(e.target.matches("[data-preview-branch]"))panel.branches=[...document.querySelectorAll("[data-preview-branch]:checked")].map(e=>e.dataset.previewBranch)});
-$("#panel").addEventListener("click",e=>{const option=e.target.closest("[data-preview-option]");if(option){$("#fPreview").value=option.dataset.previewOption;drafts["p:"+panel.id]=option.dataset.previewOption}const b=e.target.closest("[data-preview]");if(b)previewAction(b.dataset.preview)});
+function selectPreviewTab(tab){panel.previewTab=tab;renderPanel();$("[data-preview-tab="+tab+"]").focus({preventScroll:true})}
+$("#panel").addEventListener("keydown",e=>{const tab=e.target.closest("[data-preview-tab]");if(!tab||!["ArrowLeft","ArrowRight","Home","End"].includes(e.key))return;e.preventDefault();selectPreviewTab(e.key==="Home"?"chat":e.key==="End"?"branches":tab.dataset.previewTab==="chat"?"branches":"chat")});
+$("#panel").addEventListener("click",e=>{const tab=e.target.closest("[data-preview-tab]");if(tab){selectPreviewTab(tab.dataset.previewTab);return}const option=e.target.closest("[data-preview-option]");if(option){$("#fPreview").value=option.dataset.previewOption;drafts["p:"+panel.id]=option.dataset.previewOption}const b=e.target.closest("[data-preview]");if(b)previewAction(b.dataset.preview)});
 function closePreviewNow(){previewOpenSequence++;for(const request of previewRequests.values())request.reject(new Error("Превью закрыто"));previewRequests.clear();previewView?.el.remove();previewView=null}
 function frameRequest(type){
   const v=previewView;if(!v?.ready)return Promise.reject(new Error("Превью ещё не готово"));
@@ -1049,7 +1061,7 @@ function renderPanel(revealDiscussion=false){
   if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
   deferPanel=false;if(!same)composing=false; /* the composing textarea is gone; compositionend may never reach #panel */
   p.dataset.key=key;
-  const keep=same?[...p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview")]:[];
+  const keep=same?[...p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreviewSetup,#fPreview")]:[];
   const ae=same&&document.activeElement&&p.contains(document.activeElement)?document.activeElement:null;
   const fsel=!ae?null:ae.id?"#"+ae.id:(ae.hasAttribute("data-verdict")?"[data-verdict]":["data-tab","data-act","data-chip","data-open"].map(a=>ae.hasAttribute(a)?`[${a}="${CSS.escape(ae.getAttribute(a))}"]`:"").find(Boolean))||null;
   const sel=ae&&ae.id&&ae.selectionStart!=null?[ae.selectionStart,ae.selectionEnd]:null;
@@ -1057,7 +1069,7 @@ function renderPanel(revealDiscussion=false){
   p.innerHTML=`<div class="ph">${r.head}<button class="close" data-act="close" aria-label="Закрыть">×</button></div><div class="pb">${r.body}</div>`;
   p.hidden=false;syncGrip();
   for(const field of keep){const nt=p.querySelector("#"+field.id);if(nt){if(field.value!==nt.value)field.value=nt.value;nt.replaceWith(field)}}
-  p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit);showImages(p);
+  p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreviewSetup,#fPreview").forEach(fit);showImages(p);
   const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
   quietScroll=performance.now()+150; /* restoring scrollTop fires a scroll event that must not close the context menu */
   pb.scrollTop=nc>oc&&ob?pb.scrollHeight:top;
@@ -1259,7 +1271,7 @@ $("#closeErrorToast").onclick=clearError;
 $("#bChat").onclick=()=>openPanel({mode:"project",id:"root",tab:"discuss"});
 $("#panel").addEventListener("change",e=>{if(e.target.id!=="conversationSelect"||sending)return;projectConversation=e.target.value;panel.confirmChat=false;clearError();renderPanel(true)});
 $("#panel").addEventListener("input",e=>{if(!panel)return;if(e.target.id==="fIdeaEdit")drafts["i:"+panel.id]=e.target.value;if(e.target.id==="fIdea"){drafts.idea=e.target.value;ideaRequestId=null}if(e.target.id==="fAns")drafts[panel.id]=e.target.value;if(e.target.id==="fMsg")drafts["d:"+chatKey(panel.id)]=e.target.value;if(e.target.id==="fQuestion")drafts["q:"+panel.id]=e.target.value;if(["fAns","fMsg","fQuestion","fIdea","fIdeaEdit"].includes(e.target.id)){fit(e.target);(e.target.closest("label").nextElementSibling||e.target).scrollIntoView({block:"nearest"})}}); /* growth must not push the action row below the input out of view */
-addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit));
+addEventListener("resize",()=>document.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreviewSetup,#fPreview").forEach(fit));
 /* a clipboard with text as well (office apps add a picture of the copied text) keeps the normal text paste */
 $("#panel").addEventListener("paste",async e=>{
   if(e.target.id!=="fMsg"||!panel)return;
@@ -1488,7 +1500,7 @@ vp.addEventListener("auxclick",e=>{if(e.button===1)e.preventDefault()});
 const grip=$("#panelGrip"),PANEL_KEY="grill.panelWidth",PANEL_MIN=320;
 let gripDrag=null,panelW=0; /* panelW: width the user set in this page; a saved width that is only capped by the window stays untouched until then */
 function syncGrip(){const p=$("#panel");grip.setAttribute("aria-valuemin",PANEL_MIN);grip.setAttribute("aria-valuemax",Math.max(PANEL_MIN,innerWidth-120));if(!p.hidden)grip.setAttribute("aria-valuenow",p.offsetWidth)}
-function setPanelWidth(w){const p=$("#panel"),n=Math.round(Math.min(Math.max(PANEL_MIN,innerWidth-120),Math.max(PANEL_MIN,w)));if(n===p.offsetWidth)return;panelW=n;document.documentElement.style.setProperty("--panel-w",n+"px");syncGrip();p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreview").forEach(fit)}
+function setPanelWidth(w){const p=$("#panel"),n=Math.round(Math.min(Math.max(PANEL_MIN,innerWidth-120),Math.max(PANEL_MIN,w)));if(n===p.offsetWidth)return;panelW=n;document.documentElement.style.setProperty("--panel-w",n+"px");syncGrip();p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreviewSetup,#fPreview").forEach(fit)}
 function savePanelWidth(){if(!panelW)return;try{localStorage.setItem(PANEL_KEY,panelW)}catch{}}
 try{const w=Number(localStorage.getItem(PANEL_KEY));if(Number.isFinite(w)&&w>=PANEL_MIN)document.documentElement.style.setProperty("--panel-w",Math.round(w)+"px")}catch{} /* not clamped to this window: the CSS cap restores the full width once the window grows */
 const endGrip=()=>{if(!gripDrag)return;gripDrag=null;grip.classList.remove("drag");savePanelWidth()};

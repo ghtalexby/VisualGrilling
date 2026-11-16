@@ -45,10 +45,39 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
   const q=(await api("state")).nodes.find(n=>n.kind==="q");
-  await menu(q.id); await click('[data-ctx="preview"]'); await click('[data-preview="prepare"]');
+  await menu(q.id); await click('[data-ctx="preview"]');
+  assert.equal(await js('document.querySelector("#previewTarget")'),null);
+  assert.equal(await js('document.querySelector("[data-preview-tab=chat]").getAttribute("aria-selected")'),"true");
+  await input("#fPreviewSetup","Show the results screen");
+  await click('[data-preview-tab="branches"]'); await click('[data-preview-tab="chat"]');
+  assert.equal(await js('document.querySelector("#fPreviewSetup").value'),"Show the results screen");
+  await js("poll(true)");
+  assert.equal(await js('document.querySelector("#fPreviewSetup").value'),"Show the results screen");
+  if(process.env.GRILL_PREVIEW_SCREENSHOT){
+    await cdp("Emulation.setDeviceMetricsOverride",{width:1280,height:900,deviceScaleFactor:1,mobile:false});
+    fs.writeFileSync(process.env.GRILL_PREVIEW_SCREENSHOT+"-chat.png",Buffer.from((await cdp("Page.captureScreenshot")).data,"base64"));
+  }
+  await click('[data-preview="prepare"]');
   let e=await api("wait?timeout=5");
+  assert.equal(e.request,"Show the results screen");
   const result=(extra)=>api("apply",{type:"preview",id:e.id,token:e.token,projectId:e.projectId,base:e.base,...extra});
   await result({question:"Choose visual",options:["Circle UI","Diagram"]});
+  await js('openPanel({mode:"previewSetup",id:"root"})');
+  await input("#fPreviewSetup","Root diagram"); await click('[data-preview="prepare"]');
+  assert.equal(await js("panel.previewTab"),"branches");
+  await js('(()=>{const e=document.querySelector("[data-preview-branch]");e.checked=true;e.dispatchEvent(new Event("change",{bubbles:true}));})()');
+  await click('[data-preview-tab="chat"]'); await click('[data-preview-tab="branches"]');
+  assert.equal(await js('document.querySelector("[data-preview-branch]").checked'),true);
+  await js(`poll(true)`); await js(`openPanel({mode:"previewSetup",id:"${q.id}"})`);
+  assert.equal(await js('document.querySelector("#previewTarget").options.length'),2);
+  if(process.env.GRILL_PREVIEW_SCREENSHOT){
+    await click('[data-preview-tab="branches"]');
+    fs.writeFileSync(process.env.GRILL_PREVIEW_SCREENSHOT+"-select.png",Buffer.from((await cdp("Page.captureScreenshot")).data,"base64"));
+    await cdp("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    assert.equal(await js('document.documentElement.scrollWidth<=innerWidth'),true);
+    fs.writeFileSync(process.env.GRILL_PREVIEW_SCREENSHOT+"-mobile.png",Buffer.from((await cdp("Page.captureScreenshot")).data,"base64"));
+  }
+  await js(`openPanel({mode:"node",id:"${e.id}"})`);
   const id=e.id; await until(()=>js(`panel?.id==="${id}"`)); await js("poll(true)");
   await input("#fPreview","Circle UI"); await click('[data-preview="build"]');
   e=await api("wait?timeout=5"); await result({files:{...circlePreview,"index.html":circlePreview["index.html"]+'<button class="export-control">Styled control</button><select data-bind="choice"><option value="a">Alpha</option><option value="b">Beta</option></select>',"style.css":circlePreview["style.css"]+'.export-control{position:absolute;left:321px;top:111px;width:150px;background:rgb(1,2,3)}',"script.js":circlePreview["script.js"].replace("diameter:120",'diameter:120,choice:"b"')},purpose:"Circle size"}); await js("poll(true)");

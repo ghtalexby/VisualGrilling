@@ -48,12 +48,12 @@ try {
   const [q, other] = (await api("state")).nodes.filter(n => n.kind === "q");
   assert.equal((await fetch(url + "api/preview?id=none")).status, 403);
   assert.equal((await prepare("preview/prepare", { sourceId: "root" }, 400)).error, "Select preview branches");
-  const { id } = await prepare("preview/prepare", { sourceId: q.id });
+  const { id } = await prepare("preview/prepare", { sourceId: q.id, request: "  Show a results screen  " });
   assert.equal((await api("preview?id=" + id)).q, "Preview");
-  let e = await wait(); assert.equal(e.phase, "prepare"); assert.ok(!e.context.some(n => n.id === other.id));
+  let e = await wait(); assert.equal(e.request, "Show a results screen"); assert.equal(e.phase, "prepare"); assert.ok(!e.context.some(n => n.id === other.id));
   assert.equal(e.context.find(n => n.id === "root").brief, "Original premise");
   assert.equal(e.context.find(n => n.id === "root").arch, "Local UI");
-  await stop(); await start(); const retry = await wait(); assert.notEqual(retry.token, e.token);
+  await stop(); await start(); const retry = await wait(); assert.notEqual(retry.token, e.token); assert.equal(retry.request, e.request);
   await api("apply", { ...e, question: "Which?", options: ["UI", "Diagram"] }, 409);
   await apply(retry, { question: "Which?", options: ["UI", "Diagram"] });
   await api("preview/build", { id, request: "Circle UI" }); e = await wait();
