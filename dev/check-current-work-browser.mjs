@@ -62,7 +62,13 @@ try {
   assert.deepEqual(await js('specCalls'), ["/api/spec"], "Opening Summary never sends spec or finish");
   await js('S.knowledgePending={stage:"blocked"};S.knowledgeResult={error:"Save failed"};S.failedKnowledgeFinish=true;renderPanel()');
   assert.deepEqual(await js('[...document.querySelectorAll("#panel [data-act]")].map(b=>b.dataset.act).filter(a=>!["close","copy","knowledge-open"].includes(a))'), []);
+  assert.equal(await js('document.querySelector("#bKnowledgeFiles").parentElement.id'), "specMenu");
+  await js('document.querySelector("#bSpecMenu").click();document.querySelector("#bSummary").focus()');
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Tab", code: "Tab", windowsVirtualKeyCode: 9 });
+  assert.equal(await js('document.activeElement.id'), "bKnowledgeFiles");
   await js('document.querySelector("#bKnowledgeFiles").click()');
+  assert.equal(await js('document.querySelector("#specMenu").hidden'), true);
+  assert.equal(await js('document.activeElement.id'), "bSpecMenu");
   await until(() => js('!knowledgeFilesBusy'));
   assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-retry]")'), true);
   assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-skip]")'), true);

@@ -47,7 +47,7 @@ try {
     await api("locale", { language }); await js("globalThis.__beforeKnowledgeReload=1"); await cdp("Page.reload");
     await until(() => js(`typeof __beforeKnowledgeReload==="undefined"&&typeof loaded!=="undefined"&&loaded&&typeof renderPanel==="function"&&document.documentElement.lang==="${language}"`));
     fs.writeFileSync(path.join(cwd, "large.txt"), "x".repeat(200001));
-    await click("#bKnowledgeFiles");
+    await click("#bSpecMenu"); await click("#bKnowledgeFiles");
     await until(() => js('!knowledgeFilesBusy&&!!document.querySelector(\'[data-ignore-path="large.txt"]\')'));
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /too large/ : /слишком большой/);
     await click('[data-ignore-path="large.txt"]');
@@ -107,7 +107,7 @@ try {
     await js("poll(true)");
     assert.match(await js('document.querySelector("#panel").textContent'), /Simulated disk failure/);
     assert.equal(await js('!!document.querySelector("#panel [data-act=knowledge-retry]")'), false);
-    await click('#bKnowledgeFiles'); await until(() => js('!knowledgeFilesBusy'));
+    await click('#bSpecMenu'); await click('#bKnowledgeFiles'); await until(() => js('!knowledgeFilesBusy'));
     await click('[data-act="knowledge-retry"]'); await until(async () => (await api("state")).actionQueue.slots === 1);
     event = await api("wait?timeout=5");
     await api("apply", { type: "knowledge", token: event.token, error: "Retry still failed" });

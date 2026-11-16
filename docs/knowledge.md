@@ -12,7 +12,7 @@ The index lists maps under the selected maps root and project Markdown/MDX/RST/t
 
 ## Analysis file exclusions
 
-The header's Analysis files button beside Reread opens a drawer with Included and Ignored lists. Included lists discovered text documents, including unreadable/oversized files with their errors. Remove excludes a file; Restore includes it again. Neither action deletes a file. Refresh rescans the project. The existing extension/directory/traversal policy applies; this is a document inventory, not a source-code inventory.
+The Analysis files entry in the spec dropdown, after Summary opens a drawer with Included and Ignored lists. Included lists discovered text documents, including unreadable/oversized files with their errors. Remove excludes a file; Restore includes it again. Neither action deletes a file. Refresh rescans the project. The existing extension/directory/traversal policy applies; this is a document inventory, not a source-code inventory.
 
 Exact project-relative exclusions persist in `.grill/knowledge-ignore.json`, shared by all maps and custom map roots. Ignored paths remain restorable even if the file disappears. They are skipped before reading, hashing, parsing or indexing, produce no size/read warnings, and cannot be read through the knowledge viewer or used as new knowledge sources/write targets. Existing embedded historical snapshots remain. Workers honor `index.ignored` during manual context selection too. Existing answers and already delivered context are not erased; use Reread or retry a failed finish explicitly after changing exclusions.
 
