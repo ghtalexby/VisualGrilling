@@ -273,7 +273,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.12">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.13">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -301,7 +301,7 @@ const ORDER=["gap","weak","verify","open","ok"];
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
-let knowledgeIndex=null,knowledgeDocument=null;
+let knowledgeIndex=null,knowledgeDocument=null,knowledgeExpanded=false,knowledgeLoad=0;
 let knowledgeFiles=null,knowledgeFilesError="",knowledgeFilesBusy=false,knowledgeFilesIgnored=false;
 function knowledgeFilesPanel(){
   const files=knowledgeFilesIgnored?(knowledgeFiles?.ignored||[]).map(path=>({path})):(knowledgeFiles?.files||[]);
@@ -995,9 +995,10 @@ function summaryPanel(){
   if(S.knowledgeResult?.status==="skipped")b+=`<p class="warn">Сохранение знаний пропущено пользователем</p>`;
   if(S.knowledgeResult?.error)b+=`<div class="err">${esc(S.knowledgeResult.error)}</div>`;
   if(S.knowledgePending?.stage==="blocked")b+=`<p class="warn">Для восстановления сохранения знаний откройте «Файлы анализа» в шапке.</p>`;
-  b+=`<button class="btn" data-act="knowledge-open">Документы и источники знаний</button>`;
+  b+=`<button class="btn" data-act="knowledge-open" aria-expanded="${knowledgeExpanded}" aria-controls="knowledgeDocuments">Документы и источники знаний</button><div id="knowledgeDocuments" ${knowledgeExpanded?"":"hidden"}>`;
   if(knowledgeIndex)b+=knowledgeIndex.documents.filter(d=>d.path.startsWith("docs/vgril/")).map(d=>`<p><button class="btn small" data-document="${esc(d.path)}">${esc(d.path)}</button>${d.error?`<span class="err">${esc(d.error)}</span>`:""}${(d.sources||[]).map(s=>`<br><span class="why">${esc(s.path)} · ${s.available?"Источник доступен":"Источник недоступен"}${s.available&&!s.versionMatches?" · "+"Источник изменился":""}${s.localOnly?" · "+"Локальный источник":""}${s.snapshot?" · "+"Сохранённый фрагмент источника доступен":""}</span>`).join("")}${d.links.map(l=>`<br><span class="why">${esc(l.target)} · ${l.localOnly?"Локальный источник":l.available===false?"Источник недоступен":l.available===true?"Источник доступен":"Внешний источник"}</span>`).join("")}</p>`).join("");
   if(knowledgeDocument)b+=`<details open><summary>${esc(knowledgeDocument.path)}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(knowledgeDocument.text||"Источник недоступен")}</pre></details>`;
+  b+=`</div>`;
   if(S.knowledgeResult?.paths)b+=S.knowledgeResult.paths.map(p=>`<p class="why mono">${esc(p)}</p>`).join("");
   if(S.finishPending)b+=working("Агент готовит итог…");
   b+=`<h3>Экспорт в Markdown</h3><p class="why" style="font-size:13px">Для Xmind, MindMeister, Markmap, Notion. Полный отчёт Агент сохраняет в папку карты: <code class="mono">.grill/&lt;имя&gt;/report.md</code> (у карты без имени — <code class="mono">.grill/report.md</code>).</p><textarea id="md" rows="8" readonly>${esc(toMarkdown())}</textarea><div class="row"><button class="btn" data-act="copy">Скопировать</button><span id="copied" class="mono" style="color:var(--ok)"></span></div>`;
@@ -1304,7 +1305,11 @@ $("#panel").addEventListener("click",e=>{
     case "unquote":delete draftQuotes[panel.id];panel.quote=null;renderPanel();{const f=$("#fMsg");if(f)f.focus()}break;
     case "cancel":{const a=S.actionQueue?.actions.filter(a=>a.type==="answer"&&a.target===panel.id&&a.status==="queued").at(-1);if(a)cancelQueued(a.id);else showQueue(true);break}
     case "reread":requestReread();break;
-    case "knowledge-open":api("/api/knowledge").then(d=>{knowledgeIndex=d;renderPanel()},err=>showError(err.message));break;
+    case "knowledge-open":{
+      knowledgeExpanded=!knowledgeExpanded;const load=++knowledgeLoad;renderPanel();
+      if(knowledgeExpanded)api("/api/knowledge").then(d=>{if(load===knowledgeLoad){knowledgeIndex=d;renderPanel()}},err=>{if(load===knowledgeLoad){knowledgeExpanded=false;renderPanel();showError(err.message)}});
+      break;
+    }
     case "knowledge-retry":act("/api/knowledge-retry");break;
     case "knowledge-skip":act("/api/knowledge-skip");break;
     case "finish":act("/api/finish");break;

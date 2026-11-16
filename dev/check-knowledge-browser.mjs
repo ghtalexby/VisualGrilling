@@ -81,6 +81,26 @@ try {
     assert.match(await js('document.querySelector("#panel pre").textContent'), /<script>/);
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /Source unavailable/ : /Источник недоступен/);
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /Local source/ : /Локальный источник/);
+    assert.equal(await js('document.querySelector("[data-act=knowledge-open]").getAttribute("aria-expanded")'), "true");
+    await click('[data-act="knowledge-open"]');
+    assert.equal(await js('document.querySelector("#knowledgeDocuments").hidden'), true);
+    assert.equal(await js('document.querySelector("[data-act=knowledge-open]").getAttribute("aria-expanded")'), "false");
+    await js('renderPanel()');
+    assert.equal(await js('document.querySelector("#knowledgeDocuments").hidden'), true, "Rerender must preserve collapse");
+    await click('[data-act="knowledge-open"]');
+    assert.equal(await js('document.querySelector("#knowledgeDocuments").hidden'), false);
+    assert.match(await js('document.querySelector("#knowledgeDocuments pre").textContent'), /<script>/);
+    await click('[data-act="knowledge-open"]');
+    await js('window.realKnowledgeApi=api;window.resolveKnowledge=null;api=(p,b)=>p==="/api/knowledge"?new Promise(r=>resolveKnowledge=r):realKnowledgeApi(p,b)');
+    await click('[data-act="knowledge-open"]');
+    await click('[data-act="knowledge-open"]');
+    await js('resolveKnowledge(knowledgeIndex);api=realKnowledgeApi');
+    assert.equal(await js('document.querySelector("#knowledgeDocuments").hidden'), true, "Late loading must not reopen the section");
+    if (process.env.GRILL_KNOWLEDGE_TOGGLE_SCREENSHOT) {
+      await js('document.querySelector("[data-act=knowledge-open]").scrollIntoView({block:"center"})');
+      const shot = await cdp("Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(process.env.GRILL_KNOWLEDGE_TOGGLE_SCREENSHOT + `-${language}.png`, Buffer.from(shot.data, "base64"));
+    }
     await api("actions/continue", {});
     await api("finish", {}); let event = await api("wait?timeout=5"); assert.equal(event.type, "knowledge");
     await api("apply", { type: "knowledge", token: event.token, error: "Simulated disk failure" });
