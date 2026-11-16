@@ -41,6 +41,30 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
 
+  if (process.env.GRILL_CONNECTION_SCREENSHOT) {
+    const shot = await cdp("Page.captureScreenshot", { format: "png" });
+    fs.writeFileSync(process.env.GRILL_CONNECTION_SCREENSHOT, Buffer.from(shot.data, "base64"));
+  }
+  // Connection checks must use fresh status, preserve drafts, and never wake a connected agent.
+  await js('window.connectionApi=api;window.resumeCalls=0;window.connected=true;api=async(p,b)=>{if(p==="/api/resume"){resumeCalls++;return {ok:true}}const d=await connectionApi(p,b);if(p==="/api/state")d.listening=connected;return d};drafts.connection="unsent draft";listening=false');
+  await js('document.querySelector("#bConnection").click()');
+  await until(() => js('!resumeSending'));
+  assert.equal(await js('resumeCalls'), 0);
+  assert.equal(await js('document.querySelector("#resumeNotice").textContent'), "Agent is connected. Check complete.");
+  assert.equal(await js('document.querySelector("#bConnection").getAttribute("aria-label")'), "Check connection");
+  await js('connected=false;listening=true;document.querySelector("#bConnection").click()');
+  await until(() => js('!resumeSending'));
+  assert.equal(await js('resumeCalls'), 1);
+  assert.match(await js('document.querySelector("#resumeNotice").textContent'), /request|Request/);
+  await js('connected=true;checkConnection(true)');
+  assert.equal(await js('resumeCalls'), 2, "Queue continuation must still wake the host");
+  await js('window.checkApi=api;api=async(p,b)=>{if(p==="/api/state")throw Error("Server unavailable");return checkApi(p,b)};checkConnection()');
+  assert.equal(await js('resumeCalls'), 2);
+  assert.equal(await js('drafts.connection'), "unsent draft");
+  await js('offline=true;renderHeader()');
+  assert.equal(await js('document.querySelector("#bConnection").disabled'), false);
+  await js('api=connectionApi;clearError();document.querySelector("#resumeNotice").hidden=true;poll(true)');
+
   assert.equal(await js('document.querySelector("#usageTotal").textContent'), "Session tokens: no data");
   await js('window.originalApi=api;api=async(...args)=>{const d=await originalApi(...args);if(args[0]==="/api/state")d.sessionUsage={total_tokens:120,input_tokens:100,cached_input_tokens:80,output_tokens:20,reasoning_output_tokens:5};return d};poll()');
   assert.equal(await js('document.querySelector("#usageTotal").textContent'), "Session tokens: 120");

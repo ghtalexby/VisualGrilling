@@ -7,7 +7,7 @@
 //   node dev/simulate.mjs [--keep] [--watch] [--inbox] [--no-open] [--delay 1500] [--port 4777] [--name <name>] [--lang en|ru] [--locale file.json]
 //     --inbox    read full events from inbox files (implies --watch)
 //     --watch    use background-compatible watch instead of wait
-// Play is a host-session transport, not a grading event; use check-connection.mjs for its fake-host checks.
+// Check connection is a host-session transport, not a grading event; use check-connection.mjs for its fake-host checks.
 // Codex monitor keeps the same event/apply format; check-monitor.mjs tests its fake-host transport.
 //     --keep     continue the existing map without reinitializing it
 //     --name     use test-project/.grill/<name>; without it, use .grill directly

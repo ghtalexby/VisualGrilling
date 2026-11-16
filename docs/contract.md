@@ -46,7 +46,7 @@ The agent follows this contract through `skills/grill/SKILL.md`. Keep field and 
 
 Common options: `--dir <directory>` selects the maps root (default `.grill` under the working directory); `--name <name>` selects `<dir>/<name>/`. Without a name, the legacy map lives directly in `<dir>`. Names match `^[a-z0-9][a-z0-9-]{0,39}$`, excluding Windows reserved `con`, `prn`, `aux`, `nul`, `com0-9`, `lpt0-9`. Invalid names, a missing name value, and `--name=…` exit with code 1. Each map has its own server and port. `list` ignores a valid `--name`; an invalid one is still an error.
 
-The skill creates new maps under `<project>/.grill` unless the user explicitly requests another location. `--dir` replaces that default; it does not select the project cwd or append `.grill`. Thus `--dir <project> --name main` writes `<project>/main/state.json`. Existing maps resumed through Play or copied context retain their supplied root; changing this layout requires a separate migration request. This is agent workflow policy, not a CLI restriction on custom roots.
+The skill creates new maps under `<project>/.grill` unless the user explicitly requests another location. `--dir` replaces that default; it does not select the project cwd or append `.grill`. Thus `--dir <project> --name main` writes `<project>/main/state.json`. Existing maps resumed through Check connection or copied context retain their supplied root; changing this layout requires a separate migration request. This is agent workflow policy, not a CLI restriction on custom roots.
 
 | Command | Input | Output / behavior |
 |---|---|---|
@@ -134,7 +134,7 @@ All `/api/*` require `x-grill: 1` and Host `127.0.0.1` or `localhost`. Context r
 | `POST /api/question` | UI | `{id,parentId,q}`; persisted custom question preparation, see below |
 | `POST /api/more` | Compatibility clients | Enqueues deduplicated legacy more event; current UI uses Reread |
 | `POST /api/reread` | UI | Enqueues deduplicated manual reread; 400 on a map with no questions |
-| `POST /api/resume` | Play | `{}`; submits a fixed continuation request to the bound session; `{ok:true,queued:true,resumeWarning?:boolean}`. Coalesces requests within ten seconds; 409 during finish or for a missing/unavailable host connection, with a localized recovery message. Does not set listening or reset state. |
+| `POST /api/resume` | Check connection | `{}`; submits a fixed continuation request to the bound session; `{ok:true,queued:true,resumeWarning?:boolean}`. Coalesces requests within ten seconds; 409 during finish or for a missing/unavailable host connection, with a localized recovery message. Does not set listening or reset state. |
 | `POST /api/finish` | UI | Enqueues deduplicated finish event |
 | `POST /api/spec` | UI, CLI | Queues snapshot capture for execution; returns an admission receipt |
 | `POST /api/init` | CLI | **Resets the whole map**; see below |
@@ -505,3 +505,5 @@ After admission the browser replays effects in FIFO order into its fresh view: a
 Execution replaces the projection with canonical state; cancellation/failure drops the projection on the next refresh and restores canonical content. Failed inputs remain in queue problems and trigger an error notice. Reload and restart reconstruct pending display from the journal. Project conversation labels and discussion counts include queued messages. This display never changes worker evidence, content revisions, FIFO ordering or spec snapshots.
 
 Image references `action:<actionId>:<index>` are served by protected `GET /api/image?file=...` from the durable input (or its stored file after execution), without embedding image data in polled state.
+
+The header Check connection button reads fresh protected `/api/state` listening status, including its existing activity grace period; this is not a round-trip model probe. Connected status reports success without sending a host message. Disconnected status invokes `/api/resume`; success acknowledges submission only. Server failures are shown without attempting host resume. The button permits retry during a server outage and read-only checks during finish; `/api/resume` retains its finish guard. Queue Continue still explicitly invokes host resume even during the activity grace period.

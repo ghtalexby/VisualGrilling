@@ -66,7 +66,7 @@ try {
   await cdp("Emulation.clearDeviceMetricsOverride");
 
   // Freeze polling and record API writes so each UI scenario has deterministic state.
-  await js(`window.originalApi=api;window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{writes.push({path,body});return {ok:true}};
+  await js(`window.originalApi=api;window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{if(path==="/api/state")return {listening:false};writes.push({path,body});return {ok:true}};
     S.coverage={shown:5,reserve:5,percent:50};
     window.qid=S.nodes.find(n=>n.kind==="q").id;
     S.nodes.push({id:"idea",parentId:"root",kind:"idea",text:"Idea",status:"weak",chat:[]});
@@ -119,11 +119,11 @@ try {
     assert.equal(await js('document.querySelector("#panel .err")'), null);
   }
   await js('api=savedApi');
-  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["conn", "queueControl", "session-usage", "bPlay", "bStop"]);
+  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["conn", "queueControl", "session-usage", "bConnection", "bStop"]);
   await js('listening=false;renderHeader()');
   assert.equal(await js('document.querySelector("#bStop").disabled'), true);
-  assert.equal(await js('document.querySelector("#bPlay").disabled'), false);
-  await click('#bPlay'); await until(()=>js('!resumeSending'));
+  assert.equal(await js('document.querySelector("#bConnection").disabled'), false);
+  await click('#bConnection'); await until(()=>js('!resumeSending'));
   assert.equal(await js('writes.at(-1).path'), '/api/resume');
   assert.equal(await js('listening'), false);
   assert.equal(await js('panel.id'), await js('qid'));
@@ -300,8 +300,8 @@ try {
   await js('window.originalFetch=fetch;fetch=async()=>new Response(JSON.stringify({error:"not found"}),{status:404})');
   assert.match(await js('originalApi("/api/reread",{}).catch(e=>e.message)'), /Could not reread the map.*Restart the map server/);
   assert.match(await js('originalApi("/api/spec",{}).catch(e=>e.message)'), /could not find this command/);
-  await js('fetch=async()=>new Response(JSON.stringify({error:"The Claude Code channel is offline. Open the session with the grill channel and try again."}),{status:409});api=originalApi;poll=async()=>{};listening=false;renderHeader()');
-  await click('#bPlay'); await until(()=>js('!resumeSending'));
+  await js('fetch=async(p)=>p==="/api/state"?new Response(JSON.stringify({listening:false})):new Response(JSON.stringify({error:"The Claude Code channel is offline. Open the session with the grill channel and try again."}),{status:409});api=originalApi;poll=async()=>{};listening=false;renderHeader()');
+  await click('#bConnection'); await until(()=>js('!resumeSending'));
   assert.match(await js('document.querySelector("#errorToastText").textContent'), /Claude Code channel is offline.*Open the session/);
   assert.equal(await js('listening'), false);
   assert.equal(await js('document.querySelector("#resumeNotice").hidden'), true);

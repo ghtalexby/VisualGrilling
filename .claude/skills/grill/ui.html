@@ -259,13 +259,13 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.8">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.9">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
     <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bKnowledgeFiles">Файлы анализа</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
-  <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bPlay" aria-label="Продолжить грилинг" title="Продолжить грилинг в текущей сессии агента"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2l9 6-9 6z" fill="currentColor"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
+  <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bConnection" aria-label="Проверить связь" title="Проверить связь с агентом и восстановить при отключении"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
   <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
   <div id="queueNotice" role="status"></div>
   <div id="resumeNotice" class="why" role="status" hidden></div>
@@ -461,7 +461,7 @@ $("#queueWindow").addEventListener("click",async e=>{
     if(b.hasAttribute("data-queue-close")){queuePinned=false;archiveOpen=false;$("#queueWindow").hidden=true}
     else if(b.dataset.queueCancel)await cancelQueued(b.dataset.queueCancel);
     else if(b.dataset.queueRetry){await api("/api/actions/retry",{id:b.dataset.queueRetry,actionId:crypto.randomUUID()});await poll(true)}
-    else if(b.hasAttribute("data-queue-continue")){await api("/api/actions/continue",{});await $("#bPlay").onclick()}
+    else if(b.hasAttribute("data-queue-continue")){await api("/api/actions/continue",{});await checkConnection(true)}
     else if(b.hasAttribute("data-archive-reread"))await requestReread();
   }catch(error){showError(error.message)}
 });
@@ -731,8 +731,8 @@ function renderHeader(){
   $("#bStop").setAttribute("aria-label",S.finishPending?"Останавливаю…":"Остановить");
   $("#bStop").setAttribute("aria-busy",String(!!S.finishPending));
   $("#bStop").disabled=!!S.finishPending||!qs().length||!listening||offline;
-  $("#bPlay").disabled=resumeSending||!!S.finishPending||offline||!loaded;
-  $("#bPlay").setAttribute("aria-busy",String(resumeSending));
+  $("#bConnection").disabled=resumeSending||!loaded;
+  $("#bConnection").setAttribute("aria-busy",String(resumeSending));
   $("#ptitle").textContent=S.title||"";document.title=S.title?`Грилинг: ${S.title}`:"Грилинг-карта";
   renderResumeCopy();
   const c=counts();
@@ -1150,17 +1150,24 @@ $("#bIsolation").onclick=()=>{if(!isolated)return;flt=isolated.filter;isolated=n
 $("#ledger").addEventListener("click",e=>{if(e.target.closest("[data-obsolete]")){showObsolete=!showObsolete;try{localStorage.setItem(obsoleteKey(),String(showObsolete))}catch{}render();focusFilter();return}const b=e.target.closest("[data-flt]");if(!b)return;clearTimeout(clickTimer);isolated=null;flt=flt===b.dataset.flt?null:b.dataset.flt;render();focusFilter()});
 $("#bSummary").onclick=()=>openPanel({mode:"summary"});
 $("#bSpec").onclick=()=>act("/api/spec");
-$("#bPlay").onclick=async()=>{
+async function checkConnection(forceResume=false){
   if(resumeSending)return;
   clearTimeout(clickTimer);resumeSending=true;clearError();renderHeader();
-  const notice=$("#resumeNotice");notice.hidden=false;notice.textContent="Отправляем запрос на продолжение…";
+  const notice=$("#resumeNotice");notice.hidden=false;notice.textContent="Проверяем связь…";
   try{
-    await api("/api/resume",{});
-    notice.textContent="Запрос отправлен в сессию. Если агент не подключится, продолжите грилинг в терминале.";
+    const state=await api("/api/state");
+    if(!forceResume&&state.listening){
+      notice.textContent="Агент на связи. Проверка завершена.";
+    }else{
+      notice.textContent=forceResume?"Отправляем запрос на продолжение…":"Связи нет. Пытаемся подключить агента…";
+      await api("/api/resume",{});
+      notice.textContent="Запрос отправлен в сессию. Если агент не подключится, продолжите грилинг в терминале.";
+    }
     await poll(true);
   }catch(e){notice.hidden=true;showError(e.message)}
   finally{resumeSending=false;renderHeader()}
-};
+}
+$("#bConnection").onclick=()=>checkConnection();
 $("#bStop").onclick=()=>act("/api/finish");
 $("#bReread").onclick=requestReread;
 $("#bKnowledgeFiles").onclick=()=>{openPanel({mode:"files"});refreshKnowledgeFiles()};

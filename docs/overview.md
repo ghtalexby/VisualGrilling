@@ -97,7 +97,7 @@ Question card context menus also offer Copy question and Copy answer. Questions 
 
 Status filters include ideas and allow zero matches, showing only root when empty. Ancestors provide context but do not inflate match counts. A hidden selected card closes its panel while preserving drafts. Double-clicking empty canvas (outside cards and connection strokes) performs the same fit as Show all. The Show all icon fits the currently visible cards while preserving the status filter, branch isolation and open drawer. Automatic fits can go below 10%; manual zoom has a 10% minimum and accounts for the open drawer.
 
-The connection row orders status, Play, then Stop. Play asks the bound host session to resume the selected map without opening a drawer; it does not mark the agent connected or reset the map. See [development.md](development.md#play-and-host-session-connection) for Codex and Claude Code setup.
+The connection row orders status, Check connection, then Stop. Check connection fetches fresh agent listening status from the server and reports the result. If disconnected, it asks the bound host session to resume the selected map without opening a drawer; sending the request does not mark the agent connected or reset the map. See [development.md](development.md#check-connection-and-host-session-connection) for Codex and Claude Code setup.
 
 Discussion questions appear automatically on the map, including questions from project and idea chat. The agent reuses existing cards across the whole map, links each question in its reply and places new questions under the appropriate parent. One user message can answer several cards; each receives its own assessment, with original user text and earlier answers preserved. Explanations alone create no cards.
 

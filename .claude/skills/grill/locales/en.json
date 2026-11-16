@@ -509,5 +509,10 @@
   "Удалить из анализа и добавить в игнорируемые": "Remove from analysis and add to ignored files",
   "Вернуть": "Restore",
   "Загрузка…": "Loading…",
-  "Обновить": "Refresh"
+  "Обновить": "Refresh",
+  "Проверить связь": "Check connection",
+  "Проверить связь с агентом и восстановить при отключении": "Check the agent connection and reconnect if disconnected",
+  "Проверяем связь…": "Checking connection…",
+  "Агент на связи. Проверка завершена.": "Agent is connected. Check complete.",
+  "Связи нет. Пытаемся подключить агента…": "Disconnected. Trying to reconnect the agent…"
 }
