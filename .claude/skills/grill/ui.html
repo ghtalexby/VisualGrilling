@@ -64,6 +64,10 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .knowledge-file{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
 .knowledge-file>div{flex:1;min-width:0;overflow-wrap:anywhere}
 .knowledge-file .btn{flex:none}
+.knowledge-views{margin:20px 0 12px}.knowledge-views .btn{flex:1}
+#knowledgeSearch{width:100%;box-sizing:border-box;margin:8px 0 12px;padding:10px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+.knowledge-folder-toggle{width:30px;padding:4px!important}
+.knowledge-folder-spacer{width:30px;flex:none}
 .knowledge-file-error{color:var(--gap);font-size:13px;margin-top:4px}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:7px 12px;font-size:14px;font-weight:500;cursor:pointer}
 .btn:hover{border-color:var(--ink)}
@@ -273,7 +277,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.14">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.15">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -303,16 +307,32 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 
 let knowledgeIndex=null,knowledgeDocument=null,knowledgeExpanded=false,knowledgeLoad=0;
 let knowledgeFiles=null,knowledgeFilesError="",knowledgeFilesBusy=false,knowledgeFilesIgnored=false;
+let knowledgeFilesView="directories";
+const knowledgeSearch={directories:"",files:""},knowledgeFolders=new Set();
+function knowledgeFileRows(){
+  const directories=knowledgeFilesView==="directories",query=knowledgeSearch[knowledgeFilesView].trim().toLowerCase();
+  const items=knowledgeFilesIgnored?(knowledgeFiles?.ignored||[]).filter(p=>p.endsWith("/")===directories).map(path=>({path})):
+    directories?(knowledgeFiles?.directories||[]).map(path=>({path})):(knowledgeFiles?.files||[]);
+  const matches=items.filter(f=>!query||f.path.toLowerCase().includes(query));
+  const visible=directories&&!knowledgeFilesIgnored&&!query?matches.filter(f=>{
+    const parts=f.path.split("/").filter(Boolean);parts.pop();
+    return parts.every((_,i)=>knowledgeFolders.has(parts.slice(0,i+1).join("/")+"/"));
+  }):matches;
+  if(!visible.length)return knowledgeFiles?`<p role="status">Ничего не найдено</p>`:"";
+  return visible.map((f,i)=>{
+    const parts=f.path.split("/").filter(Boolean),nested=directories&&!knowledgeFilesIgnored&&!query;
+    const expandable=nested&&items.some(child=>child.path!==f.path&&child.path.startsWith(f.path));
+    return `<div class="knowledge-file" style="padding-left:${nested?Math.min(parts.length-1,8)*16:0}px">${expandable?`<button id="knowledgeFolder${i}" class="btn small knowledge-folder-toggle" data-folder="${esc(f.path)}" aria-expanded="${knowledgeFolders.has(f.path)}" aria-label="${esc(f.path)}">${knowledgeFolders.has(f.path)?"−":"+"}</button>`:nested?`<span class="knowledge-folder-spacer" aria-hidden="true"></span>`:""}<div title="${esc(f.path)}">${esc(nested?parts.at(-1)+"/":f.path)}${f.error?`<div class="knowledge-file-error">${esc(f.error)}</div>`:""}</div><button id="knowledgeFile${i}" class="btn small" data-ignore-path="${esc(f.path)}" data-ignored="${!knowledgeFilesIgnored}" ${knowledgeFilesBusy?"disabled":""} title="${knowledgeFilesIgnored?"Удалить из игнорируемых и вернуть в анализ":"Удалить из анализа и добавить в игнорируемые"}">${knowledgeFilesIgnored?"Вернуть":"Удалить"}</button></div>`;
+  }).join("");
+}
 function knowledgeFilesPanel(){
-  const files=knowledgeFilesIgnored?(knowledgeFiles?.ignored||[]).map(path=>({path})):(knowledgeFiles?.files||[]);
   let body=`<p class="why">Текстовые документы проекта, доступные для анализа. Исключения действуют для всех карт проекта. Файлы на диске сохраняются.</p><div class="row knowledge-file-tabs"><button class="btn" data-act="files-active" aria-pressed="${!knowledgeFilesIgnored}">В анализе · ${knowledgeFiles?.files.length??0}</button><button class="btn" data-act="files-ignored" aria-pressed="${knowledgeFilesIgnored}">Игнорируемые · ${knowledgeFiles?.ignored.length??0}</button><button class="btn small" data-act="files-refresh" ${knowledgeFilesBusy?"disabled":""}>Обновить</button></div>`;
   if(S.knowledgeResult?.error)body+=`<p class="err">${esc(S.knowledgeResult.error)}</p>`;
   if(S.knowledgePending?.stage==="blocked")body+=`<div class="row"><button class="btn" data-act="knowledge-retry">Повторить сохранение знаний</button>${S.finishPending||S.failedKnowledgeFinish?`<button class="btn" data-act="knowledge-skip">Завершить без сохранения знаний</button>`:""}</div>`;
   if(knowledgeFilesBusy)body+=`<p role="status">Загрузка…</p>`;
   if(knowledgeFilesError)body+=`<p class="err" role="alert">${esc(knowledgeFilesError)}</p>`;
   if(knowledgeFiles?.warnings.length)body+=`<details><summary>Предупреждения индекса</summary>${knowledgeFiles.warnings.map(w=>`<p class="knowledge-file-error">${esc(w)}</p>`).join("")}</details>`;
-  if(knowledgeFiles&&!files.length)body+=`<p>${knowledgeFilesIgnored?"Нет игнорируемых файлов":"Нет файлов для анализа"}</p>`;
-  body+=files.map((f,i)=>`<div class="knowledge-file"><div>${esc(f.path)}${f.error?`<div class="knowledge-file-error">${esc(f.error)}</div>`:""}</div><button id="knowledgeFile${i}" class="btn small" data-ignore-path="${esc(f.path)}" data-ignored="${!knowledgeFilesIgnored}" ${knowledgeFilesBusy?"disabled":""} title="${knowledgeFilesIgnored?"Удалить из игнорируемых и вернуть в анализ":"Удалить из анализа и добавить в игнорируемые"}">${knowledgeFilesIgnored?"Вернуть":"Удалить"}</button></div>`).join("");
+  body+=`<div class="row knowledge-file-tabs knowledge-views"><button class="btn" data-act="files-directories" aria-pressed="${knowledgeFilesView==="directories"}">Каталоги</button><button class="btn" data-act="files-list" aria-pressed="${knowledgeFilesView==="files"}">Файлы</button></div><label for="knowledgeSearch">${knowledgeFilesView==="directories"?"Поиск каталогов":"Поиск файлов"}</label><input id="knowledgeSearch" type="search" value="${esc(knowledgeSearch[knowledgeFilesView])}" placeholder="Поиск по имени или пути"><div id="knowledgeFileRows">${knowledgeFileRows()}</div>`;
   return{head:"Файлы анализа",body};
 }
 async function refreshKnowledgeFiles(change){
@@ -324,6 +344,7 @@ async function refreshKnowledgeFiles(change){
   }catch(e){knowledgeFilesError=e.message}
   finally{knowledgeFilesBusy=false;if(panel?.mode==="files")renderPanel()}
 }
+document.addEventListener("input",e=>{if(e.target.id==="knowledgeSearch"){knowledgeSearch[knowledgeFilesView]=e.target.value;$("#knowledgeFileRows").innerHTML=knowledgeFileRows()}});
 let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, resumeSending=false;
 let rereadSending=false;
@@ -1007,7 +1028,7 @@ function summaryPanel(){
 }
 function panelSig(){
   if(!panel)return"";
-  if(panel.mode==="files")return JSON.stringify([knowledgeFiles?.revision,knowledgeFilesError,knowledgeFilesBusy,knowledgeFilesIgnored,S.knowledgePending,S.knowledgeResult,S.finishPending,S.failedKnowledgeFinish]);
+  if(panel.mode==="files")return JSON.stringify([knowledgeFiles?.revision,knowledgeFilesError,knowledgeFilesBusy,knowledgeFilesIgnored,knowledgeFilesView,knowledgeSearch,S.knowledgePending,S.knowledgeResult,S.finishPending,S.failedKnowledgeFinish]);
   if(panel.mode==="summary")return JSON.stringify([counts(),S.summary,knowledgeIndex?.revision,knowledgeDocument,S.knowledgePending,S.knowledgeResult,S.coverage,S.morePending,S.finishPending,S.finished,S.specPending,S.specUpdatedAt,S.specError,S.specFile,S.questionRequests,S.rereadPending,S.rereadResult,S.reevaluationError,listening,qs().map(n=>[n.id,n.status,!!n.pending])]);
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
@@ -1277,9 +1298,12 @@ $("#panel").addEventListener("click",e=>{
   const cb=e.target.closest("[data-copy]");if(cb){clearError();copyText(cb);return}
   const ch=e.target.closest("[data-chip]");if(ch){toggleChoice(ch.dataset.chip);return}
   const kd=e.target.closest("[data-document]");if(kd){api("/api/knowledge-document?path="+encodeURIComponent(kd.dataset.document)).then(d=>{knowledgeDocument=d;renderPanel()},err=>showError(err.message));return}
+  const folder=e.target.closest("[data-folder]");if(folder){const path=folder.dataset.folder;knowledgeFolders.has(path)?knowledgeFolders.delete(path):knowledgeFolders.add(path);renderPanel();return}
   const ki=e.target.closest("[data-ignore-path]");if(ki){refreshKnowledgeFiles({path:ki.dataset.ignorePath,ignored:ki.dataset.ignored==="true"});return}
   const a=e.target.closest("[data-act]");if(!a)return;
   switch(a.dataset.act){
+    case "files-directories":knowledgeFilesView="directories";renderPanel();break;
+    case "files-list":knowledgeFilesView="files";renderPanel();break;
     case "files-active":knowledgeFilesIgnored=false;renderPanel();break;
     case "files-ignored":knowledgeFilesIgnored=true;renderPanel();break;
     case "files-refresh":refreshKnowledgeFiles();break;

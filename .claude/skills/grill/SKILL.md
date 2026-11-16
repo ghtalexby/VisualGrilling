@@ -55,7 +55,7 @@ Use the [shared context-selection rules](worker.md#context-selection). After sta
 
 ## 2. Gather context and initial questions
 
-Before any initial project-content inspection, load `<project>/.grill/knowledge-ignore.json` if present (an exact project-relative path array, shared across maps). Exclude those files from initial and later analysis, even before a server/index exists. If the policy cannot be read or parsed, resolve that error before reading project documents. After start, refresh exclusions from the knowledge index's `ignored` list; see `worker.md`.
+Before any initial project-content inspection, load `<project>/.grill/knowledge-ignore.json` if present (a project-relative path array; entries ending in `/` exclude the entire directory subtree, including future files, shared across maps). Exclude those files from initial and later analysis, even before a server/index exists. If the policy cannot be read or parsed, resolve that error before reading project documents. After start, refresh exclusions from the knowledge index's `ignored` list; see `worker.md`.
 
 1. Use a brief supplied in the user's message.
 2. Otherwise inspect applicable AGENTS.md, README, docs, CLAUDE.md, dependency manifests, directory layout, key modules, configuration, and schemas. Read selectively. Grilling does not authorize fixing the project: check claims against files and write only map state, locale data, reports, and requested generated specifications.

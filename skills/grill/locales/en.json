@@ -519,5 +519,11 @@
   "Нет уведомлений": "No notifications",
   "Показать сводку": "Show summary",
   "Сводка и файлы анализа": "Summary and analysis files",
-  "Для восстановления сохранения знаний откройте «Файлы анализа» в меню кнопки спеки.": "To recover knowledge saving, open Analysis files in the spec button menu."
+  "Для восстановления сохранения знаний откройте «Файлы анализа» в меню кнопки спеки.": "To recover knowledge saving, open Analysis files in the spec button menu.",
+  "Каталоги": "Directories",
+  "Файлы": "Files",
+  "Поиск каталогов": "Search directories",
+  "Поиск файлов": "Search files",
+  "Поиск по имени или пути": "Search by name or path",
+  "Ничего не найдено": "No matches found"
 }

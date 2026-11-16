@@ -47,7 +47,7 @@ try {
     await api("locale", { language }); await js("globalThis.__beforeKnowledgeReload=1"); await cdp("Page.reload");
     await until(() => js(`typeof __beforeKnowledgeReload==="undefined"&&typeof loaded!=="undefined"&&loaded&&typeof renderPanel==="function"&&document.documentElement.lang==="${language}"`));
     fs.writeFileSync(path.join(cwd, "large.txt"), "x".repeat(200001));
-    await click("#bSpecMenu"); await click("#bKnowledgeFiles");
+    await click("#bSpecMenu"); await click("#bKnowledgeFiles"); await click('[data-act="files-list"]');
     await until(() => js('!knowledgeFilesBusy&&!!document.querySelector(\'[data-ignore-path="large.txt"]\')'));
     assert.match(await js('document.querySelector("#panel").textContent'), language === "en" ? /too large/ : /слишком большой/);
     await click('[data-ignore-path="large.txt"]');
@@ -60,6 +60,30 @@ try {
     await click('[data-act="files-active"]');
     await click('[data-ignore-path="large.txt"]');
     await until(() => js('!knowledgeFilesBusy&&knowledgeFiles.ignored.includes("large.txt")'));
+    await click('[data-act="files-active"]');
+    await click('[data-act="files-directories"]');
+    assert.ok(await js('!!document.querySelector(\'[data-folder="docs/"]\')'));
+    assert.equal(await js('!!document.querySelector(\'[data-ignore-path="docs/vgril/"]\')'), false);
+    await click('[data-folder="docs/"]');
+    assert.ok(await js('!!document.querySelector(\'[data-ignore-path="docs/vgril/"]\')'));
+    if (process.env.GRILL_FILES_SCREENSHOT) {
+      const shot = await cdp("Page.captureScreenshot", { format: "png" });
+      fs.writeFileSync(process.env.GRILL_FILES_SCREENSHOT + `-${language}-tree.png`, Buffer.from(shot.data, "base64"));
+    }
+    await input("#knowledgeSearch", "VGRIL");
+    assert.ok(await js('!!document.querySelector(\'[data-ignore-path="docs/vgril/"]\')'));
+    await click('[data-ignore-path="docs/vgril/"]');
+    await until(() => js('!knowledgeFilesBusy&&knowledgeFiles.ignored.includes("docs/vgril/")'));
+    await click('[data-act="files-ignored"]');
+    await click('[data-ignore-path="docs/vgril/"]');
+    await until(() => js('!knowledgeFilesBusy&&!knowledgeFiles.ignored.includes("docs/vgril/")'));
+    await input("#knowledgeSearch", "");
+    await click('[data-act="files-list"]');
+    await input("#knowledgeSearch", "large");
+    assert.ok(await js('!!document.querySelector(\'[data-ignore-path="large.txt"]\')'));
+    await input("#knowledgeSearch", "no-such-file");
+    assert.equal(await js('document.querySelectorAll("[data-ignore-path]").length'), 0);
+    await input("#knowledgeSearch", "");
     // Capture both themes and viewport sizes while checking row overflow.
     for (const width of [390, 1280]) {
       await cdp("Emulation.setDeviceMetricsOverride", { width, height: 800, deviceScaleFactor: 1, mobile: false });

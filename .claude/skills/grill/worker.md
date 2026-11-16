@@ -73,4 +73,4 @@ Read large-event `inbox` files in chunks; after compaction use status/file, neve
 
 Project chat is conversation-scoped.
 
-Never read or analyze paths in the knowledge index's `ignored` list, including via filesystem tools.
+Never read or analyze paths in the knowledge index's `ignored` list, including via filesystem tools. A trailing `/` excludes all current/future descendants; otherwise match the exact file.

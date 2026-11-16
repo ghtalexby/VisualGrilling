@@ -36,6 +36,22 @@ async function stop() {
   const done = new Promise(r => server.once("exit", r)); await api("stop", {}); await done;
 }
 try {
+  fs.mkdirSync(path.join(cwd, "folders/sub"), { recursive: true });
+  fs.writeFileSync(path.join(cwd, "folders/sub/one.md"), "one");
+  assert.ok(store.index().directories.includes("folders/sub/"));
+  store.setIgnored("folders/sub/one.md", true);
+  store.setIgnored("folders/", true);
+  fs.writeFileSync(path.join(cwd, "folders/sub/new.md"), "new");
+  assert.ok(!store.index().directories.includes("folders/"));
+  assert.throws(() => store.read("folders/sub/new.md"), /исключён/);
+  assert.ok(knowledge(cwd, maps).index().ignored.includes("folders/"));
+  store.setIgnored("folders/", false);
+  assert.ok(store.index().files.some(f => f.path === "folders/sub/new.md"));
+  assert.ok(!store.index().files.some(f => f.path === "folders/sub/one.md"));
+  store.setIgnored("folders/sub/one.md", false);
+  assert.throws(() => store.setIgnored("../", true));
+  assert.throws(() => store.setIgnored("/", true));
+  assert.throws(() => store.setIgnored("missing/", true));
   // Oversized candidates remain manageable; exclusions survive new store instances.
   fs.writeFileSync(path.join(cwd, "large.txt"), "x".repeat(200001));
   const oversized = store.index();

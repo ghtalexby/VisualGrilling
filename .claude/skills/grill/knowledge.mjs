@@ -22,7 +22,7 @@ export function knowledge(project, maps) {
   project = path.resolve(project); maps = path.resolve(maps);
   const runtime = path.join(project, ".grill", "knowledge-ops");
   const pathKey = relative => process.platform === "win32" ? relative.toLowerCase() : relative;
-  const validIgnorePath = p => bounded(p, 1000) && !p.includes("\\") && !p.split("/").some(s => !s || s === "." || s === ".." || /[:\x00-\x1f]/.test(s));
+  const validIgnorePath = p => bounded(p, 1000) && !p.includes("\\") && !p.replace(/\/$/, "").split("/").some(s => !s || s === "." || s === ".." || /[:\x00-\x1f]/.test(s));
   function ignoredPaths() {
     const file = safe(project, ".grill/knowledge-ignore.json");
     if (!fs.existsSync(file)) return [];
@@ -31,7 +31,8 @@ export function knowledge(project, maps) {
     if (!Array.isArray(paths) || paths.length > 1000 || paths.some(p => !validIgnorePath(p))) fail("Некорректный список исключений знаний");
     return paths;
   }
-  const isIgnored = relative => ignoredPaths().some(p => pathKey(p) === pathKey(relative));
+  const matchesIgnore = (relative, rules) => rules.some(p => p.endsWith("/") ? pathKey(relative).startsWith(pathKey(p)) : pathKey(p) === pathKey(relative));
+  const isIgnored = relative => matchesIgnore(relative, ignoredPaths());
   // All generated destinations are fixed or restricted relative paths. Never follow links.
   function safe(root, relative, create = false) {
     if (!relative || relative.includes("\\") || relative.split("/").some(p => !p || p === "." || p === ".." || /[:\x00-\x1f]/.test(p))) fail("Недопустимый путь знаний");
@@ -126,8 +127,7 @@ export function knowledge(project, maps) {
     return { path: file.path, expected: file.expected, text };
   }
   function scan() {
-    const documents = [], warnings = [], mapList = [], files = [], ignored = ignoredPaths();
-    const excluded = new Set(ignored.map(pathKey));
+    const documents = [], warnings = [], mapList = [], files = [], directories = [], ignored = ignoredPaths();
     let visited = 0;
     function walk(relative, depth = 0) {
       if (depth > 12) { warnings.push(`Depth limit: ${relative}`); return; }
@@ -140,10 +140,10 @@ export function knowledge(project, maps) {
         const rel = relative ? `${relative}/${entry.name}` : entry.name;
         const inDocs = relative.toLowerCase() === "docs" || relative.toLowerCase().startsWith("docs/");
         if (entry.isDirectory() && (path.resolve(dir, entry.name) === maps || excludedDirectories.has(entry.name.toLowerCase()) || !inDocs && generatedDirectories.has(entry.name.toLowerCase()))) continue;
+        if (matchesIgnore(entry.isDirectory() ? rel + "/" : rel, ignored)) continue;
         if (++visited > 10000) fail("Индекс превышает 10000 объектов; сузьте документацию проекта");
-        if (entry.isDirectory()) walk(rel, depth + 1);
+        if (entry.isDirectory()) { directories.push(rel + "/"); walk(rel, depth + 1); }
         else if (entry.isFile() && /\.(md|mdx|rst|txt)$/i.test(entry.name)) {
-          if (excluded.has(pathKey(rel))) continue;
           if (documents.length >= 1000) fail("Индекс превышает 1000 документов");
           const candidate = { path: rel }; files.push(candidate);
           try {
@@ -190,7 +190,7 @@ export function knowledge(project, maps) {
         mapList.push({ name: dir === maps ? null : path.basename(dir), title: s.title, version: s.version, source: path.relative(project, file).replaceAll("\\", "/"), finished: !!s.finished });
       } catch {}
     }
-    const content = { schema: 1, documents, maps: mapList, warnings, ignored, files };
+    const content = { schema: 1, documents, maps: mapList, warnings, ignored, files, directories };
     const result = { ...content, revision: digest(JSON.stringify(content)), documentsRevision: digest(JSON.stringify({ documents, ignored })) };
     atomic(safe(project, ".grill/knowledge-index.json", true), JSON.stringify(result, null, 2));
     return result;
@@ -232,7 +232,8 @@ export function knowledge(project, maps) {
       const paths = ignoredPaths(), key = pathKey(relative), exists = paths.some(p => pathKey(p) === key);
       if (ignored && !exists) {
         if (paths.length >= 1000) fail("Не более 1000 исключений знаний");
-        if (!scan().files.some(f => f.path === relative)) fail("Документ не найден в индексе");
+        const inventory = scan();
+        if (!(relative.endsWith("/") ? inventory.directories.includes(relative) : inventory.files.some(f => f.path === relative))) fail("Документ не найден в индексе");
         paths.push(relative);
       }
       const next = ignored ? paths : paths.filter(p => pathKey(p) !== key);
