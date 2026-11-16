@@ -36,7 +36,7 @@ All routes are protected by Host validation and `x-grill: 1`, with the unchanged
 
 | Route | Request / result |
 |---|---|
-| `POST /api/preview/prepare` | `{sourceId,id?,branches?:[]}`; existing ID chooses refinement, omitted ID creates separately; returns preview node ID |
+| `POST /api/preview/prepare` | `{sourceId,id?,branches?:[],request?:string}`; existing ID chooses refinement, omitted ID creates separately; returns preview node ID |
 | `POST /api/preview/build` | `{id,request}` (1–3000 characters); queues build after prepared options |
 | `GET /api/preview?id=…` | Public card, committed files and that commit's saved state |
 | `GET /api/preview/document?id=…&instance=…` | Prepared srcdoc, commit, epoch; `key` instead of `id` loads an immutable snapshot |
