@@ -119,7 +119,7 @@ try {
     assert.equal(await js('document.querySelector("#panel .err")'), null);
   }
   await js('api=savedApi');
-  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["conn", "queueControl", "session-usage", "bConnection", "bStop"]);
+  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["notificationControl", "conn", "queueControl", "session-usage", "bConnection", "bStop"]);
   await js('listening=false;renderHeader()');
   assert.equal(await js('document.querySelector("#bStop").disabled'), true);
   assert.equal(await js('document.querySelector("#bConnection").disabled'), false);
@@ -267,7 +267,7 @@ try {
     assert.equal(await js('document.querySelector("#fAns").value'), 'Fit preserves draft');
   }
   await js('stopGlide();zoom=.5;px=20;py=80;applyView()');
-  const edgePoint = await js('(()=>{const e=document.querySelector("#edges path"),p=e.getPointAtLength(e.getTotalLength()/2),q=new DOMPoint(p.x,p.y).matrixTransform(e.getScreenCTM());return {x:q.x,y:q.y,hit:document.elementFromPoint(q.x,q.y)?.tagName}})()');
+  const edgePoint = await js('(()=>{for(const e of document.querySelectorAll("#edges path"))for(let f=.1;f<1;f+=.1){const p=e.getPointAtLength(e.getTotalLength()*f),q=new DOMPoint(p.x,p.y).matrixTransform(e.getScreenCTM());for(let dy=-1;dy<=1;dy+=.25)if(document.elementFromPoint(q.x,q.y+dy)===e)return {x:q.x,y:q.y+dy,hit:"path"}}return {}})()');
   assert.equal(edgePoint.hit, "path");
   const beforeEdge = await js('[zoom,px,py]');
   await doubleClickAt(edgePoint);

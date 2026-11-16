@@ -45,6 +45,37 @@ try {
     const shot = await cdp("Page.captureScreenshot", { format: "png" });
     fs.writeFileSync(process.env.GRILL_CONNECTION_SCREENSHOT, Buffer.from(shot.data, "base64"));
   }
+  // Header notices remain collapsed and do not change header height or drawer state.
+  await js('window.noticePoll=poll;poll=async()=>{};window.noticeHeaderHeight=document.querySelector("header").offsetHeight;document.querySelector("#resumeNotice").textContent="Request sent to the session.";document.querySelector("#resumeNotice").hidden=false;document.querySelector("#finishedNotice").textContent="Map finished. Continue this map in the session.";document.querySelector("#finishedNotice").hidden=false');
+  assert.equal(await js('document.querySelector("#notificationCount").textContent'), "2");
+  assert.equal(await js('document.querySelector("#notificationsPanel").hidden'), true);
+  assert.equal(await js('document.querySelector("header").offsetHeight===noticeHeaderHeight'), true);
+  await js('openPanel({mode:"summary"});document.querySelector("#finishedNotice").hidden=false;document.querySelector("#bNotifications").click()');
+  assert.equal(await js('document.querySelector("#notificationsPanel").hidden'), false);
+  assert.equal(await js('document.querySelector("#bNotifications").getAttribute("aria-expanded")'), "true");
+  assert.equal(await js('document.querySelector("header").offsetHeight===noticeHeaderHeight'), true);
+  await js('document.querySelector("#queueNotice").textContent="Queued"');
+  assert.equal(await js('document.querySelector("#notificationCount").textContent'), "3");
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+  assert.equal(await js('document.querySelector("#notificationsPanel").hidden'), true);
+  assert.equal(await js('panel.mode'), "summary");
+  assert.equal(await js('document.activeElement.id'), "bNotifications");
+  await js('document.querySelector("#bNotifications").click();document.querySelector("#ptitle").click()');
+  assert.equal(await js('document.querySelector("#notificationsPanel").hidden'), true);
+  await cdp("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: false });
+  await js('document.querySelector("#bNotifications").click()');
+  assert.equal(await js('(()=>{const r=document.querySelector("#notificationsPanel").getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'), true);
+  if (process.env.GRILL_NOTIFICATIONS_SCREENSHOT) {
+    const shot = await cdp("Page.captureScreenshot", { format: "png" });
+    fs.writeFileSync(process.env.GRILL_NOTIFICATIONS_SCREENSHOT, Buffer.from(shot.data, "base64"));
+  }
+  await js('document.querySelector("#resumeNotice").hidden=true;document.querySelector("#finishedNotice").hidden=true;document.querySelector("#queueNotice").textContent=""');
+  assert.equal(await js('document.querySelector("#notificationCount").textContent'), "0");
+  assert.equal(await js('document.querySelector("#notificationsEmpty").hidden'), false);
+  assert.equal(await js('document.querySelector("#notificationsEmpty").textContent'), "No notifications");
+  await js('closeNotifications();panel=null;renderPanel();poll=noticePoll;poll(true)');
+  await cdp("Emulation.clearDeviceMetricsOverride");
+
   // Connection checks must use fresh status, preserve drafts, and never wake a connected agent.
   await js('window.connectionApi=api;window.resumeCalls=0;window.connected=true;api=async(p,b)=>{if(p==="/api/resume"){resumeCalls++;return {ok:true}}const d=await connectionApi(p,b);if(p==="/api/state")d.listening=connected;return d};drafts.connection="unsent draft";listening=false');
   await js('document.querySelector("#bConnection").click()');

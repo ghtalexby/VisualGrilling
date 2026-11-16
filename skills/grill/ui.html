@@ -76,7 +76,15 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .ledger button.pill:hover:not(:disabled){border-color:color-mix(in srgb,var(--sc) 45%,var(--line))}
 .ledger button.pill[aria-pressed="true"]{background:color-mix(in srgb,var(--sc) 16%,transparent);border-color:var(--sc)}
 .ledger button.pill:disabled{opacity:.45;cursor:default}
-.agent-controls{display:flex;align-items:center;gap:6px;margin-left:auto}
+.agent-controls{display:flex;align-items:center;flex-wrap:wrap;max-width:100%;gap:6px;margin-left:auto}
+.notification-control{flex:none}
+#bNotifications{display:inline-flex;align-items:center;gap:5px;min-width:36px;height:28px;padding:0 7px;font-variant-numeric:tabular-nums}
+#bNotifications[aria-expanded="true"]{border-color:var(--accent)}
+#notificationsPanel{position:fixed;z-index:40;width:min(420px,calc(100vw - 24px));padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:8px;overflow:auto;overflow-wrap:anywhere}
+.notifications-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}
+#notificationItems>div{font-size:13px;color:var(--ink);padding:10px 0;border-bottom:1px solid var(--line)}
+#notificationItems>div:empty{display:none}
+#notificationsEmpty{font-size:13px;color:var(--muted)}
 .agent-control{display:inline-flex;align-items:center;justify-content:center;width:30px;height:28px;padding:0;flex:none}
 .session-usage{font-family:var(--f-mono);font-size:11.5px;color:var(--muted)}
 .session-usage button{font:inherit;color:inherit;border:0;background:transparent;padding:2px 0;cursor:help;white-space:nowrap}
@@ -259,17 +267,17 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.9">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.10">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
     <div class="actions"><button class="btn" id="bReread" title="Агент заново прочитает всю карту и перестроит схему. Ваши ответы сохранятся">Перечитать</button><button class="btn" id="bKnowledgeFiles">Файлы анализа</button><button class="btn" id="bSpec" title="Создать план в docs/specs. Обновление заменяет ручные правки">Создать спеку</button><button class="btn" id="bChat">Общий чат</button><button class="btn" id="bSummary">Сводка и итог</button></div>
   </div>
-  <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bConnection" aria-label="Проверить связь" title="Проверить связь с агентом и восстановить при отключении"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
-  <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
+  <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="notification-control" id="notificationControl"><button class="btn" id="bNotifications" type="button" title="Уведомления" aria-label="Уведомления" aria-expanded="false" aria-controls="notificationsPanel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span id="notificationCount">0</span></button><section id="notificationsPanel" aria-labelledby="notificationsTitle" tabindex="-1" hidden><div class="notifications-head"><b id="notificationsTitle">Уведомления</b><button class="btn small" id="closeNotifications" type="button">Закрыть</button></div><div id="notificationItems">  <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
   <div id="queueNotice" role="status"></div>
   <div id="resumeNotice" class="why" role="status" hidden></div>
-  <div id="finishedNotice" hidden></div>
+  <div id="finishedNotice" hidden></div></div><p id="notificationsEmpty">Нет уведомлений</p></section></div><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bConnection" aria-label="Проверить связь" title="Проверить связь с агентом и восстановить при отключении"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
+
 </header>
 <main>
   <div id="viewport"><div id="stage"><svg id="edges"></svg></div></div>
@@ -777,6 +785,39 @@ $("#usageTotal").addEventListener("focus",showUsage);
 $("#usageTotal").addEventListener("blur",hideUsage);
 $("#usageTotal").addEventListener("keydown",e=>{if(e.key==="Escape")hideUsage()});
 window.addEventListener("resize",hideUsage);
+
+// Keep the counter tied to the existing live notices, without accumulating poll history.
+function positionNotifications(){
+  const box=$("#notificationsPanel"),rect=$("#bNotifications").getBoundingClientRect();
+  box.style.left=Math.max(12,Math.min(rect.left,innerWidth-box.offsetWidth-12))+"px";
+  box.style.top=Math.min(rect.bottom+8,innerHeight-80)+"px";
+  box.style.maxHeight=Math.max(60,innerHeight-parseFloat(box.style.top)-12)+"px";
+}
+function refreshNotifications(){
+  const count=[...$("#notificationItems").children].filter(el=>!el.hidden&&el.textContent.trim()).length;
+  $("#notificationCount").textContent=count;
+  $("#bNotifications").setAttribute("aria-label","Уведомления"+": "+count);
+  $("#notificationsEmpty").hidden=count>0;
+  if(!$("#notificationsPanel").hidden)positionNotifications();
+}
+function closeNotifications(focus=false){
+  $("#notificationsPanel").hidden=true;$("#bNotifications").setAttribute("aria-expanded","false");
+  if(focus)$("#bNotifications").focus();
+}
+$("#bNotifications").onclick=()=>{
+  clearTimeout(clickTimer);
+  if(!$("#notificationsPanel").hidden){closeNotifications();return}
+  refreshNotifications();$("#notificationsPanel").hidden=false;
+  $("#bNotifications").setAttribute("aria-expanded","true");positionNotifications();$("#notificationsPanel").focus({preventScroll:true});
+};
+$("#closeNotifications").onclick=()=>closeNotifications(true);
+document.addEventListener("click",e=>{if(!e.target.closest("#notificationControl"))closeNotifications()});
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&!$("#notificationsPanel").hidden){e.preventDefault();e.stopImmediatePropagation();closeNotifications(true)}
+},true);
+window.addEventListener("resize",()=>{if(!$("#notificationsPanel").hidden)positionNotifications()});
+new MutationObserver(refreshNotifications).observe($("#notificationItems"),{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:["hidden"]});
+refreshNotifications();
 
 function waitNote(){return listening?"":`<div class="note">Агент сейчас не слушает карту. Ответ встанет в очередь и будет разобран, когда вы напишете в терминале <code>продолжай грилинг</code>.</div>`}
 function nextOpen(){const o=[];const w=id=>kids(id).forEach(k=>{o.push(k);w(k.id)});w("root");return o.find(n=>n.kind==="q"&&!n.obsolete&&!n.queuedCreation&&n.status==="open"&&!n.pending)}

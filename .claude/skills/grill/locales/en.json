@@ -514,5 +514,7 @@
   "Проверить связь с агентом и восстановить при отключении": "Check the agent connection and reconnect if disconnected",
   "Проверяем связь…": "Checking connection…",
   "Агент на связи. Проверка завершена.": "Agent is connected. Check complete.",
-  "Связи нет. Пытаемся подключить агента…": "Disconnected. Trying to reconnect the agent…"
+  "Связи нет. Пытаемся подключить агента…": "Disconnected. Trying to reconnect the agent…",
+  "Уведомления": "Notifications",
+  "Нет уведомлений": "No notifications"
 }
