@@ -81,7 +81,7 @@ Exercise grading `gap`, `ok`, and `verify`, discussion, more questions, finish, 
 
 ## Standalone checks
 
-- `node dev/check-current-work-browser.mjs`: Chromium checks for the split spec/summary control, independent navigation during generation, read-only Summary, knowledge recovery in Analysis files, keyboard behavior, responsive placement and agent status. Set `GRILL_SPEC_SCREENSHOT_DIR` to capture desktop/mobile light/dark screenshots.
+- `node dev/check-current-work-browser.mjs`: Chromium checks for the split spec/summary control, independent navigation during generation, read-only Summary, knowledge recovery in Knowledge files, keyboard behavior, responsive placement and agent status. Set `GRILL_SPEC_SCREENSHOT_DIR` to capture desktop/mobile light/dark screenshots.
 
 - `node dev/check-monitor.mjs` (also run with `--mirror` for the tracked release copy): real server/CLI with a fake Codex executable; idle silence, single wake per event, sequential arming, waiter conflicts, stale IDs, failed/warned submissions, rebinding, restart recovery and Host/header protection. It never invokes a model.
 
@@ -281,7 +281,7 @@ Run `node dev/check-actions.mjs`: durable IDs/replay/restart, adjacent messages/
 In both UI languages exercise queue hover/pinning/Close, separate current/queued counts, three messages plus one internal task, problem access without waiting work, answer editing and deletion during reread, archive access and full-queue refusal with drafts intact. Close the browser and confirm the active host keeps processing. In a real Codex session verify one fresh prepare-only worker per event, worker failure fallback, stale result rejection, main-session-only apply and rearm; fake transport and simulator checks do not prove model/host behavior.
 
 `node dev/check-actions-browser.mjs` verifies EN/RU queue grouping, hover/pinning/close, current-work indicator, problem access, archive and exact internal-task counting. `node dev/check-actions-simulator.mjs` runs the required simulator with `--no-open --delay 200` on a uniquely named disposable map and covers all three grade outcomes, chat, more, finish and report.
-`node dev/check-knowledge.mjs` covers oversized file inventory, persistent exclusions, restoration, stale save rejection, restart and protected endpoints. `node dev/check-knowledge-browser.mjs` covers Analysis files / Ignored controls in RU/EN and narrow/wide layouts; set `GRILL_FILES_SCREENSHOT` to an output path prefix to retain screenshots.
+`node dev/check-knowledge.mjs` covers oversized file inventory, persistent exclusions, restoration, stale save rejection, restart and protected endpoints. `node dev/check-knowledge-browser.mjs` covers Knowledge files / Ignored controls in RU/EN and narrow/wide layouts; set `GRILL_FILES_SCREENSHOT` to an output path prefix to retain screenshots.
 
 The action browser check also verifies immediate queued answer/chat display, editing and cancellation of the displayed answer, conversation isolation, quotes/images, reload, pending creation cards and canonical worker-state isolation. Set `GRILL_QUEUE_SCREENSHOT` to a path prefix to retain EN/RU captures. The simulator reads grades through the API, avoiding a Windows file-reader race with atomic state replacement.
 `node dev/check-queued-view.mjs` checks FIFO display projection, cancellation restoration, edits/deletions, read-only placeholders and pending work indicators without altering canonical evidence.
