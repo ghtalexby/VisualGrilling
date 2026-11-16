@@ -277,7 +277,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.16">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.17">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -326,7 +326,7 @@ function knowledgeFileRows(){
   }).join("");
 }
 function knowledgeFilesPanel(){
-  let body=`<p class="why">Текстовые документы проекта, доступные для анализа. Исключения действуют для всех карт проекта. Файлы на диске сохраняются.</p><div class="row knowledge-file-tabs"><button class="btn" data-act="files-active" aria-pressed="${!knowledgeFilesIgnored}">В анализе · ${knowledgeFiles?.files.length??0}</button><button class="btn" data-act="files-ignored" aria-pressed="${knowledgeFilesIgnored}">Игнорируемые · ${knowledgeFiles?.ignored.length??0}</button><button class="btn small" data-act="files-refresh" ${knowledgeFilesBusy?"disabled":""}>Обновить</button></div>`;
+  let body=`<p class="why">Текстовые документы проекта, доступные для анализа. Исключения действуют для всех карт проекта. Файлы на диске сохраняются.</p><div class="row knowledge-file-tabs"><button class="btn" data-act="files-active" aria-pressed="${!knowledgeFilesIgnored}">В анализе · ${knowledgeFiles?.files.length??0}</button><button class="btn" data-act="files-ignored" aria-pressed="${knowledgeFilesIgnored}">Игнорируемые · ${knowledgeFiles?.ignored.length??0}</button><button class="btn" data-act="files-refresh" ${knowledgeFilesBusy?"disabled":""}>Обновить</button></div>`;
   if(S.knowledgeResult?.error)body+=`<p class="err">${esc(S.knowledgeResult.error)}</p>`;
   if(S.knowledgePending?.stage==="blocked")body+=`<div class="row"><button class="btn" data-act="knowledge-retry">Повторить сохранение знаний</button>${S.finishPending||S.failedKnowledgeFinish?`<button class="btn" data-act="knowledge-skip">Завершить без сохранения знаний</button>`:""}</div>`;
   if(knowledgeFilesBusy)body+=`<p role="status">Загрузка…</p>`;
