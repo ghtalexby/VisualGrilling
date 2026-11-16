@@ -19,6 +19,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const argv = process.argv.slice(2);
+// A mistyped option must not fall back to the default output and overwrite the tracked clip.
+for (const [i, a] of argv.entries()) if (!["--out", "--work", "--mp4", "--no-encode"].includes(a) && !["--out", "--work"].includes(argv[i - 1])) { console.error("Unknown option: " + a); process.exit(1); }
 function opt(n, d) {
   const i = argv.indexOf("--" + n); if (i < 0) return d;
   if (argv[i + 1] === undefined || argv[i + 1].startsWith("--")) { console.error(`--${n} needs a value`); process.exit(1); }
@@ -32,14 +34,17 @@ const WIDTH = 1280, HEIGHT = 720, SCALE = 1.5;
 
 const executable = [process.env.GRILL_BROWSER, "C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe", "/usr/bin/google-chrome", "/usr/bin/chromium", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(p => p && fs.existsSync(p));
 if (!executable || typeof WebSocket === "undefined") { console.error("Promo recording needs Chromium (set GRILL_BROWSER) and Node 22+"); process.exit(1); }
-if (ENCODE && spawnSync(FFMPEG, ["-version"], { stdio: "ignore" }).status !== 0) { console.error("ffmpeg not found (set GRILL_FFMPEG)"); process.exit(1); }
+if (ENCODE) {
+  // Check the encoders up front: a failed encode would otherwise cost the whole recording.
+  const probe = spawnSync(FFMPEG, ["-hide_banner", "-encoders"], { encoding: "utf8" });
+  if (probe.status !== 0) { console.error("ffmpeg not found (set GRILL_FFMPEG)"); process.exit(1); }
+  for (const encoder of ["libwebp_anim", ...(argv.includes("--mp4") ? ["libx264"] : [])]) if (!new RegExp(`\\s${encoder}\\s`).test(probe.stdout)) { console.error(`ffmpeg lacks the ${encoder} encoder`); process.exit(1); }
+}
 
 const cli = path.join(ROOT, "skills", "grill", "grill.mjs");
+const KEEP = opt("work", null);
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-promo-")), dir = path.join(cwd, ".grill"), profile = path.join(cwd, "browser");
-const work = opt("work", null) ? path.resolve(opt("work")) : path.join(cwd, "frames");
-// A kept work directory may hold other files: replace only this script's own frames.
-fs.mkdirSync(work, { recursive: true });
-for (const f of fs.readdirSync(work)) if (/^f\d{6}\.jpg$/.test(f) || f === "frames.txt") fs.rmSync(path.join(work, f));
+const work = KEEP ? path.resolve(KEEP) : path.join(cwd, "frames");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* ---------- demo project ---------- */
@@ -75,6 +80,7 @@ const SUMMARY = "Verdict: alive, if the no-show loss holds beyond three pilots.\
 /* ---------- plumbing ---------- */
 let server, browser, ws, url, sequence = 0, stopped = false, failure = null;
 const pending = new Map(), frames = [];
+let recordedUntil = 0;
 async function until(fn, label = "condition") { for (let i = 0; i < 300; i++) { if (failure) throw failure; const value = await fn(); if (value) return value; await sleep(100); } throw new Error("Timed out: " + label); }
 function cdp(method, params = {}) {
   return new Promise((resolve, reject) => {
@@ -275,8 +281,10 @@ async function storyboard(ids, started) {
 }
 
 function encode() {
-  // Screencast frames arrive only when the page changes, so each one carries its own duration.
-  const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(.001, (frames[i + 1]?.at ?? f.at + .5) - f.at).toFixed(4)}`).join("\n") + `\nfile '${frames.at(-1).file}'\n`;
+  // Screencast frames arrive only when the page changes, so each one carries its own duration;
+  // the last one lasts until recording stopped, which keeps a static closing hold. The concat
+  // demuxer needs the final file listed twice and then shows it for twice its duration, hence the half.
+  const list = frames.map((f, i) => `file '${f.file}'\nduration ${Math.max(.001, frames[i + 1] ? frames[i + 1].at - f.at : Math.max(recordedUntil - f.at, .5) / 2).toFixed(4)}`).join("\n") + `\nfile '${frames.at(-1).file}'\n`;
   fs.writeFileSync(path.join(work, "frames.txt"), list);
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   const run = args => { const r = spawnSync(FFMPEG, ["-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", "frames.txt", ...args], { cwd: work, stdio: "inherit" }); if (r.status !== 0) throw new Error("ffmpeg failed"); };
@@ -286,6 +294,9 @@ function encode() {
 }
 
 try {
+  // A kept work directory may hold other files: replace only this script's own frames.
+  fs.mkdirSync(work, { recursive: true });
+  for (const f of fs.readdirSync(work)) if (/^f\d{6}\.jpg$/.test(f) || f === "frames.txt") fs.rmSync(path.join(work, f));
   server = spawn(process.execPath, [cli, "serve", "--dir", dir, "--name", "tablekeep", "--port", "0", "--lang", "en"], { cwd, stdio: "ignore", windowsHide: true, env: { ...process.env, GRILL_DOUBLE_CLICK_MS: "250" } });
   await until(() => { try { url = JSON.parse(fs.readFileSync(path.join(dir, "tablekeep", "server.json"))).url; return true; } catch { return false; } }, "server");
   await api("init", INIT);
@@ -321,6 +332,8 @@ try {
 
   await cdp("Page.startScreencast", { format: "jpeg", quality: 92, everyNthFrame: 1 });
   await storyboard(ids, Date.now());
+  // Frame timestamps are epoch seconds, like this clock.
+  recordedUntil = Date.now() / 1000;
   await cdp("Page.stopScreencast"); await sleep(200);
   assert.ok(frames.length > 100, "Too few frames captured");
   if (ENCODE) encode();
@@ -332,7 +345,7 @@ try {
     if (browser?.exitCode === null) await Promise.race([new Promise(resolve => browser.once("exit", resolve)), sleep(2000)]);
   }
   stopped = true; ws?.close(); await end(browser); await end(server);
-  if (opt("work", null)) console.log("Frames kept in " + work);
+  if (KEEP) console.log("Frames kept in " + work);
   try { fs.rmSync(cwd, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
   catch (error) {
     if (!["EBUSY", "ENOTEMPTY", "EPERM"].includes(error.code)) throw error;

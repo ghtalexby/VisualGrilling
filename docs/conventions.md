@@ -21,7 +21,7 @@ When adding an endpoint:
 
 | When changing | Also update |
 |---|---|
-| Event fields in `payload()` or the `apply()` / `/api/init` format | `SKILL.md`, `worker.md`, `events/*`, `docs/contract.md`, `dev/simulate.mjs` |
+| Event fields in `payload()` or the `apply()` / `/api/init` format | `SKILL.md`, `worker.md`, `events/*`, `docs/contract.md`, `dev/simulate.mjs`, the scripted agent in `dev/record-promo.mjs` |
 | `clean()` limits | The limits table in `docs/contract.md`; numbers in `SKILL.md` where relevant |
 | Statuses (`LABEL`, `ORDER`, `counts()`) | Their duplicates in `ui.html` (`STATUS`, `ORDER`, `counts()`), `.s-<status>` CSS classes, and color tokens |
 | UI source phrases, locale validation, or language selection | `locales/en.json`, `i18n.mjs`, `SKILL.md`, `docs/contract.md`, simulator options, and locale checks |
