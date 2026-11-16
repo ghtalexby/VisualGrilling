@@ -64,7 +64,7 @@ skills/grill/          working skill; edit this copy
   i18n.mjs             locale validation and page rendering
   locales/en.json      English translations; keys are Russian source phrases
 test-project/          simulator workspace (.gitkeep is tracked; application sources are absent)
-dev/                   simulator, linking, reset, and API checks
+dev/                   simulator, linking, reset, API checks, and the README clip recorder
   fixtures/init.json   simulator's initial questions
 docs/                  developer documentation
 Examples/              original claude-grill reference; leave untouched

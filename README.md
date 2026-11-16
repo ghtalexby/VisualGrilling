@@ -2,7 +2,9 @@
 
 A Codex and Claude Code skill for visual project grilling in your browser. The agent studies your project in the current session, opens a local map, and asks questions on it. You answer on the map; the agent grades your answers and digs deeper into weak spots. No additional API key is required.
 
-![VisualGrilling map with questions and an answer panel](images/skill-visual-grills.webp)
+![One-minute demo: the agent maps five questions, grades answers as Weak, Closed and Gap, revises a verdict in discussion, and writes a summary](images/promo.webp)
+
+The clip uses a scripted demo project.
 
 ## How grilling works
 

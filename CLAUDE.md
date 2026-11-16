@@ -28,7 +28,7 @@ No dependencies, build step, automated test framework, or linter. Standalone API
   - `ui.html` — the map UI template, self-contained vanilla JS served at `/`.
   - `i18n.mjs` and `locales/en.json` — validated dictionaries and page rendering; language is stored per map.
 - `test-project/` — simulator workspace. The historical SmetaPhoto application fixture is absent in this checkout; use an idea brief or your own project for real sessions.
-- `dev/` — debug tooling: `simulate.mjs` (fake Claude driving the real CLI), `link-skill.mjs` (junction into `test-project/.claude/skills/grill`), `reset.mjs`, `fixtures/init.json`.
+- `dev/` — debug tooling: `simulate.mjs` (fake Claude driving the real CLI), `link-skill.mjs` (junction into `test-project/.claude/skills/grill`), `reset.mjs`, `fixtures/init.json`, `record-promo.mjs` (regenerates the README clip `images/promo.webp`, see [docs/development.md](docs/development.md#readme-promo-clip)).
 - `Examples/` — the original reference example; leave it untouched.
 
 ## Commands

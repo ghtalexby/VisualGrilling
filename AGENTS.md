@@ -7,7 +7,7 @@ Start with [docs/README.md](docs/README.md), then read the relevant overview, ar
 ## Project Structure & Module Organization
 
 - `skills/grill/` is the working source: `grill.mjs` contains the HTTP server and CLI, `ui.html` contains the UI template, styles, and browser JavaScript, `i18n.mjs` and `locales/en.json` handle per-map localization, and `SKILL.md` defines Claude's workflow.
-- `dev/` contains simulator, linking, and reset utilities; `dev/fixtures/init.json` supplies sample questions.
+- `dev/` contains simulator, linking, and reset utilities; `dev/fixtures/init.json` supplies sample questions. `dev/record-promo.mjs` regenerates the README clip in `images/`.
 - `test-project/` is the simulator workspace. The historical deliberately flawed application fixture is absent in this checkout; if restored, preserve its planted weaknesses.
 - `docs/` documents architecture, contracts, development, and conventions. Read relevant pages before changes.
 - `Examples/` is the original reference; leave it untouched. `.grill/` contains generated runtime state.
