@@ -159,7 +159,7 @@ async function serve() {
   // Delivery identity is process-local: recovery queues work, but does not execute it.
   let currentWork = null;
   const transferring = () => S.sessionTransfer && S.sessionTransfer.phase !== "attached";
-  const transferStatus = () => S.sessionTransfer || null;
+  const transferStatus = () => S.sessionTransfer ? { ...S.sessionTransfer, ...(S.sessionTransfer.error ? { error: t(S.sessionTransfer.error) } : {}) } : null;
   // A monitor is a process-local, one-event subscription, never a second waiter.
   let monitor = null;
   let applying = false;
@@ -1903,9 +1903,10 @@ ${S.notes || "—"}
         const resume = { project: process.cwd(), dir: BASE, name: NAME, state: STATE, session: path.join(DIR, "session.md"), skill: path.join(HERE, "SKILL.md"), cli: path.join(HERE, "grill.mjs"), language: S.locale.language,
           shell: process.platform === "win32" ? "PowerShell" : "POSIX sh",
           start: `${process.platform === "win32" ? "Set-Location -LiteralPath" : "cd --"} ${quote(process.cwd())}${process.platform === "win32" ? "; if ($?) { " : " && "}node ${quote(path.join(HERE, "grill.mjs"))} start --dir ${quote(BASE)}${NAME ? " --name " + NAME : ""} --continue${process.platform === "win32" ? " }" : ""}` };
+        if (S.sessionTransfer) resume.transfer = { ...transferStatus(), file: path.join(DIR, "session-transfer.json"), instructions: path.join(HERE, "session-transfer.md") };
         rest.resume = resume;
         rest.contextStats = S.contextStats || { recent: [], totals: {} };
-        return send(res, 200, { ...rest, sessionUsage: await readUsage(), sessionHint: sessionHint(), failedKnowledgeFinish: !!failedKnowledge()?.resume.finishPending, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : failedKnowledge() ? { stage: "blocked", reason: failedKnowledge().resume.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: false } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: false } : null, actionQueue: publicActions(), queueLength: queueLength(), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
+        return send(res, 200, { ...rest, sessionTransfer: transferStatus(), sessionUsage: await readUsage(), sessionHint: sessionHint(), failedKnowledgeFinish: !!failedKnowledge()?.resume.finishPending, knowledgePending: knowledgeJob ? { stage: knowledgeJob.stage, reason: knowledgeJob.reason } : failedKnowledge() ? { stage: "blocked", reason: failedKnowledge().resume.reason } : null, coverage: coverage(), mapKey: createHash("sha256").update(process.platform === "win32" ? DIR.toLowerCase() : DIR).digest("hex"), nodes: S.nodes.map(n => n.kind === "preview" ? preview.publicNode(n) : n.kind === "idea" ? { ...n, deleteBlocked: false } : n), name: NAME, localeRevision: revision(S.locale), specPending: specJob ? { stage: specJob.stage, waiting: specJob.waiting.length + (specJob.ideaWaiting?.length || 0) } : null, rereadPending: rereadJob ? { stage: rereadJob.stage, locked: false } : null, actionQueue: publicActions(), queueLength: queueLength(), listening: isListening(), currentWork: currentWork ? { type: currentWork.type } : null });
       }
       if (req.method === "GET" && p === "/api/actions") return send(res, 200, { actions: (url.searchParams.has("id") ? S.actions.filter(a => a.id === url.searchParams.get("id")) : S.actions).map(a => a.error ? { ...a, error: t(a.error) } : a), tasks: url.searchParams.has("id") ? [] : S.actionTasks || [], paused: S.actionPaused });
       if (req.method === "GET" && p === "/api/archive") return send(res, 200, { archive: S.archive });

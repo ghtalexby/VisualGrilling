@@ -84,6 +84,13 @@ try {
   await stop(); await start();
   await api("wait", undefined, 409);
   assert.equal((await api("transfer")).to, next);
+  assert.equal((await api("state")).resume.transfer.instructions.endsWith("session-transfer.md"), true);
+  await api("locale", { language: "en" });
+  fs.writeFileSync(fake, "process.exit(1)");
+  const failed = await api("transfer", {}, 200, next);
+  assert.ok(failed.error.startsWith("Request delivery was not confirmed."));
+  assert.equal((await api("state")).sessionTransfer.error, failed.error);
+  assert.equal((await api("transfer")).error, failed.error);
   console.log("Session transfer passed: current work, durable queue, duplicate requests/preparation, ownership, restart and API protection");
 } finally {
   await stop();

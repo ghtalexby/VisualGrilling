@@ -568,5 +568,9 @@
   "Неизвестное действие перехода.": "Unknown transfer action.",
   "Нельзя заново инициализировать переданную карту.": "A transferred map cannot be initialized again.",
   "Обработка остановлена для перехода в новую сессию.": "Processing is paused for session transfer.",
-  "Сессия карты изменилась. Проверьте переход в новую сессию.": "The map session changed. Check the session transfer."
+  "Сессия карты изменилась. Проверьте переход в новую сессию.": "The map session changed. Check the session transfer.",
+  "У этой карты включена защита сессии. Перед командой запуска прочитай инструкцию передачи из": "This map has session ownership protection. Before starting, read the transfer instructions from",
+  "и проверь": "and check",
+  "В фазе создания новая сессия сначала выполняет": "In the creating phase, the new session must first run",
+  "с указанным идентификатором. Если карта уже передана другой сессии, для следующего перехода используй меню кнопки связи на доске. Не обходи защиту и не меняй привязку вручную.": "with the specified ID. If the map already belongs to another session, use the connection dropdown on the board for the next transfer. Do not bypass ownership protection or change the binding manually."
 }

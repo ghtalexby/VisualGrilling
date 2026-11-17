@@ -5,7 +5,7 @@ description: Interactive project grilling in the browser, with a map of question
 
 # Project grilling
 
-The connection dropdown can explicitly request continuation in a fresh Codex task. On a queued transfer notification, `type:transfer` from wait/watch, or a transfer fence, read [session-transfer.md](session-transfer.md) before taking more work. Finish the reserved event and save notes, then create exactly one fresh task via the host tool. Never treat this as finish or reset. A prepared transfer fences the old consumer; the new task claims the same map before start. Manual copy continuation remains available.
+The connection dropdown can explicitly request continuation in a fresh Codex task. On a queued transfer notification, `type:transfer` from wait/watch, or a transfer fence, read [session-transfer.md](session-transfer.md) before taking more work. Finish the reserved event and save notes, then create exactly one fresh task via the host tool. Never treat this as finish or reset. A prepared transfer fences the old consumer; the new task claims the same map before start. Title-copy continuation works for maps without a transfer fence and for prepared manual handoffs. After attachment, another session switch must use the connection dropdown again; a copied start command cannot bypass ownership.
 
 Run a tough project review: ask critical questions, let the user answer on an interactive browser map, grade each answer, and probe weak spots. Keep questions and answers on the map. In chat, provide short status updates rather than repeating the discussion.
 
