@@ -2,6 +2,7 @@ import { contextCards } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
 // Verify reserve accounting, automatic dispatch, semantic ancestor review and exact read receipts.
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -121,10 +122,23 @@ try {
   const leaf = (await state()).nodes.find(n => n.parentId === rootQuestion.id);
   await api("answer", { id: leaf.id, answer: "Evidence" }); e = await wait();
   const huge = { resolved: false, reason: "Too many", sources: [], gaps: [{ gap: "Missing", questionIds: [] }], questions: [] };
-  for (let i = 0; i < 499; i++) { huge.gaps[0].questionIds.push("$huge" + i); huge.questions.push({ key: "$huge" + i, ...question("Unique " + i), allowSimilar: [] }); }
-  await apply(e, { status: "ok", verdict: "Child", ancestors: [{ id: rootQuestion.id, status: "weak", verdict: "Too large", coverage: huge }] }, 400);
+  for (let i = 0; i < 499; i++) { huge.gaps[0].questionIds.push("$huge" + i); huge.questions.push({ key: "$huge" + i, ...question(randomUUID()), allowSimilar: [] }); }
+  const limitError = await apply(e, { status: "ok", verdict: "Child", ancestors: [{ id: rootQuestion.id, status: "weak", verdict: "Too large", coverage: huge }] }, 400);
+  assert.match(limitError.error, /слишком большая/);
   assert.ok((await node(leaf.id)).pending);
   await apply(e, { status: "ok", verdict: "Child", ancestors: [] });
+  // Coverage metadata itself must obey the branch size limit, even without additions/sources.
+  await api("init", { title: "Coverage size", questions: [question("Bounded evidence?")] });
+  const bounded = (await state()).nodes.find(n => n.kind === "q");
+  await answer(bounded.id, "Incomplete", { status: "weak", verdict: "Missing", ancestors: [], children: Array.from({ length: 30 }, () => question(randomUUID())) });
+  e = await wait(); assert.equal(e.type, "followup");
+  const children = (await state()).nodes.filter(n => n.parentId === bounded.id).map(n => n.id);
+  const metadata = { resolved: false, reason: "Oversized audit", sources: [], gaps: Array.from({ length: 500 }, () => ({ gap: "x".repeat(1000), questionIds: children })) };
+  const metadataError = await apply(e, { status: "weak", verdict: "Missing", coverage: metadata }, 400);
+  assert.match(metadataError.error, /слишком большая/);
+  assert.equal((await node(bounded.id)).gapCoverage, undefined);
+  assert.equal((await node(bounded.id)).followup.stage, "thinking");
+  await apply(e, { status: "weak", verdict: "Missing", coverage: covered(children[0]) });
   // Failed migrated work has a visible retry receipt, including frozen legacy work.
   const seed = async frozen => {
     await api("init", { title: "Recovery", questions: [question("Missing?"), question("Evidence?"), question("Spare?")] }); await stop();
@@ -142,6 +156,12 @@ try {
   for (const frozen of [false, true]) {
     const { target, source } = await seed(frozen);
     e = await wait(); assert.equal(e.type, "followup"); assert.equal(!!e.capturedForSpec, frozen);
+    if (frozen) {
+      const old = e; await stop(); await start();
+      await apply(old, { status: "ok", verdict: "Old delivery", coverage: resolved }, 409);
+      await api("node?id=" + source.id + "&token=" + old.readToken, undefined, 409);
+      e = await wait(); assert.equal(e.type, "followup"); assert.notEqual(e.token, old.token);
+    }
     await apply(e, { type: "failure", error: "Fixture worker failure" });
     const failure = (await state()).actionQueue.actions.find(a => a.status === "failed"); assert.ok(failure);
     assert.equal((await state()).currentWork, null);

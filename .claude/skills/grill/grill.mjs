@@ -245,6 +245,7 @@ ${S.notes || "—"}
     if (!S.specJob) return;
     if (S.specJob.stage !== "refresh") S.specJob.stage = "queued";
     S.specJob.token = null; delete S.specJob.ideaWork; delete S.specJob.reviewWork;
+    for (const n of S.specJob.gradingNodes || []) if (n.followup) n.followup = { stage: "queued" };
     S.specJob.ideaWaiting ||= [];
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
@@ -472,7 +473,7 @@ ${S.notes || "—"}
     const roots = new Set();
     for (const n of nodes) {
       const old = before.find(x => x.id === n.id);
-      if (old && JSON.stringify(old.supplements || []) === JSON.stringify(n.supplements || [])) continue;
+      if (old && JSON.stringify(old.supplements || []) === JSON.stringify(n.supplements || []) && JSON.stringify(old.gapCoverage) === JSON.stringify(n.gapCoverage)) continue;
       let root = n; while (root.parentId && root.parentId !== "root") root = nodes.find(x => x.id === root.parentId);
       if (root.kind !== "root") roots.add(root.id);
     }
@@ -1314,7 +1315,7 @@ ${S.notes || "—"}
       n.followup = { stage: "queued" }; cover(nodes, n.id, b.audit.find(a => a.id === n.id)?.coverage);
     }
     const coverageAdded = nodes.length - byId.size;
-    validateDuplicates(S.nodes, nodes);
+    validateCoverageTree(S.nodes, nodes);
     reconcileLinks(S.nodes, nodes, merged);
     if (b.semantics !== undefined && (!Array.isArray(b.semantics) || b.semantics.length > 500 || new Set(b.semantics.map(x => x?.id)).size !== b.semantics.length)) throw bad("Некорректная семантика");
     for (const item of b.semantics || []) applySemantics(nodes, item.id, item, clean);

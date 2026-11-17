@@ -12,4 +12,3 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 ```
 
 Never interpolate JSON into shell code; encode JSON string newlines as `\n`.
-
