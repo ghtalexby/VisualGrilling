@@ -159,7 +159,7 @@ try {
   // Zero-open triggers once only after grading; weak/gap/verify do not prevent it.
   await api("init", { title: "Automatic", questions: [question("Last?")], reserve: [{ id: "next", ...question("Next?") }] });
   const last = (await state()).nodes.find(n => n.kind === "q");
-  await grade(last.id, "Weak answer"); e = await wait(); assert.equal(e.type, "reread");
+  await grade(last.id, "Checked answer", { status: "ok" }); e = await wait(); assert.equal(e.type, "reread");
   await reread(e, { reserve: [] }); assert.equal((await state()).coverage.percent, 100);
   assert.equal((await wait()).type, "timeout");
   await stop(); await start(); assert.equal((await wait()).type, "timeout");
@@ -172,7 +172,7 @@ try {
   for (const editBeforeFinish of [false, true]) {
     await api("init", { title: "Stop edits", questions: [question("Editable?")], reserve });
     const q = (await state()).nodes.find(n => n.kind === "q");
-    await grade(q.id, "Original");
+    await grade(q.id, "Original", { status: "ok" });
     if (editBeforeFinish) await api("answer", { id: q.id, answer: "Edited" });
     await api("finish", {});
     if (!editBeforeFinish) await api("answer", { id: q.id, answer: "Edited" });
@@ -193,7 +193,7 @@ try {
   }
   // A delivered automatic review completes before the finish boundary.
   await api("init", { title: "Stop delivered review", questions: [question("Last?")], reserve });
-  await grade((await state()).nodes.find(n => n.kind === "q").id, "Answer");
+  await grade((await state()).nodes.find(n => n.kind === "q").id, "Answer", { status: "ok" });
   e = await wait(); assert.equal(e.type, "reread");
   await api("finish", {});
   await reread(e, { add: [{ key: "$late", parentId: "root", ...question("Earlier review?") }], reserve: [] });
@@ -270,7 +270,7 @@ try {
   await api("spec", {}); await api("wait?timeout=5", undefined, 400);
   assert.equal((await state()).specPending, null);
   e = await wait(); assert.deepEqual(e.ids, ["other"]); await assess(e);
-  e = await wait(); assert.equal(e.type, "spec");
-  await api("apply", { type: "spec", token: e.token, markdown: "# Surviving branch" });
+  e = await wait(); assert.equal(e.type, "timeout");
+  assert.ok((await state()).actionQueue.actions.some(a => a.type === "spec" && a.status === "failed")); // An unresolved oversized clarification cannot become a completed spec.
   console.log("completeness checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

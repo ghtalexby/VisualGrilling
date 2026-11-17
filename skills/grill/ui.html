@@ -284,7 +284,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.18">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.19">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -472,7 +472,7 @@ async function api(p,body){
 }
 
 let queuePinned=false, archiveOpen=false, queueLeaveTimer;
-const actionLabels={"chatreset":"Сбросить чат","idea/edit":"Редактировать идею","idea/delete":"Удалить идею","idea/analyze":"Разобрать идею","preview/prepare":"Подготовка вариантов","preview/build":"Создать новую версию","preview/policy":"При удалении источника","preview/delete":"Удалить превью","preview/save":"Сохранить","preview/restore":"Восстановить","knowledge-import":"Знания","spec-migrate":"Спека",answer:"Ответ",discuss:"Сообщение",spec:"Спека",reread:"Перечитать",finish:"Итог",reevaluate:"Переоценка",knowledge:"Знания",question:"Вопрос",idea:"Идея",more:"Вопросы"};
+const actionLabels={"chatreset":"Сбросить чат","idea/edit":"Редактировать идею","idea/delete":"Удалить идею","idea/analyze":"Разобрать идею","preview/prepare":"Подготовка вариантов","preview/build":"Создать новую версию","preview/policy":"При удалении источника","preview/delete":"Удалить превью","preview/save":"Сохранить","preview/restore":"Восстановить","knowledge-import":"Знания","spec-migrate":"Спека",answer:"Ответ",discuss:"Сообщение",spec:"Спека",reread:"Перечитать",finish:"Итог",followup:"Уточнения",reevaluate:"Переоценка",knowledge:"Знания",question:"Вопрос",idea:"Идея",more:"Вопросы"};
 function showQueue(pin=false){archiveOpen=false;queuePinned=pin||queuePinned;$("#queueWindow").hidden=false;renderQueue()}
 function renderQueue(){
   const q=S.actionQueue||{actions:[],internal:[],waiting:0},running=q.actions.filter(a=>a.status==="running"),issues=q.actions.filter(a=>["failed","needs-decision"].includes(a.status));
@@ -789,7 +789,7 @@ function renderHeader(){
   $("#ledger").innerHTML=ORDER.map(s=>`<button class="pill s-${s}" data-flt="${s}" aria-pressed="${flt===s}" title="${flt===s?"Показать все вопросы":`Оставить на карте только «${STATUS[s]}» и их цепочки`}">${STATUS[s]}<b>${c[s]}</b></button>`).join("");
   $("#ledger").innerHTML+=`<button class="pill" data-obsolete aria-pressed="${showObsolete}">Устаревшие</button>`;
   if(refocus){const b=$(`#ledger [data-flt="${refocus}"]:not(:disabled)`)||$("#ledger button:not(:disabled)");if(b)b.focus()}
-  const workLabels={answer:"Агент разбирает ответ…",discuss:"Агент пишет ответ…",reread:"Агент перечитывает карту…",reevaluate:"Агент переоценивает выводы…",question:"Агент готовит варианты…",idea:"Агент разбирает идею…",preview:"Агент готовит превью…",spec:"Агент составляет спеку…",knowledge:"Агент сохраняет знания…",more:"Агент готовит вопросы…",finish:"Агент готовит итог…"};
+  const workLabels={answer:"Агент разбирает ответ…",discuss:"Агент пишет ответ…",reread:"Агент перечитывает карту…",followup:"Агент проверяет пробелы…",reevaluate:"Агент переоценивает выводы…",question:"Агент готовит варианты…",idea:"Агент разбирает идею…",preview:"Агент готовит превью…",spec:"Агент составляет спеку…",knowledge:"Агент сохраняет знания…",more:"Агент готовит вопросы…",finish:"Агент готовит итог…"};
   const workLabel=Object.hasOwn(workLabels,S.currentWork?.type)?workLabels[S.currentWork.type]:null;
   renderUsage();
   const conn=$("#conn");
@@ -882,7 +882,8 @@ function nodePanel(n){
   if(n.obsolete)b+=`<div class="note"><b>Устарело</b>: ${esc(n.obsolete.reason)}<br>История сохранена. Для возврата к вопросу обсудите его и перечитайте карту.</div>`;
   const others=(n.conflictOf||[]).filter(id=>id!==n.id).map(get).filter(Boolean);
   if(others.length)b+=`<div class="note">Появился из-за расхождения между ответами</div><div class="sublist">${others.map(c=>`<button class="subq s-${vis(c)}" data-open="${esc(c.id)}"><span>${esc(c.q)}</span><span class="pill">${c.pending?"Разбор":STATUS[c.status]}</span></button>`).join("")}</div>`;
-  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note copy-history">${copyBlock(m.q,`<b>${esc(m.q)}</b>`)}${m.answer?copyBlock(m.answer,`<p>Ваш ответ: ${esc(m.answer)}</p>`):""}${m.verdict?copyBlock(m.verdict,`<p>Вердикт: ${esc(m.verdict)}</p>`):""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>copyBlock(v.verdict,`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>`)).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${mergedHistory(m.mergedFrom)}</div>`).join("");
+  const supplements=items=>(items||[]).map(x=>`<div class="note">${copyBlock(x.contribution,`<p>${esc(x.contribution)}</p>`)}<p>Источник: ${esc(x.q)} (${esc(x.id)})</p>${copyBlock(x.answer,`<p>${esc(x.answer)}</p>`)}</div>`).join("");
+  const mergedHistory=sources=>(sources||[]).map(m=>`<div class="note copy-history">${copyBlock(m.q,`<b>${esc(m.q)}</b>`)}${m.answer?copyBlock(m.answer,`<p>Ваш ответ: ${esc(m.answer)}</p>`):""}${m.verdict?copyBlock(m.verdict,`<p>Вердикт: ${esc(m.verdict)}</p>`):""}${m.verdictHistory?.length?`<details><summary>История вердиктов</summary>${m.verdictHistory.map(v=>copyBlock(v.verdict,`<p>[${esc(STATUS[v.status]||v.status)}] ${esc(v.verdict)}</p>`)).join("")}</details>`:""}${m.answerSource?`<p>Ответ из обсуждения: ${esc(sourceLabel(m.answerSource))}</p>`:""}${m.answerHistory?.length?`<details><summary>История ответов</summary>${answerHistory(m.answerHistory)}</details>`:""}${supplements(m.supplements)}${(m.supplementHistory||[]).map(h=>supplements(h.sources)).join("")}${mergedHistory(m.mergedFrom)}</div>`).join("");
   if(n.mergedFrom?.length)b+=`<h3>Сведено из вопросов</h3>${mergedHistory(n.mergedFrom)}`;
   const tab=panel.tab||"answer",cn=(n.chat||[]).length;
   b+=`<div class="tabs" role="tablist"><button class="tab" role="tab" data-tab="answer" aria-selected="${tab==="answer"}">Ответить</button><button class="tab" role="tab" data-tab="discuss" aria-selected="${tab==="discuss"}">Обсудить${n.discuss?`<span class="busy-dot"></span>`:cn?`<span class="mono">${cn}</span>`:""}</button></div>`;
@@ -909,6 +910,9 @@ function nodePanel(n){
     b+=`<label class="fl">Комментарий к выбранным вариантам или свой ответ<textarea id="fAns" rows="4" maxlength="3000" placeholder="Своими словами, с цифрами и фактами, если они есть">${esc(drafts[n.id]??(panel.edit?(n.pending?.answer||n.answer):""))}</textarea></label>`;
     b+=`<div class="row"><button class="btn primary" data-act="answer" ${sending||S.rereadPending?.locked?"disabled":""}>Отправить</button>${panel.edit?`<button class="btn" data-act="canceledit">Отмена</button>`:""}${KEYS}</div>`;
   }
+  if(n.supplements?.length)b+=`<h3>Дополнения ответа</h3>${supplements(n.supplements)}`;
+  if(n.supplementHistory?.length)b+=`<details><summary>История дополнений</summary>${n.supplementHistory.map(h=>supplements(h.sources)).join("")}</details>`;
+  if(n.followup)b+=`<div class="note">Проверка пробелов не завершена${n.followup.error?`: ${esc(n.followup.error)}`:""}</div>`;
   if(n.verdictHistory?.length>1)b+=`<details><summary>История вердиктов</summary>${n.verdictHistory.map(v=>copyBlock(v.verdict,`<span class="pill s-${v.status}">${STATUS[v.status]}</span><p>${esc(v.verdict)}</p>`)).join("")}</details>`;
 
   return{head,body:b};
@@ -984,7 +988,8 @@ function questionPanel(){
 function openQuestion(id){openPanel({mode:"question",id,requestId:crypto.randomUUID()})}
 function toMarkdown(){
   const answerHistory=(n,ind="")=>(n.answerHistory||[]).map(h=>`${ind}- История ответов: ${h.answer}\n${h.source?`${ind}  - Ответ из обсуждения: ${h.source.q||h.source.id}\n`:""}`).join("");
-  const merged=(sources,ind="")=>(sources||[]).map(m=>`${ind}- Сведено из: ${m.q}: ${m.answer}\n`+(m.verdict?`${ind}  - Вердикт: ${m.verdict}\n`:"")+(m.verdictHistory||[]).map(v=>`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`).join("")+answerHistory(m,ind+"  ")+(m.answerSource?`${ind}  - Ответ из обсуждения: ${m.answerSource.q||m.answerSource.id}\n`:"")+merged(m.mergedFrom,ind+"  ")).join("");
+  const supplements=(n,ind="")=>[...(n.supplementHistory||[]).flatMap(h=>h.sources),...(n.supplements||[])].map(x=>`${ind}- Дополнения ответа: ${x.contribution}\n${ind}  - Источник: ${x.q} (${x.id}): ${x.answer}\n`).join("");
+  const merged=(sources,ind="")=>(sources||[]).map(m=>`${ind}- Сведено из: ${m.q}: ${m.answer}\n`+(m.verdict?`${ind}  - Вердикт: ${m.verdict}\n`:"")+(m.verdictHistory||[]).map(v=>`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`).join("")+answerHistory(m,ind+"  ")+(m.answerSource?`${ind}  - Ответ из обсуждения: ${m.answerSource.q||m.answerSource.id}\n`:"")+supplements(m,ind+"  ")+merged(m.mergedFrom,ind+"  ")).join("");
   let md=`# ${S.title}\n\n**Бриф:** ${S.brief||""}\n\n**MVP-архитектура:** ${S.arch||"—"}\n\n`;
   const c=counts();md+=`Итого: ${ORDER.map(s=>`${STATUS[s]} ${c[s]}`).join(" · ")}\n\n`;
   if(S.summary)md+=`## Итог\n\n${S.summary}\n\n`;
@@ -993,9 +998,9 @@ function toMarkdown(){
     if(r.kind==="preview"){md+=`## Превью · ${r.q}\n${r.commit||""}\n`;return}
     md+=r.kind==="idea"?`## Идея · [${ideaStatus(r)}]\n${r.text}\n`:`## P${r.prio} · ${r.area} · [${STATUS[r.status]}]\n${r.q}\n`;
     const chat=(n,ind="")=>{if(r.kind==="idea")for(const m of n.chat||[])md+=`${ind}- ${m.from==="user"?"Вы":"Агент"}: ${m.quote?"«"+m.quote+"» ":""}${m.text}${m.images?.length?" ["+m.images.join(", ")+"]":""}\n`};chat(r);
-    md+=answerHistory(r);if(r.answerSource)md+=`- Ответ из обсуждения: ${r.answerSource.id}\n`;if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
+    md+=supplements(r);md+=answerHistory(r);if(r.answerSource)md+=`- Ответ из обсуждения: ${r.answerSource.id}\n`;if(r.answer)md+=`- Ответ: ${r.answer}\n`;if(r.verdict)md+=`- Вердикт: ${r.verdict}\n`;for(const v of r.verdictHistory||[])md+=`- История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;md+=merged(r.mergedFrom);
     if(r.obsolete)md+=`- Устарело: ${r.obsolete.reason}\n`;
-    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.queuedCreation?"В очереди":k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;md+=answerHistory(k,ind+"  ");if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
+    const w=(id,ind)=>kids(id).forEach(k=>{md+=`${ind}- [${k.queuedCreation?"В очереди":k.kind==="preview"?"Превью":STATUS[k.status]}] ${k.q}${k.commit?" · "+k.commit:""}\n`;md+=supplements(k,ind+"  ");md+=answerHistory(k,ind+"  ");if(k.answerSource)md+=`${ind}  - Ответ из обсуждения: ${k.answerSource.id}\n`;if(k.answer)md+=`${ind}  - Ответ: ${k.answer}\n`;if(k.verdict)md+=`${ind}  - Вердикт: ${k.verdict}\n`;for(const v of k.verdictHistory||[])md+=`${ind}  - История вердиктов: [${STATUS[v.status]}] ${v.verdict}\n`;if(k.obsolete)md+=`${ind}  - Устарело: ${k.obsolete.reason}\n`;md+=merged(k.mergedFrom,ind+"  ");chat(k,ind+"  ");w(k.id,ind+"  ")});
     w(r.id,"");md+="\n";
   });
   return md;
@@ -1045,7 +1050,7 @@ function panelSig(){
   if(panel.mode==="ideaDraft")return JSON.stringify([S.rereadPending,listening]);
   if(panel.mode==="question")return JSON.stringify([S.questionRequests,S.nodes.find(n=>n.requestId===panel.requestId),!!get(panel.id),listening]);
   const n=get(panel.id);if(!n)return"gone";
-  return JSON.stringify([S.projectConversations,n.queuedActions,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.pending,n.verdict,n.verdictHistory,(n.chat||[]),n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
+  return JSON.stringify([S.projectConversations,n.queuedActions,n.job,n.commit,n.stale,n.error,n.question,n.deletionPolicy,n.q,n.text,n.revision,n.analysis,n.deleteBlocked,n.why,n.options,n.recommendation,n.status,n.obsolete,n.answer,n.answerHistory,n.answerSource,n.supplements,n.supplementHistory,n.followup,n.pending,n.verdict,n.verdictHistory,(n.chat||[]),n.discuss,n.discussError,n.mergedFrom,(n.conflictOf||[]).map(id=>{const c=get(id);return c&&[c.q,c.status,!!c.pending]}),S.rereadPending,ancestors(n).map(a=>a.q),kids(n.id).map(k=>[k.id,k.status,!!k.pending]),listening]);
 }
 function renderPanel(revealDiscussion=false){
   const p=$("#panel");

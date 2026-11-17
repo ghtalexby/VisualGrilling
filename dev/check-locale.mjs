@@ -94,7 +94,7 @@ try {
   assert.equal((await request(server, "state")).locale.language, "en");
   const recovered = await request(server, "wait?timeout=5");
   assert.equal(recovered.answer, "I don't know");
-  await request(server, "apply", { type: "answer", id, token: recovered.token, status: "gap", verdict: "No evidence", children: [] });
+  await request(server, "apply", { type: "answer", id, token: recovered.token, status: "gap", verdict: "No evidence", coverage: { resolved: false, reason: "Fixture uncertainty", sources: [], gaps: [{ gap: "Missing evidence", questionIds: ["$proof"] }], questions: [{ key: "$proof", q: "Which measurement is missing?", why: "Evidence", options: ["Measured", "Unknown"] }] } });
   assert.ok((await request(server, "report")).includes("[Gap]"));
   await request(server, "spec", {});
   assert.equal((await request(server, "wait?timeout=5")).language, "en");

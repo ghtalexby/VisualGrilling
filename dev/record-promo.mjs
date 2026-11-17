@@ -109,6 +109,11 @@ function respond(e) {
     return { type: "answer", id: e.id, token: e.token, status: a.status, verdict: a.verdict, children: a.children, semantics: { topics: a.topics } };
   }
   if (e.type === "discuss") return { type: "discuss", id: e.id, token: e.token, ...REPLY, semantics: { topics: ["no-shows", "pricing"] } };
+  if (e.type === "followup") {
+    const cards = [...(e.context?.focus || []), ...(e.context?.related || [])], n = cards.find(n => n.id === e.id);
+    const child = cards.find(n => n.parentId === e.id && n.kind === "q");
+    return { type: "followup", id: e.id, token: e.token, status: n.status, verdict: n.verdict, coverage: { resolved: false, reason: "Demo clarification remains necessary", sources: [], gaps: [{ gap: n.verdict, questionIds: [child?.id || "$proof"] }], questions: child ? [] : [{ key: "$proof", q: "What larger sample confirms the pilot result?", why: "Check the pilot assumption", options: ["Measured", "Not measured"] }] } };
+  }
   if (e.type === "knowledge") return { type: "knowledge", token: e.token, files: [] };
   if (e.type === "finish") return { type: "finish", token: e.token, summary: SUMMARY };
   // Anything else means the storyboard drifted: fail instead of improvising map content.

@@ -231,11 +231,11 @@ try {
   await stop(); await api("init", { title: "Sibling fallback", questions: [{ q: "Parent?" }, { q: "Keep open?" }] });
   const ancestor = (await api("state")).nodes.find(n => n.q === "Parent?").id;
   await arm(); await api("answer", { id: ancestor, answer: "Original evidence" }); status = await pending(); e = await event(status.delivery);
-  await api("apply", { type: "answer", id: e.id, token: e.token, status: "weak", verdict: "Needs evidence", children: [{ q: "First proof?" }, { q: "Second proof?" }], rearm: true, owner });
+  await api("apply", { type: "answer", id: e.id, token: e.token, status: "weak", verdict: "Needs evidence", coverage: { resolved: false, reason: "Transport coverage", sources: [], gaps: [{ gap: "Uncertainty", questionIds: [(await api("state")).nodes.find(n => n.q === "Keep open?").id] }] }, children: [{ q: "First proof?" }, { q: "Second proof?" }], rearm: true, owner });
   const siblings = (await api("state")).nodes.filter(n => n.parentId === ancestor);
   await api("answer", { id: siblings[0].id, answer: "First evidence" }); status = await pending(); e = await event(status.delivery);
   await api("answer", { id: siblings[1].id, answer: "New sibling evidence" });
-  const applied = await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accept once", ancestors: [{ id: ancestor, status: "ok", verdict: "Outdated conclusion" }], rearm: true, owner });
+  const applied = await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Accept once", ancestors: [{ id: ancestor, status: "ok", verdict: "Outdated conclusion", coverage: { resolved: true, reason: "Fixture evidence", sources: [], gaps: [] } }], rearm: true, owner });
   assert.equal(applied.ok, true); assert.equal(applied.monitor.phase, "notifying");
   let siblingState = await api("state");
   assert.equal(siblingState.nodes.find(n => n.id === ancestor).status, "ok");
@@ -245,7 +245,7 @@ try {
   await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Second", rearm: true, owner });
   status = await pending(); e = await event(status.delivery);
   assert.equal(e.type, "reevaluate"); assert.deepEqual(e.ids, [ancestor]);
-  await api("apply", { type: "reevaluate", token: e.token, assessments: [{ id: ancestor, status: "verify", verdict: "Review both proofs" }], rearm: true, owner });
+  await api("apply", { type: "reevaluate", token: e.token, assessments: [{ id: ancestor, status: "verify", verdict: "Review both proofs", coverage: { resolved: false, reason: "Fixture evidence", sources: [], gaps: [{ gap: "Uncertainty", questionIds: [siblings[0].id] }] } }], rearm: true, owner });
   // Hybrid uses the existing primitives sequentially, without waking the host during the fast path.
   await stop(); await api("init", { title: "Hybrid", questions: [{ q: "Keep open?" }] });
   const hybridCalls = calls().length;

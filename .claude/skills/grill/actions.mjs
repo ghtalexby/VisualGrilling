@@ -8,7 +8,11 @@ export const activeActions = s => s.actions.filter(a => a.status === "running");
 // Admitting a finish forms the boundary (`finishHold` = its sequence): earlier actions still run, later ones wait, also
 // if that finish fails. A finish (retry or a new request) and work on the clarification cards a failed finish asked
 // for pass; explicit continuation releases the rest.
-const passesHold = (s, a) => a.sequence < s.finishHold || a.route === "/api/finish" || ["/api/answer", "/api/discuss"].includes(a.route) && !!s.knowledgeResult?.questions?.includes(a.body.id);
+const passesHold = (s, a) => {
+  let origin = a;
+  while (origin.retryOf) { const previous = s.actions.find(x => x.id === origin.retryOf); if (!previous) break; origin = previous; }
+  return origin.sequence < s.finishHold || origin.internal && origin.resume?.type === "followup" || a.route === "/api/finish" || ["/api/answer", "/api/discuss"].includes(a.route) && !!s.knowledgeResult?.questions?.includes(a.body.id);
+};
 export const executableActions = s => s.actionPaused ? [] : s.finishHold ? waitingActions(s).filter(a => passesHold(s, a)) : waitingActions(s);
 const fingerprint = value => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export function acceptAction(s, route, input) {

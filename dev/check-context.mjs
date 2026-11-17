@@ -87,6 +87,22 @@ async function start() {
   throw new Error("Server did not start");
 }
 async function api(route, body, expected = 200) {
+  if (route === "apply" && expected === 200 && body) {
+    body = structuredClone(body);
+    const snapshot = await api("state");
+    const cover = (a, id) => {
+      if (a.coverage !== undefined) return;
+      if (a.status === "ok") a.coverage = { resolved: true, reason: "Fixture closure", gaps: [], sources: [] };
+      else if (["weak", "gap", "verify"].includes(a.status)) {
+        const n = snapshot.nodes.find(n => n.id === id), other = snapshot.nodes.find(n => n.kind === "q" && !n.obsolete && n.id !== id);
+        if (other) a.coverage = n.gapCoverage || { resolved: false, reason: "Fixture audit", sources: [], gaps: [{ gap: "Uncertainty", questionIds: [other.id] }] };
+        if (a.coverage) a.coverage.sources ||= [];
+      }
+    };
+    if (body.type === "answer") cover(body, body.id);
+    for (const a of body.assessments || []) cover(a, a.id);
+    for (const a of body.audit || []) { const n = snapshot.nodes.find(n => n.id === a.id); if (a.action === "keep" && n && ["weak", "gap", "verify"].includes(n.status)) { const assessment = { status: n.status }; cover(assessment, n.id); a.coverage = assessment.coverage; } }
+  }
   const response = await fetch(url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   assert.equal(response.status, expected, await response.clone().text());
   return response.json();
@@ -97,7 +113,13 @@ async function stop() {
   await api("stop", {}); await ended;
 }
 async function reset() {
-  await stop(); fs.writeFileSync(stateFile, JSON.stringify(fixture)); await start();
+  await stop();
+  // Subset fixtures keep their already-audited references inside the selected map.
+  for (const n of fixture.nodes) if (n.gapCoverage?.gaps.some(g => g.questionIds.some(id => !fixture.nodes.some(q => q.id === id)))) {
+    const other = fixture.nodes.find(q => q.kind === "q" && q.id !== n.id);
+    n.gapCoverage.gaps = [{ gap: "Fixture uncertainty", questionIds: [other.id] }];
+  }
+  fs.writeFileSync(stateFile, JSON.stringify(fixture)); await start();
 }
 async function delivered(type, print = true) {
   const event = await api("wait?timeout=1");
@@ -126,6 +148,7 @@ try {
     id: `q${String(i).padStart(2, "0")}`, parentId: i < 5 ? "root" : `q0${(i - 5) % 5}`, kind: "q", prio: i < 5 ? i + 1 : undefined,
     q: `Decision ${String(i).padStart(2, "0")}: how will the project validate this requirement?`, why: "An explicit acceptance check prevents ambiguous implementation.", area: "Architecture",
     options: ["Measure the outcome", "Review it manually", "Defer the decision"], recommendation: "Measure the outcome",
+    gapCoverage: { resolved: i % 4 === 0, reason: "Fixture audit", gaps: i % 4 === 0 ? [] : [{ gap: "Fixture uncertainty", questionIds: ["q39"] }], at: 1700000000002 },
     status: i === 39 ? "open" : ["ok", "weak", "gap", "verify"][i % 4], answer: i === 39 ? null : "Measure the outcome using a reproducible scenario and retain the result.",
     verdict: i === 39 ? null : "The decision is concrete; check the remaining dependency before implementation.", chat: chat(`q${String(i).padStart(2, "0")}`)
   }))];
@@ -137,7 +160,7 @@ try {
       await api("answer", { id: type === "answer" ? "q00" : "q05", answer: "Validate the decision with a reproducible acceptance scenario." });
       if (type === "reevaluate") {
         const e = await delivered("answer", false);
-        await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Acceptance scenario confirmed." });
+        await api("apply", { type: "answer", id: e.id, token: e.token, status: "ok", verdict: "Acceptance scenario confirmed.", coverage: { resolved: true, reason: "Fixture closure", gaps: [], sources: [] } });
       }
     } else if (type === "discuss") await api("discuss", { id: "q00", message: "How does this decision affect the other branches?" });
     else if (type === "question") await api("question", { id: "custom-check", parentId: "q00", q: "What evidence should we retain?" });
@@ -163,7 +186,8 @@ try {
   sparse.nodes.find(n => n.id === "q05").verdictHistory[0].at = 1700000000200;
   fs.writeFileSync(stateFile, JSON.stringify(sparse)); await start();
   const slim = await delivered("reevaluate");
-  assert.ok(JSON.stringify(slim).length <= 6094 / 2);
+  // Compare the projection budget without the newly required coverage evidence.
+  assert.ok(JSON.stringify(slim, (key, value) => key === "gapCoverage" ? undefined : value).length <= 6094 / 2);
   assert.ok(!slim.nodes.some(n => n.kind === "root"));
   for (const n of sparse.nodes.filter(n => n.id === "q00" || n.parentId === "q00")) assert.ok(slim.nodes.some(x => x.id === n.id) || slim.index.includes(n.id));
   assert.equal(slim.nodes.find(n => n.id === "q05").chat, undefined);
@@ -479,6 +503,8 @@ try {
   await api("apply", { type: "idea", id: "proposal", token: deletingIdea.token, status: "weak", verdict: "Reviewed", audit: [{ id: "q00", action: "remove", reason: "No longer needed" }] });
   assert.deepEqual((await api("state")).nodes.find(n => n.id === "q02").relates, [{ id: "proposal", kind: "same-object" }]);
   await api("idea/edit", { id: "proposal", revision: 1, text: "Edited proposal" });
+  const clarification = await delivered("followup", false);
+  await api("apply", { type: "followup", id: clarification.id, token: clarification.token, status: "gap", verdict: "Original clarification was removed", coverage: { resolved: false, reason: "Fixture replacement", sources: [], gaps: [{ gap: "Missing evidence", questionIds: ["$replacement"] }], questions: [{ key: "$replacement", q: "Which evidence replaces the removed premise?", why: "Clarify", options: ["Measured", "Unknown"] }] } });
   const editedIdea = await delivered("idea", false);
   assert.equal((await api("state")).nodes.find(n => n.id === "proposal").semanticsStale, true);
   await api("apply", { type: "idea", id: "proposal", token: editedIdea.token, status: "weak", verdict: "Reviewed again", audit: [], semantics: { decision: "Edited proposal" } });
@@ -501,7 +527,7 @@ try {
   // Navigation-only siblings must not impose a full-card delivery limit.
   await reset(); await stop();
   const wide = structuredClone(fixture);
-  wide.nodes = [wide.nodes[0], { id: "parent", kind: "q", parentId: "root", q: "Parent", answer: "Original", status: "weak" }, ...Array.from({ length: 502 }, (_, i) => ({ id: "sibling" + i, kind: "q", parentId: "parent", q: "Child " + i, status: "open" }))];
+  wide.nodes = [wide.nodes[0], { id: "parent", kind: "q", parentId: "root", q: "Parent", answer: "Original", status: "weak", gapCoverage: { resolved: false, reason: "Fixture audit", gaps: [{ gap: "Uncertainty", questionIds: ["sibling1"] }] } }, ...Array.from({ length: 502 }, (_, i) => ({ id: "sibling" + i, kind: "q", parentId: "parent", q: "Child " + i, status: "open" }))];
   fs.writeFileSync(stateFile, JSON.stringify(wide)); await start();
   await api("answer", { id: "sibling0", answer: "Evidence" });
   const wideEvent = await delivered("answer", false);

@@ -36,3 +36,5 @@ Replacing an existing answer with different discussion text also queues an autom
 Each `answers` entry may include `ancestors:[{id,status,verdict}]` (empty means checked, unchanged). IDs must be answered current ancestors of that target. Omission or `reviewAncestors:true` requests separate reassessment; never combine it with `ancestors`. Assess substantive resolution as in answer grading.
 
 Project events include `conversationId`; root focus chat contains only that conversation. Reply using the normal root ID/token; the server routes the reply. Other conversations remain available for whole-map reread, but must not be treated as new messages in this event.
+
+Apply the shared gap-coverage procedure to `assessment`, every `answers` entry and inline `ancestors`. Use their `coverage.questions` for all required clarifications without a quota.

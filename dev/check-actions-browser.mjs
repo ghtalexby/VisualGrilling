@@ -85,7 +85,7 @@ try {
     await api("init", { title: "Internal count", questions: [{ q: "Ancestor?" }, { q: "Other?" }] });
     const ancestor = (await api("state")).nodes.find(n=>n.kind==="q").id;
     await api("answer", {id:ancestor,answer:"Parent"});let e=await api("wait?timeout=5");
-    await api("apply",{type:"answer",id:e.id,token:e.token,status:"weak",verdict:"Needs detail",children:[{q:"Evidence?"}]});
+    await api("apply",{type:"answer",id:e.id,token:e.token,status:"weak",verdict:"Needs detail",coverage:{resolved:false,reason:"Transport coverage",sources:[],gaps:[{gap:"Uncertainty",questionIds:[(await api("state")).nodes.find(n=>n.q==="Other?").id]}]},children:[{q:"Evidence?"}]});
     const child=(await api("state")).nodes.find(n=>n.parentId===ancestor).id;
     await api("answer",{id:child,answer:"Evidence"});e=await api("wait?timeout=5");
     for(const message of ["A","B","C"])await api("discuss",{id:"root",message});

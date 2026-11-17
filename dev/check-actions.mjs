@@ -37,7 +37,7 @@ try {
   const reset = async () => { await request("init", { title: "Queue", questions: ["Budget?", "Data?", "Ownership?"].map(q => ({ q, options: ["Yes", "No"] })) }); return (await state()).nodes.filter(n => n.kind === "q").map(n => n.id); };
   const wait = () => request("wait?timeout=5");
   const journal = async () => (await request("actions")).actions;
-  const grade = (e, status = "ok") => request("apply", { type: "answer", id: e.id, token: e.token, status, verdict: "Checked", ancestors: [] });
+  const grade = (e, status = "ok") => request("apply", { type: "answer", id: e.id, token: e.token, status, verdict: "Checked", ancestors: [], ...(status !== "ok" ? { coverage: { resolved: false, reason: "Transport coverage", sources: [], gaps: [{ gap: "Uncertainty", questionIds: [other] }] } } : {}) });
   const reply = e => request("apply", { type: "discuss", id: e.id, token: e.token, reply: "Checked" });
   const review = (e, extra = {}) => request("apply", { type: "reread", token: e.token, audit: e.context.focus.filter(n => n.kind === "q").map(n => ({ id: n.id, action: extra.remove?.includes(n.id) ? "remove" : extra.merge?.some(m => m.ids.includes(n.id)) ? "merge" : "keep", reason: "Checked" })), ...extra });
   let [id, other] = await reset();
@@ -222,7 +222,7 @@ try {
   [id, other] = await reset();
   for (const [parent, question] of [[id, "First evidence?"], [other, "Second evidence?"]]) {
     await request("answer", { id: parent, answer: "Parent" }); e = await wait();
-    await request("apply", { type: "answer", id: e.id, token: e.token, status: "weak", verdict: "Needs proof", children: [{ q: question }], ancestors: [] });
+    await request("apply", { type: "answer", id: e.id, token: e.token, status: "weak", verdict: "Needs proof", coverage: { resolved: false, reason: "Transport coverage", sources: [], gaps: [{ gap: "Uncertainty", questionIds: [parent === id ? other : id] }] }, children: [{ q: question }], ancestors: [] });
   }
   const children = (await state()).nodes.filter(n => [id, other].includes(n.parentId));
   const multi = await request("discuss", { id: "root", message: "Proof for both" }); e = await wait();

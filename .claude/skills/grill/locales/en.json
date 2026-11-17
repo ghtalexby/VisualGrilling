@@ -533,5 +533,16 @@
   "Например: покажи экран результатов и переход к подробностям": "For example: show the results screen and how to open details",
   "Выберите ветки, которые нужно включить в превью.": "Select the branches to include in the preview.",
   "Нет доступных веток.": "No branches available.",
-  "Превью будет использовать текущую ветку.": "The preview will use the current branch."
+  "Превью будет использовать текущую ветку.": "The preview will use the current branch.",
+  "Уточнения": "Follow-ups",
+  "Агент проверяет пробелы…": "Agent is checking gaps…",
+  "Дополнения ответа": "Answer supplements",
+  "История дополнений": "Supplement history",
+  "Источник:": "Source:",
+  "Проверка пробелов не завершена": "Gap review is incomplete",
+  "Некорректная проверка пробелов; уточнения не сохранены": "Invalid gap review; follow-ups were not saved",
+  "Нужна проверка пробелов": "A gap review is required",
+  "Сначала завершите проверку пробелов": "Complete the gap review first",
+  "Слишком много уточнений; ничего не применено": "Too many follow-ups; nothing was applied",
+  "Некорректная оценка карточки": "Invalid card assessment"
 }

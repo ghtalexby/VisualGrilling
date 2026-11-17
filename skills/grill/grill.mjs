@@ -22,6 +22,7 @@
 // Every command takes [--dir .grill] [--name <name>]: the map lives in <dir>/<name>, or in <dir> itself without --name.
 
 import { evidenceNode, reviewContext, deliveryNode as compactNode, focusedContext as contextProjection, branchIds, indexText, ranking, neighbours, vocabulary, applySemantics, validateDuplicates, reconcileLinks, validateLinks } from "./context.mjs";
+import { coverageResult, problemGrade } from "./followups.mjs";
 import { discussionResult, discussionParts } from "./discussion.mjs";
 import { actionRoutes, initializeActions, acceptAction, waitingActions, activeActions, executableActions, actionGroup, cancellation, cancelActions, archiveChanges } from "./actions.mjs";
 import http from "node:http";
@@ -137,6 +138,7 @@ async function serve() {
   // answers and discussion messages that were being processed when the server stopped go back to the queue
   for (const n of S.nodes) {
     for (const m of n.chat || []) if (!m.id) { m.id = randomUUID(); if (m.from === "claude") m.readAt = Date.now(); }
+    if (n.followup && n.followup.stage !== "blocked" || n.kind === "q" && !n.obsolete && problemGrade(n.status) && !n.gapCoverage && !n.followup) n.followup = { stage: "queued" };
     if (n.analysis) {
       n.analysis = { stage: "queued", reason: n.analysis.reason };
       if (!S.queue.some(e => e.type === "idea" && e.id === n.id)) S.queue.push({ type: "idea", id: n.id });
@@ -191,7 +193,7 @@ async function serve() {
     if (type === "more") return S.morePending;
     if (type === "finish") return S.finishPending && S.finishToken === token && S.finishRevision === mapRevision() && rereadReady() && !S.rereadJob && !S.knowledgeJob;
     if (type === "discuss") return n?.discuss === "thinking" && n.discussToken === token;
-    const job = type === "answer" ? n?.pending : type === "preview" ? n?.job
+    const job = type === "followup" ? (capturedForSpec ? S.specJob?.gradingNodes : S.nodes)?.find(n => n.id === id)?.followup : type === "answer" ? n?.pending : type === "preview" ? n?.job
       : type === "idea" ? capturedForSpec ? S.specJob?.ideaWork : n?.analysis
       : type === "reevaluate" ? capturedForSpec ? S.specJob?.reviewWork : S.reevaluation
       : type === "question" ? S.questionRequests.find(j => j.id === id)
@@ -199,7 +201,16 @@ async function serve() {
     return !!job && job.token === token && (type === "reevaluate" || job.stage === "thinking");
   }
 
+  const syncFollowups = () => {
+    for (const n of S.nodes) {
+      if (n.obsolete) delete n.followup;
+      else if (problemGrade(n.status) && n.gapCoverage?.gaps.some(g => g.questionIds.some(id => !S.nodes.some(q => q.id === id && !q.obsolete)))) { delete n.gapCoverage; n.followup = { stage: "queued" }; }
+      if (n.followup?.stage === "queued" && ![...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || [])].includes(n.id) && !S.queue.some(e => e.type === "followup" && e.id === n.id)) S.queue.push({ type: "followup", id: n.id });
+    }
+    S.queue = S.queue.filter(e => e.type !== "followup" || S.nodes.some(n => n.id === e.id && n.followup?.stage === "queued"));
+  };
   const save = () => {
+    syncFollowups();
     if (currentWork && !workIsCurrent()) {
       currentWork = null;
       // Some mutations only save (chat reset, deletion, previews). Recover after
@@ -274,7 +285,7 @@ ${S.notes || "—"}
     const { topics, relates, decision, chatDigest, semanticsStale, ...evidence } = n;
     n = evidence;
     if (n.kind === "preview") { const snap = n.snapshot ? n : preview.snapshot(n); return { ...snap, link: snap.snapshot ? `http://127.0.0.1:${port}/#preview=${snap.snapshot}` : null }; }
-    const { chat, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, options, pending, analysis, ...rest } = n;
+    const { chat, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, options, pending, analysis, followup, ...rest } = n;
     return { ...rest, ...(n.kind === "idea" ? { chat: chat || [] } : {}), ...(pending ? { answer: null, verdict: null, status: "open", awaiting: true } : {}) };
   };
   const specLocked = id => S.specJob?.waiting.includes(id);
@@ -328,7 +339,7 @@ ${S.notes || "—"}
   const rereadLocked = () => !!S.rereadJob && (S.rereadJob.stage === "thinking" || !!S.rereadJob.manual && isListening());
   const rereadThinking = () => S.rereadJob?.stage === "thinking";
   // The rebuild reads a settled map: submitted work goes first and a running specification finishes.
-  const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
+  const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job || n.followup?.stage === "queued" || n.followup?.stage === "thinking");
   const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.arch, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
   function requestKnowledge(reason) {
     if (!S.knowledgeJob) S.knowledgeJob = { stage: "queued", operation: randomUUID(), reason, requestedAt: Date.now() };
@@ -452,7 +463,20 @@ ${S.notes || "—"}
     const history = n.verdictHistory || (n.verdict ? [{ status: n.status, verdict: n.verdict, at: n.reviewedAt || 0 }] : []);
     if (history.length >= 1000) throw [400, "История вердиктов достигла предела 1000"];
     n.verdictHistory = [...history, { status, verdict, at: Date.now() }];
+    if (n.kind === "q" && (problemGrade(status) || problemGrade(n.status) || n.followup)) { n.followup = { stage: "queued" }; delete n.gapCoverage; }
     n.status = status; n.verdict = verdict;
+  };
+  const cover = (nodes, id, input) => coverageResult(nodes, id, input, { mkQ, clean });
+  const validateCoverageTree = (before, nodes) => {
+    validateDuplicates(before, nodes);
+    const roots = new Set();
+    for (const n of nodes) {
+      const old = before.find(x => x.id === n.id);
+      if (old && JSON.stringify(old.supplements || []) === JSON.stringify(n.supplements || [])) continue;
+      let root = n; while (root.parentId && root.parentId !== "root") root = nodes.find(x => x.id === root.parentId);
+      if (root.kind !== "root") roots.add(root.id);
+    }
+    for (const id of roots) boundBranch(subtree(nodes, id));
   };
   const ancestorIds = (nodes, id) => {
     const ids = []; let n = nodes.find(n => n.id === id);
@@ -467,6 +491,7 @@ ${S.notes || "—"}
     for (const a of b.ancestors) {
       if (!allowed.includes(a?.id) || seen.has(a.id) || !["ok", "weak", "gap", "verify"].includes(a.status) || typeof a.verdict !== "string" || !a.verdict.trim() || a.verdict.trim().length > 400) throw [400, "Некорректная оценка родителя"];
       seen.add(a.id); recordVerdict(nodes.find(n => n.id === a.id), a.status, clean(a.verdict, 400));
+      cover(nodes, a.id, a.coverage);
     }
     return true;
   };
@@ -512,9 +537,35 @@ ${S.notes || "—"}
     for (const a of b.assessments) {
       if (!job.ids.includes(a?.id) || seen.has(a.id) || !["ok", "weak", "gap", "verify"].includes(a.status) || !clean(a.verdict, 400)) throw [400, "Некорректная оценка родителя"];
       seen.add(a.id); recordVerdict(nodes.find(n => n.id === a.id), a.status, clean(a.verdict, 400));
+      cover(nodes, a.id, a.coverage);
     }
+    validateCoverageTree(captured ? S.specJob.gradingNodes : S.nodes, nodes);
     if (captured) { S.specJob.gradingNodes = nodes; S.specJob.nodes = nodes.map(specNode); S.specJob.reviewIds = job.remaining; delete S.specJob.reviewWork; }
     else { S.nodes = preview.branchCopies(nodes); S.reevaluation = job.remaining.length ? { ids: job.remaining } : null; }
+    save(); return { ok: true };
+  }
+  function followupPayload(id, captured = false) {
+    const nodes = captured ? S.specJob.gradingNodes : S.nodes, n = nodes.find(n => n.id === id);
+    if (!n?.followup || n.obsolete) return null;
+    const context = focusedContext(nodes, id, n.verdict, { index: true });
+    n.followup = { stage: "thinking", token: randomUUID(), revision: mapRevision() };
+    return { type: "followup", id, token: n.followup.token, capturedForSpec: captured, context,
+      ...(captured ? { readToken: n.followup.token } : {}), title: captured ? S.specJob.title : S.title, brief: captured ? S.specJob.brief : S.brief, arch: captured ? S.specJob.arch : S.arch };
+  }
+  function applyFollowup(b) {
+    const captured = b.capturedForSpec === true, original = captured ? S.specJob?.gradingNodes : S.nodes;
+    const n = original?.find(n => n.id === b.id), job = n?.followup;
+    if (!job || job.stage !== "thinking" || b.token !== job.token) throw [409, "Результат устарел, получите событие через wait"];
+    if (!captured && job.revision !== mapRevision()) { n.followup = { stage: "queued" }; save(); throw [409, "Карта изменилась, получите событие через wait"]; }
+    if (b.coverage === undefined || !["ok", "weak", "gap", "verify"].includes(b.status) || !clean(b.verdict, 400)) throw [400, "Нужна проверка пробелов"];
+    const nodes = structuredClone(original), target = nodes.find(n => n.id === b.id);
+    recordVerdict(target, b.status, clean(b.verdict, 400)); cover(nodes, b.id, b.coverage);
+    validateCoverageTree(original, nodes);
+    if (captured) { S.specJob.gradingNodes = nodes; S.specJob.nodes = nodes.map(specNode); }
+    else S.nodes = preview.branchCopies(nodes);
+    queueReview(nodes, b.id, captured);
+    if (captured) { const idea = ideaOf(nodes, b.id); if (idea && !S.specJob.ideaWaiting.includes(idea.id)) S.specJob.ideaWaiting.push(idea.id); }
+    else queueIdea(ideaOf(nodes, b.id));
     save(); return { ok: true };
   }
   const ideaOf = (nodes, id) => {
@@ -604,6 +655,7 @@ ${S.notes || "—"}
   }
 
   function payload(e) {
+    if (e.type === "followup") return followupPayload(e.id);
     if (e.type === "knowledge") {
       const j = S.knowledgeJob; if (!j || j.stage !== "queued") return null;
       boundBranch(S.nodes);
@@ -625,6 +677,7 @@ ${S.notes || "—"}
       const n = get(e.id); if (!n || !n.pending) return null;
       boundBranch(subtree(S.nodes, n.id));
       n.pending.stage = "thinking"; n.pending.token = randomUUID(); n.pending.revision = branchRevision(n.id);
+      n.pending.coverageRevision = mapRevision();
       n.pending.ancestorRevision = branchRevision(ancestorIds(S.nodes, n.id).at(-1) || n.id);
       const source = specLocked(n.id) ? S.specJob.gradingNodes || S.specJob.nodes : S.nodes;
       const branch = []; let parent = source.find(x => x.id === n.parentId);
@@ -732,6 +785,12 @@ ${S.notes || "—"}
       try { return deliver(reviewPayload(captured)); }
       catch (error) { if (!activeActions(S).length) throw error; abandonAction(error[1] || error.message || String(error), before, { type: "reevaluate", capturedForSpec: captured }); save(); return takeEvent(); }
     };
+    syncFollowups();
+    const frozenFollowup = S.specJob?.gradingNodes?.find(n => n.followup && !n.obsolete);
+    if (frozenFollowup && !S.specJob.waiting.length) {
+      try { return deliver(followupPayload(frozenFollowup.id, true)); }
+      catch (error) { abandonAction(error[1] || String(error), S, { type: "followup", id: frozenFollowup.id, capturedForSpec: true }); save(); return takeEvent(); }
+    }
     if (S.specJob && S.specJob.stage !== "refresh" && !S.specJob.waiting.length && S.specJob.reviewIds?.length) return reviewDelivery(true);
     if (!S.specJob && S.reevaluation && settled() && !rereadThinking()) return reviewDelivery(false);
     if (!waitingActions(S).length && !activeActions(S).length && !S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
@@ -753,7 +812,7 @@ ${S.notes || "—"}
       if (i < 0) return null;
       const [e] = S.queue.splice(i, 1); let p;
       try { p = payload(e); } catch (error) {
-        if (activeActions(S).length) { abandonAction(error[1] || error.message || String(error), S, e); save(); advanceActions(); continue; }
+        if (activeActions(S).length || e.type === "followup") { abandonAction(error[1] || error.message || String(error), S, e); save(); advanceActions(); continue; }
         if (e.type === "knowledge") { S.knowledgeJob.stage = "blocked"; S.knowledgeResult = { status: "error", error: knowledgeError(error[1] || String(error)) }; save(); }
         else if (e.type === "discuss" && error[2] === "context-limit") {
           // Preserve the messages, but release this failed delivery so other work can drain.
@@ -829,9 +888,10 @@ ${S.notes || "—"}
     const LABEL = Object.fromEntries(Object.entries({ open: "Открыт", ok: "Закрыт", weak: "Слабо", gap: "Дыра", verify: "Проверить" }).map(([k, v]) => [k, t(v)]));
     let md = `# ${t("Грилинг:")} ${S.title || t("проект")}\n\n**${t("Бриф:")}** ${S.brief}\n\n**MVP-${t("архитектура:")}** ${S.arch || "—"}\n\n`;
     const answerHistory = (n, ind = "") => (n.answerHistory || []).map(h => `${ind}- ${t("История ответов")}: ${h.answer}\n${h.source ? `${ind}  - ${t("Ответ из обсуждения:")} ${h.source.q || h.source.id}\n` : ""}`).join("");
+    const supplements = (n, ind = "") => [...(n.supplementHistory || []).flatMap(h => h.sources), ...(n.supplements || [])].map(x => `${ind}- ${t("Дополнения ответа")}: ${x.contribution}\n${ind}  - ${t("Источник:")} ${x.q} (${x.id}): ${x.answer}\n`).join("");
     const merged = (sources, ind = "") => (sources || []).map(m => `${ind}- ${t("Сведено из:")} ${m.q}: ${m.answer}\n` +
       (m.verdict ? `${ind}  - ${t("Вердикт:")} ${m.verdict}\n` : "") +
-      (m.verdictHistory || []).map(h => `${ind}  - ${t("История вердиктов")}: [${LABEL[h.status]}] ${h.verdict}\n`).join("") + answerHistory(m, ind + "  ") + (m.answerSource ? `${ind}  - ${t("Ответ из обсуждения:")} ${m.answerSource.q || m.answerSource.id}\n` : "") + merged(m.mergedFrom, ind + "  ")).join("");
+      (m.verdictHistory || []).map(h => `${ind}  - ${t("История вердиктов")}: [${LABEL[h.status]}] ${h.verdict}\n`).join("") + answerHistory(m, ind + "  ") + (m.answerSource ? `${ind}  - ${t("Ответ из обсуждения:")} ${m.answerSource.q || m.answerSource.id}\n` : "") + supplements(m, ind + "  ") + merged(m.mergedFrom, ind + "  ")).join("");
     const c = counts(); md += `${t("Итого:")} ${ORDER.map(s => `${LABEL[s]} ${c[s]}`).join(" · ")}\n\n`;
     if (S.summary) md += `## ${t("Итог")}\n\n${S.summary}\n\n`;
     md += `## ${t("Карта вопросов")}\n\n`;
@@ -844,6 +904,7 @@ ${S.notes || "—"}
       if (r.answerSource) md += `- ${t("Ответ из обсуждения:")} ${r.answerSource.id}\n`;
       for (const h of r.verdictHistory || []) md += `- ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
       if (r.obsolete) md += `- ${t("Устарело:")} ${r.obsolete.reason}\n`;
+      md += supplements(r);
       md += merged(r.mergedFrom);
       const walk = (id, ind) => kids(id).forEach(k => {
         md += `${ind}- [${k.kind === "preview" ? t("Превью") : LABEL[k.status]}] ${k.q}${k.commit ? " · " + k.commit : ""}\n`;
@@ -852,6 +913,7 @@ ${S.notes || "—"}
         if (k.answerSource) md += `${ind}  - ${t("Ответ из обсуждения:")} ${k.answerSource.id}\n`;
         for (const h of k.verdictHistory || []) md += `${ind}  - ${t("Вердикт:")} [${LABEL[h.status]}] ${h.verdict}\n`;
         if (k.obsolete) md += `${ind}  - ${t("Устарело:")} ${k.obsolete.reason}\n`;
+        md += supplements(k, ind + "  ");
         md += merged(k.mergedFrom, ind + "  ");
         if (r.kind === "idea") for (const m of k.chat || []) md += `${ind}  - ${t(m.from === "user" ? "Вы" : "Агент")}: ${m.quote ? "«" + m.quote + "» " : ""}${m.text}${m.images?.length ? " [" + m.images.join(", ") + "]" : ""}\n`;
         walk(k.id, ind + "  ");
@@ -874,6 +936,7 @@ ${S.notes || "—"}
     if (b.type === "preview") return preview.apply(b);
     if (b.type === "idea") return applyIdea(b);
     if (b.type === "reevaluate") return applyReview(b);
+    if (b.type === "followup") return applyFollowup(b);
     if (b.type === "notes") {
       S.notes = clean(b.text, 3000); save(); writeSession(); return { ok: true };
     }
@@ -895,7 +958,7 @@ ${S.notes || "—"}
       // only an answer taken by wait can be graded: after a restart it is re-queued and may be edited or withdrawn
       if (!n.pending || n.pending.stage !== "thinking") throw [409, "Ответ не ждёт оценки: его отозвали или он снова в очереди, возьмите его через wait"];
       if (b.token !== n.pending.token) throw [409, "Результат устарел, получите событие через wait"];
-      if (n.pending.revision !== branchRevision(n.id)) {
+      if (n.pending.revision !== branchRevision(n.id) || b.coverage !== undefined && !specLocked(n.id) && n.pending.coverageRevision !== mapRevision()) {
         n.pending.stage = "queued"; delete n.pending.token;
         if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id });
         save(); throw [409, "Ветка изменилась, получите событие через wait"];
@@ -903,7 +966,7 @@ ${S.notes || "—"}
       const answer = n.pending.answer;
       const status = ["ok", "weak", "gap", "verify"].includes(b.status) ? b.status : "weak";
       const changes = b.branchChanges || {};
-      for (const [key, limit] of [["remove", 500], ["move", 500], ["add", 20]]) {
+      for (const [key, limit] of [["remove", 500], ["move", 500], ["add", 500]]) {
         if (changes[key] !== undefined && (!Array.isArray(changes[key]) || changes[key].length > limit)) throw [400, "Некорректное изменение ветки"];
       }
       const frozen = specLocked(n.id) ? S.specJob.gradingNodes || S.specJob.nodes : null;
@@ -930,7 +993,8 @@ ${S.notes || "—"}
       for (const m of moves) if (!m || get(m.id)?.kind !== "q" || m.id === n.id || !scope.has(m.id) || drop.has(m.id) || !allowedParent(parentId(m.parentId))) throw [400, "Перенос вне затронутой ветки"];
       for (const q of additions) { q.parentId = parentId(q.parentId); if (!allowedParent(q.parentId)) throw [400, "Родитель вопроса не найден"];
       }
-      const ch = (Array.isArray(b.children) ? b.children : []).slice(0, 4).map(o => mkQ({ ...o, area: n.area }, n.id)).filter(Boolean);
+      if (b.children !== undefined && (!Array.isArray(b.children) || b.children.length > 500)) throw [400, "Слишком много уточнений; ничего не применено"];
+      const ch = (b.children || []).map(o => { const q = mkQ({ ...o, area: n.area }, n.id); if (!q) throw [400, "Пустой вопрос"]; return q; });
       additions.push(...ch);
       if (b.newRoot && typeof b.newRoot === "object") { const nr = mkQ(b.newRoot, "root", { prio: maxPrio() + 1, addedFrom: n.q }); if (nr) additions.push(nr); }
       const rebuild = nodes => {
@@ -955,9 +1019,10 @@ ${S.notes || "—"}
           }
           if (q.parentId !== "root") q.area = p.area;
         }
+        cover(next, n.id, b.coverage);
         inlineAncestors(next, n.id, deferAncestors ? { ...b, ancestors: b.ancestors === undefined ? undefined : [] } : b, allowedAncestors);
         if (deferAncestors && b.ancestors !== undefined) inlineAncestors(structuredClone(nodes), n.id, b, allowedAncestors);
-        validateDuplicates(nodes, next);
+        validateCoverageTree(nodes, next);
         reconcileLinks(nodes, next);
         applySemantics(next, n.id, b.semantics, clean);
         validateLinks(next);
@@ -966,6 +1031,7 @@ ${S.notes || "—"}
       };
       const next = preview.reconcile(S.nodes, rebuild(S.nodes)), nextFrozen = frozen && preview.reconcile(frozen, rebuild(frozen));
       if (S.rereadJob?.edits.includes(n.id)) { S.rereadJob.edits = S.rereadJob.edits.filter(id => id !== n.id); S.rereadJob.settled = true; }
+      const addedCount = next.filter(q => !S.nodes.some(n => n.id === q.id)).length;
       S.nodes = preview.branchCopies(next);
       if (deferAncestors || b.ancestors === undefined) queueReview(S.nodes, n.id);
       queueIdea(ideaOf(S.nodes, n.id));
@@ -978,7 +1044,7 @@ ${S.notes || "—"}
         const idea = ideaOf(nextFrozen, n.id);
         if (idea && !S.specJob.ideaWaiting.includes(idea.id)) S.specJob.ideaWaiting.push(idea.id);
       }
-      save(); pruneImages(); return { ok: true, added: additions.length };
+      save(); pruneImages(); return { ok: true, added: addedCount };
     }
     if (b.type === "discuss") {
       let n = get(b.id); if (!n) throw [404, "Нет вопроса с id " + b.id];
@@ -994,7 +1060,7 @@ ${S.notes || "—"}
       b = assembled.body;
       if (typeof b.reply !== "string" || b.reply.trim().length > 2000) throw [400, "reply должен быть не длиннее 2000 символов"];
       const reply = clean(b.reply, 2000); if (!reply) throw [400, "Пустой reply"];
-      const result = discussionResult(S.nodes, n.id, b, { mkQ, recordVerdict, clean, inlineAncestors });
+      const result = discussionResult(S.nodes, n.id, b, { mkQ, recordVerdict, clean, inlineAncestors, cover });
       if (JSON.stringify(b).length > 600000) throw [400, "Результат обсуждения слишком большой; ничего не применено"];
       if (b.reread !== undefined && typeof b.reread !== "boolean") throw [400, "reread должен быть boolean"];
       if (b.reread && !qs().length) throw [400, "На карте пока нет вопросов"];
@@ -1022,7 +1088,8 @@ ${S.notes || "—"}
         recordVerdict(assessed, a.status, clean(a.verdict, 400));
         if (!assessed.answer) { assessed.answer = clean(a.answer, 2000); assessed.semanticsStale = true; }
       }
-      validateDuplicates(S.nodes, result.nodes);
+      if (b.assessment) cover(result.nodes, n.id, b.assessment.coverage);
+      validateCoverageTree(S.nodes, result.nodes);
       applySemantics(result.nodes, n.id, b.semantics, clean);
       S.nodes = preview.branchCopies(result.nodes); n = get(b.id);
       if (b.assessment !== undefined) {
@@ -1130,7 +1197,7 @@ ${S.notes || "—"}
       const keep = byId.get(keepId);
       // A merged conflict card must keep its disagreement on record, or it could be raised again.
       const conflicts = [...new Set(cards.flatMap(n => n.conflictOf || []))];
-      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", verdictHistory: structuredClone(n.verdictHistory || []), answerHistory: structuredClone(n.answerHistory || []), answerSource: n.answerSource || null, ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
+      keep.mergedFrom = cards.flatMap(n => [...(n.mergedFrom || []), { id: n.id, q: n.q, answer: n.answer, status: n.status, verdict: n.verdict || "", verdictHistory: structuredClone(n.verdictHistory || []), answerHistory: structuredClone(n.answerHistory || []), supplements: structuredClone(n.supplements || []), supplementHistory: structuredClone(n.supplementHistory || []), answerSource: n.answerSource || null, ...(n.conflictOf ? { conflictOf: n.conflictOf, conflictAnswers: n.conflictAnswers } : {}) }]);
       // keep.conflictOf is only a union for display; each exact disagreement stays in mergedFrom.
       if (conflicts.length) keep.conflictOf = conflicts;
       delete keep.conflictAnswers;
@@ -1237,6 +1304,16 @@ ${S.notes || "—"}
       } else throw bad("Некорректное восстановление архива");
     }
     const nodes = preview.reconcile(S.nodes, [...byId.values()]);
+    const assessments = list(b.assessments, 500), assessedIds = new Set();
+    for (const a of assessments) {
+      const n = nodes.find(n => n.id === a?.id);
+      if (!n || n.kind !== "q" || !n.answer || n.obsolete || used.has(n.id) || assessedIds.has(n.id) || !audit.has(n.id) || !["ok", "weak", "gap", "verify"].includes(a.status) || !clean(a.verdict, 400)) throw bad("Некорректная оценка карточки");
+      assessedIds.add(n.id); recordVerdict(n, a.status, clean(a.verdict, 400)); cover(nodes, n.id, a.coverage);
+    }
+    for (const n of [...nodes]) if (audit.has(n.id) && !n.obsolete && problemGrade(n.status) && !assessedIds.has(n.id)) {
+      n.followup = { stage: "queued" }; cover(nodes, n.id, b.audit.find(a => a.id === n.id)?.coverage);
+    }
+    const coverageAdded = nodes.length - byId.size;
     validateDuplicates(S.nodes, nodes);
     reconcileLinks(S.nodes, nodes, merged);
     if (b.semantics !== undefined && (!Array.isArray(b.semantics) || b.semantics.length > 500 || new Set(b.semantics.map(x => x?.id)).size !== b.semantics.length)) throw bad("Некорректная семантика");
@@ -1273,7 +1350,7 @@ ${S.notes || "—"}
     if (changedAnswers >= settings.knowledge.rereadThreshold) requestKnowledge("reread");
     save();
     if (changed) { writeSession(); pruneImages(); }
-    return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length, moved: move.length, removed: remove.length };
+    return { ok: true, changed, closed: close.length, merged: merge.length, added: additions.length + coverageAdded, moved: move.length, removed: remove.length };
   }
 
   // Archived inputs keep their images as stored files: base64 never enters archive evidence or the journal.
@@ -1328,7 +1405,7 @@ ${S.notes || "—"}
     if (p === "/api/idea/delete" && b.confirm !== true) throw [400, "Подтвердите удаление всей ветки идеи"];
   }
   // A blocked knowledge job waits for the user (clarification answers, retry or skip): it must not stall admitted actions.
-  const underlyingWork = () => S.queue.length || S.specJob || S.rereadJob || S.knowledgeJob && S.knowledgeJob.stage !== "blocked" || S.reevaluation || S.questionRequests.length || S.morePending || S.finishPending || S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job);
+  const underlyingWork = () => S.queue.length || S.specJob || S.rereadJob || S.knowledgeJob && S.knowledgeJob.stage !== "blocked" || S.reevaluation || S.questionRequests.length || S.morePending || S.finishPending || S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job || n.followup?.stage === "queued" || n.followup?.stage === "thinking");
   function completeActions() {
     if (underlyingWork()) return;
     for (const a of activeActions(S)) {
@@ -1345,13 +1422,21 @@ ${S.notes || "—"}
     for (const a of activeActions(S)) { a.status = "failed"; a.error = clean(error, 1000); a.completedAt = Date.now(); }
   }
   function abandonAction(error, failedState = S, failedWork = currentWork) {
-    const n = failedState.nodes.find(n => n.id === failedWork?.id);
+    const capturedFollowup = failedWork?.type === "followup" && failedWork.capturedForSpec;
+    const n = (capturedFollowup ? failedState.specJob?.gradingNodes : failedState.nodes)?.find(n => n.id === failedWork?.id);
+    // Legacy internal work needs a durable problem receipt with the same retry path as user actions.
+    if (failedWork?.type === "followup" && !activeActions(S).length) {
+      const body = { id: failedWork.id };
+      S.actions.push({ id: randomUUID(), sequence: S.actions.length + 1, route: "/api/followup", body, internal: true,
+        hash: digest(JSON.stringify(["/api/followup", body])), status: "running", at: Date.now(), dependencies: [] });
+    }
     let messages = n?.chat || [];
     const conversationId = n?.discussConversation || messages.at(-1)?.conversationId || "main";
     if (n?.kind === "root") messages = messages.filter(m => (m.conversationId || "main") === conversationId);
     let start = messages.length; while (start && messages[start - 1].from === "user") start--;
     const reviewIds = [...new Set([...(failedState.reevaluation?.ids || []), ...(failedState.reevaluation?.remaining || [])])];
     const dependencies = [];
+    for (const node of failedState.nodes) if (node.followup && !(failedWork?.type === "followup" && failedWork.id === node.id)) dependencies.push({ type: "followup", id: node.id });
     if (failedState.rereadJob && failedWork?.type !== "reread") dependencies.push({ type: "reread" });
     if (reviewIds.length && failedWork?.type !== "reevaluate") dependencies.push({ type: "reevaluate", ids: reviewIds });
     for (const node of failedState.nodes) {
@@ -1368,7 +1453,8 @@ ${S.notes || "—"}
       question: failedState.questionRequests.find(j => j.id === failedWork?.id),
       messageIds: n?.discussMessageIds || messages.slice(start).map(m => m.id), conversationId,
       ids: reviewIds, dependencies, ideaReason: n?.analysis?.reason, reason: failedState.knowledgeJob?.reason,
-      operation: failedState.knowledgeJob?.operation, finishPending: failedState.finishPending
+      operation: failedState.knowledgeJob?.operation, finishPending: failedState.finishPending,
+      ...(capturedFollowup ? { capturedForSpec: true, specJob: structuredClone(failedState.specJob) } : {})
     };
     const owned = activeActions(S).length > 0;
     failActive(error);
@@ -1378,6 +1464,7 @@ ${S.notes || "—"}
       const { type, id } = currentWork || {};
       S.queue = S.queue.filter(e => e.type !== type || e.id !== id);
       const n = get(id);
+      if (type === "followup" && n) { n.followup = { stage: "blocked", error: clean(error, 1000) }; }
       if (type === "answer" && n) delete n.pending;
       if (type === "discuss" && n) delete n.discuss;
       if (type === "idea" && n) delete n.analysis;
@@ -1390,7 +1477,7 @@ ${S.notes || "—"}
     }
     S.queue = []; S.specJob = null; S.rereadJob = null; S.knowledgeJob = null; S.reevaluation = null; S.questionRequests = [];
     S.morePending = false; S.finishPending = false;
-    for (const n of S.nodes) { delete n.pending; delete n.discuss; delete n.analysis; delete n.job; }
+    for (const n of S.nodes) { if (n.followup) n.followup = { stage: "blocked", error: clean(error, 1000) }; delete n.pending; delete n.discuss; delete n.analysis; delete n.job; }
   }
   function publicActions() {
     const waiting = waitingActions(S), running = activeActions(S);
@@ -1499,6 +1586,10 @@ ${S.notes || "—"}
     else if (r.type === "knowledge") requestKnowledge(r.reason || "import");
     else if (r.type === "reread") requestReread(true);
     else if (r.type === "spec") { S.specJob = captureSpec(); S.queue.push({ type: "spec" }); }
+    else if (r.type === "followup") {
+      if (r.capturedForSpec) { S.specJob = structuredClone(r.specJob); recoverSpec(); }
+      else if (n && !n.obsolete) n.followup = { stage: "queued" };
+    }
     else if (r.type === "reevaluate") S.reevaluation = { ids: r.ids || [] };
     else if (r.type === "more") { S.morePending = true; S.queue.push({ type: "more" }); }
     else if (r.type === "finish") { S.finishPending = true; requestKnowledge("finish"); }
@@ -1701,8 +1792,10 @@ ${S.notes || "—"}
       if (p === "/api/knowledge-import") {
         requestKnowledge("import"); save(); pump(); return send(res, 200, { ok: true });
       }
-      if (p === "/api/finish") { if (!S.finishPending) { S.finishPending = true; if (!S.knowledgeJob) S.knowledgeResult = null; requestKnowledge("finish"); cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
+      if (p === "/api/finish") {
+        if (S.nodes.some(n => !n.obsolete && n.followup?.stage === "blocked")) throw [409, "Сначала завершите проверку пробелов"]; if (!S.finishPending) { S.finishPending = true; if (!S.knowledgeJob) S.knowledgeResult = null; requestKnowledge("finish"); cancelStoppedReread(); enqueue({ type: "finish" }); } return send(res, 200, { ok: true }); }
       if (p === "/api/spec") {
+        if (S.nodes.some(n => !n.obsolete && n.followup?.stage === "blocked")) throw [409, "Сначала завершите проверку пробелов"];
         // A snapshot taken now would freeze the map from before the rebuild.
         if (rereadThinking()) return send(res, 409, { error: "Карта перестраивается. Создать спеку можно будет после перечитывания" });
         if (!S.specJob) {
@@ -1749,7 +1842,7 @@ ${S.notes || "—"}
         let nodes = S.nodes;
         if (url.searchParams.has("token")) {
           if (!token) throw [400, "Нужен токен снимка"];
-          if (!S.specJob || !(S.specJob.ideaWork?.token === token || S.specJob.reviewWork?.token === token || S.nodes.some(n => specLocked(n.id) && n.pending?.stage === "thinking" && n.pending.token === token))) throw [409, "Снимок события больше недоступен"];
+          if (!S.specJob || !(S.specJob.ideaWork?.token === token || S.specJob.reviewWork?.token === token || S.specJob.gradingNodes?.some(n => n.followup?.stage === "thinking" && n.followup.token === token) || S.nodes.some(n => specLocked(n.id) && n.pending?.stage === "thinking" && n.pending.token === token))) throw [409, "Снимок события больше недоступен"];
           nodes = S.specJob.gradingNodes;
         }
         const id = clean(url.searchParams.get("id"), 80), ids = url.searchParams.getAll("id").map(id => clean(id, 80));
@@ -1846,6 +1939,8 @@ ${S.notes || "—"}
         if (rereadThinking()) { recoverReread(); save(); }
         // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
         // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
+        for (const n of S.nodes) if (n.followup?.stage === "thinking") n.followup = { stage: "queued" };
+        syncFollowups();
         const lost = S.nodes.filter(n => n.pending && n.pending.stage === "thinking" || n.discuss === "thinking");
         for (const n of lost.reverse()) {
           if (n.pending && n.pending.stage === "thinking") { n.pending.stage = "queued"; if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id }); }

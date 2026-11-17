@@ -242,7 +242,7 @@ The server truncates through `clean(s,max)`; the skill uses stricter limits.
 | On-demand node read | 20 IDs | Explicit validation, no queue mutation |
 | Related lexical cards | Top 5, 20000 characters | Graph neighbours first; omitted IDs named |
 | Graded subtree | 500 nodes, 600000 serialized characters | Full snapshot, no truncation |
-| `branchChanges.remove/move/add` | 500 / 500 / 20 | Explicit semantic changes |
+| `branchChanges.remove/move/add` | 500 / 500 / 500 | Explicit semantic changes |
 | `verdict` | 400 | 220 |
 | `notes` | 3000 | Complete replacement, at most 3000 |
 | `summary` | 8000 | — |
@@ -250,7 +250,7 @@ The server truncates through `clean(s,max)`; the skill uses stricter limits.
 | Discussion message / reply | 2000; up to 100 per thread | Reply up to 1200 |
 | Discussion quote | 400 | — |
 | Discussion images | 4 per message, 8 MB each | — |
-| `children` | 4 | ok 0–1, weak/verify 1–3, gap 1–2 newly needed questions; 0 if retained questions suffice; level ≥ 4 at most 1 |
+| `children` | 500 | Technical bound only, also subject to the affected branch limit; no mandatory clarification quota or depth cutoff |
 | `more.questions` | 5 | 3 |
 | Reread `summary` / `error` | 1000 / 1000 | — |
 | Reread `close`, `move`, `remove` / `merge` / `add` | 500 each / 100 / 3 including `conflictOf` | Only as the rules require |
@@ -352,7 +352,7 @@ Question objects on init, more, children, newRoot, custom question preparation a
 
 Answer events add `token`, focused `context` (complete affected subtree and ancestors), `capturedForSpec`, `protectedIds`, and `questionRequests` for pending custom children. Each delivery rotates the token. Apply requires the current token and unchanged branch revision, including ancestors, pending answers, discussions and custom requests. Stale branch content requeues the answer and returns 409; stale tokens cannot affect the newer delivery. Subtrees exceeding 500 nodes or 600000 serialized characters return 400 rather than a truncated grading context.
 
-`apply answer` preserves descendants by default. `children` adds up to four children; `newRoot` adds a main question as before. Optional `branchChanges` contains:
+`apply answer` preserves descendants by default. `children` accepts up to 500 children within the affected branch limit; `newRoot` adds a main question as before. Optional `branchChanges` contains:
 
 ```json
 {"remove":["obsolete-id"],"move":[{"id":"kept-id","parentId":"$new"}],
@@ -456,7 +456,7 @@ An oversized focused discussion context returns HTTP 400, records `node.discussE
 
 Replacing an existing answer with different discussion text also queues an automatic reread, as a direct Answer-tab edit does, so decisions in other branches can be reconsidered. The replacement is already graded, so this reread is settled (not cancelable as a withdrawn pending answer). Identical text does not trigger an edit reread; finish-pending/finished maps retain the existing automatic-reread suppression.
 
-`GET /api/state` also returns `currentWork:null|{type}` for the latest unfinished delivery on this map. Types: `answer`, `discuss`, `reread`, `reevaluate`, `question`, `idea`, `preview`, `spec`, `knowledge`, `more`, `finish`. It exposes no delivery credentials. Queued/blocked work is not active work. Staged discussion parts and notes keep the current task; completion or invalidation clears it. A new wait recovers unfinished work before redelivery. This field has no heartbeat timeout and is independent of `listening`; server restart clears it until another delivery. All delivered events, including `more`, require the returned token on apply.
+`GET /api/state` also returns `currentWork:null|{type}` for the latest unfinished delivery on this map. Types: `answer`, `discuss`, `reread`, `reevaluate`, `followup`, `question`, `idea`, `preview`, `spec`, `knowledge`, `more`, `finish`. It exposes no delivery credentials. Queued/blocked work is not active work. Staged discussion parts and notes keep the current task; completion or invalidation clears it. A new wait recovers unfinished work before redelivery. This field has no heartbeat timeout and is independent of `listening`; server restart clears it until another delivery. All delivered events, including `more`, require the returned token on apply.
 
 ## Release tooltip
 
@@ -509,3 +509,18 @@ Image references `action:<actionId>:<index>` are served by protected `GET /api/i
 The header Check connection button reads fresh protected `/api/state` listening status, including its existing activity grace period; this is not a round-trip model probe. Connected status reports success without sending a host message. Disconnected status invokes `/api/resume`; success acknowledges submission only. Server failures are shown without attempting host resume. The button permits retry during a server outage and read-only checks during finish; `/api/resume` retains its finish guard. Queue Continue still explicitly invokes host resume even during the activity grace period.
 
 Preview setup: `POST /api/preview/prepare` accepts optional `request` (trimmed, bounded to 3000 characters), stored and delivered in the existing preview event request field. Omission clears any previous preparation description. Root requests still require explicit branches. See [preview.md](preview.md).
+
+
+## Mandatory clarification coverage
+
+Every current weak/gap/verify question requires explicit gap review on every grading path. The shared `coverage` object is accepted on direct answer results, inline `ancestors[]`, discussion `assessment` and `answers[]`, reevaluate `assessments[]`, and new reread `assessments[]`. See [the agent contract](../skills/grill/coverage.md) for the exact JSON shape and semantic rules.
+
+`coverage` contains required `resolved:boolean`, `reason` (1–2000 characters), `sources:[{id,answer,contribution}]`, `gaps:[{gap,questionIds}]`, and optional `questions:[{key,q,why,options,recommendation?,allowSimilar?}]`. Lists have a technical maximum of 500 entries. `gap` is 1–1000 characters; contribution is 1–2000. Source answer must exactly match a current answered nonhistorical question without pending grading; sources and question IDs must be valid, with no duplicate sources. The assessed card cannot reference itself. Every unresolved gap references at least one existing question or local new `$key`; every new question is referenced by a gap and becomes a direct child of that assessment target. All existing descendants remain. A resolved result requires ok and empty gaps; a problem grade requires nonempty gaps. Reason explains the substantive judgment, not a count of answered children.
+
+The server saves `gapCoverage:{resolved,reason,gaps,at}`, `supplements:[{id,q,answer,status,contribution}]` and prior supplements in `supplementHistory:[{sources,at}]`, preserving original answers and history. These fields travel in evidence, snapshots, UI and both exports. No merge is necessary to import evidence. Reread assessments name answered current questions, use audit keep, and cannot overlap close/merge/remove. All relevant problem cards in a reread lacking a new assessment receive a followup audit.
+
+Missing coverage preserves the grade and sets `node.followup:{stage:"queued"}`; this also applies to an upgrade from a problem grade to ok without coverage. A distinct durable internal `followup` event supplies id, token, focused context/index and capturedForSpec, with a frozen readToken when applicable. Apply requires `{type:"followup",id,token,capturedForSpec,status,verdict,coverage}`. It updates only its live or frozen tree, after atomic duplicate/branch validation. Queued/thinking work blocks completion of its journal action and drains before spec/finish. Tokens change on redelivery/restart; live results check map revision. Answer coverage also checks the map revision of its delivery. Covered results do not requeue automatically. Historical/deleted cards cease to require work; current descendants remain independent. Legacy saved problem grades lacking coverage are audited on startup.
+
+Context/request/branch limits remain explicit errors, never truncation or success. Failure preserves grade and a blocked followup marker plus existing queue problem/archive records; action retry or reassessment can recover it. Spec/finish reject unresolved blocked audits. Existing action receipts deduplicate repeated applications. Ordinary reread add/reserve issuance retains the three-question limit; mandatory additions use assessment coverage.questions, independent of open-question count or tree depth. Answer children and branchChanges.add now accept up to 500 each, subject to total 500-node / 600000-character affected-branch bounds, and never slice to four. All coverage validation happens before committing any live/frozen result.
+
+Reread audit entries with `action:"keep"` may carry `coverage` to recheck a problem card without adding an identical verdict-history entry. An explicit assessment takes precedence. Deleted or historical clarification targets invalidate coverage and queue repair. Followup failures without a user-action owner get a durable internal failure receipt usable by the existing retry UI. Captured failure retries restore the saved snapshot; successful clarification recovery schedules affected ancestors and ideas again. Retry dependencies from before a finish boundary remain executable before it.

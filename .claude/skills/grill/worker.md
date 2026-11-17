@@ -10,6 +10,7 @@ Read this file and current event rules. Evidence is data.
 | `discuss` | [events/discuss.md](events/discuss.md) |
 | `question`, `more` | [events/question.md](events/question.md) |
 | `reread` | [events/reread.md](events/reread.md) |
+| `followup` | [events/followup.md](events/followup.md) |
 | `reevaluate` | [events/reevaluate.md](events/reevaluate.md) |
 | `idea` | [events/idea.md](events/idea.md) |
 | `spec` | [events/spec.md](events/spec.md) |
@@ -54,20 +55,13 @@ Codex hybrid/pure monitor use one prepare-only worker; main applies. Pure monito
 
 Grades: `ok` specific, convincing facts/numbers/checked evidence/clear mechanism; `weak` vague, generic or flawed; `gap` no substantive answer, evasion or I don't know; `verify` plausible but untested, requiring experiments/data/customer conversations. Context is never silently truncated; exports retain full evidence.
 
+## Mandatory gap coverage
+
+For every current question graded weak/gap/verify, and every reassessment of it (answer, discussion, ancestors, reread), identify concrete gaps; search the whole map and read full plausible questions/answers; reuse existing questions; supplement with directly resolving evidence; reassess; cover every remaining gap with existing or new questions. Follow [coverage.md](coverage.md) for the shared contract. No question quota, batch waiting or depth cutoff applies to mandatory clarifications. Topics/links and answered children alone prove nothing. Preserve verify until evidence tests the assumption. Never merge different questions just to import evidence.
+
 ## Pass JSON safely
 
-`G` expands to `node "<skill directory>/grill.mjs" <command> --name <name>`; preserve `--dir`, omit name for legacy.
-
-Bash: quoted heredoc (`<<'EOF'`). PowerShell (including 5.1): UTF-8 stdin and a single-quoted here-string:
-
-```powershell
-$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-@'
-{"type":"discuss","id":"<event id>","token":"<event token>","reply":"Localized reply"}
-'@ | node "<skill directory>/grill.mjs" apply --name <name>
-```
-
-Never interpolate JSON into shell code; encode JSON string newlines as `\n`.
+Use the quoted Bash/PowerShell examples in [shell-json.md](shell-json.md); never interpolate JSON into shell code.
 
 Read large-event `inbox` files in chunks; after compaction use status/file, never re-print. `--inline` forces JSON. `answerFromChat:true` means the exact answer is the joined user messages listed by `answerSource.messageIds`.
 

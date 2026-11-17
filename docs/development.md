@@ -291,3 +291,10 @@ In both UI languages exercise queue hover/pinning/Close, separate current/queued
 
 The action browser check also verifies immediate queued answer/chat display, editing and cancellation of the displayed answer, conversation isolation, quotes/images, reload, pending creation cards and canonical worker-state isolation. Set `GRILL_QUEUE_SCREENSHOT` to a path prefix to retain EN/RU captures. The simulator reads grades through the API, avoiding a Windows file-reader race with atomic state replacement.
 `node dev/check-queued-view.mjs` checks FIFO display projection, cancellation restoration, edits/deletions, read-only placeholders and pending work indicators without altering canonical evidence.
+
+
+## Mandatory follow-up checks
+
+Run `node dev/check-followups.mjs` for missing-coverage recovery, restart/redelivery, five required children at depth five, cross-branch reuse and supplementation, atomic limits, every grading path and HTTP/Host protection. Run completeness, discussion, reread, spec, actions, workers, monitor, maps and locale checks plus the disposable simulator harness. The shared test fixture supplies explicit transport-only coverage; it does not establish semantic quality. A real agent session must separately verify all gaps are identified, unrelated answers do not close them, and verified evidence can close the original without rewriting the user's answer.
+
+`node dev/check-followups-browser.mjs` verifies sourced supplements beside the original answer, escaping, queue visibility and Markdown export in EN/RU. `check-actions-browser.mjs` currently has an unrelated baseline failure at its preview-admission fixture (line 138: branch checkbox queried on the default chat tab); this reproduces on commit `4446d86`.

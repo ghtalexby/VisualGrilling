@@ -1,6 +1,6 @@
 import { applySemantics } from "./context.mjs";
 // Build a discussion transaction without mutating live state or frozen specifications.
-export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, clean, inlineAncestors }) {
+export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, clean, inlineAncestors, cover }) {
   const next = structuredClone(nodes), byId = new Map(next.map(n => [n.id, n]));
   const source = byId.get(sourceId), refs = new Map(), added = [], edited = [], touched = new Set();
   const bad = message => { throw [400, message]; };
@@ -56,6 +56,7 @@ export function discussionResult(nodes, sourceId, body, { mkQ, recordVerdict, cl
   }
   for (const a of body.answers || []) {
     const id = resolve(a.id);
+    cover?.(next, id, a.coverage);
     if (inlineAncestors?.(next, id, a)) inline.push(id);
   }
   return { nodes: next, links, edited, inline, touched: [...touched], added: added.length };

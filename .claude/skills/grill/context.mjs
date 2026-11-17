@@ -1,7 +1,7 @@
 import path from "node:path";
 // Evidence is stable; semantic annotations only guide retrieval.
 export function evidenceNode(n) {
-  const { topics, relates, decision, chatDigest, semanticsStale, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, pending, analysis, ...rest } = n;
+  const { topics, relates, decision, chatDigest, semanticsStale, discuss, discussToken, discussRevision, discussMapRevision, discussDraft, pending, analysis, followup, ...rest } = n;
   if (rest.job) { const { stage, token, ...job } = rest.job; rest.job = job; }
   if (rest.chat) rest.chat = rest.chat.map(({ readAt, ...m }) => m);
   return { ...rest, ...(pending ? { pending: { answer: pending.answer, at: pending.at } } : {}) };

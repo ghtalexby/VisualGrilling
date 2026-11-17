@@ -26,7 +26,7 @@ for (const root of [new URL("../skills/grill/", import.meta.url), new URL("../.c
   assert.ok(policy >= 0 && policy < skill.indexOf("2. Otherwise inspect"), "Load project exclusions before initial document analysis");
   assert.ok(skill.slice(policy, skill.indexOf("2. Otherwise inspect")).includes(".grill/knowledge-ignore.json"));
 }
-const eventFiles = ["answer", "discuss", "question", "reread", "reevaluate", "idea", "spec", "finish"].map(name => `events/${name}.md`);
+const eventFiles = ["answer", "discuss", "question", "reread", "followup", "reevaluate", "idea", "spec", "finish"].map(name => `events/${name}.md`);
 for (const file of [...eventFiles, "knowledge.md", "preview-format.md"]) {
   assert.ok(instruction(file).trim(), `Missing rules: ${file}`);
   assert.ok(workerRules.includes(`](${file})`), `Missing worker route: ${file}`);
@@ -244,7 +244,7 @@ try {
   assert.equal(resolved.status, "ok");
   assert.equal(resolved.answer, "Accepted exception list.");
   await request("apply", decision);
-  decision = await assess("The exceptions still need measurement.", { status: "verify", verdict: "Measure exception frequency.", answer: "Must not replace the original answer." });
+  decision = await assess("The exceptions still need measurement.", { coverage: { resolved: false, reason: "Fixture evidence", sources: [], gaps: [{ gap: "Measurement", questionIds: [(await request("state")).nodes.find(n => n.kind === "q" && n.id !== discussionId).id] }] }, status: "verify", verdict: "Measure exception frequency.", answer: "Must not replace the original answer." });
   await request("spec", {});
   await request("apply", decision);
   resolved = (await request("state")).nodes.find(n => n.id === discussionId);
@@ -254,7 +254,7 @@ try {
   const frozen = await event(watch(), "spec");
   assert.equal(frozen.nodes.find(n => n.id === discussionId).status, "verify");
   await request("apply", { type: "spec", token: frozen.token, markdown: "# Frozen decision" });
-  decision = await assess("Decision before concurrent answer.", { status: "ok", verdict: "Accepted." });
+  decision = await assess("Decision before concurrent answer.", { status: "ok", verdict: "Accepted.", coverage: { resolved: true, reason: "Fixture closure", gaps: [], sources: [] } });
   await request("answer", { id: discussionId, answer: "New submitted answer" });
   await request("cancel", { id: discussionId, confirmation: (await request("cancel", { id: discussionId })).confirmation });
   // A changed branch must invalidate the assessment, even with a valid delivery token.
@@ -306,24 +306,24 @@ try {
   assert.match(targetEvent.message, /needs measurement/);
   assert.equal(focusCard(targetEvent).id, target.id);
   await request("apply", { type: "discuss", id: target.id, token: targetEvent.token, reply: "Marked verify.",
-    assessment: { status: "verify", verdict: "Measurement needed.", answer: "Decision subject to measurement." } });
+    assessment: { coverage: { resolved: false, reason: "Fixture evidence", sources: [], gaps: [{ gap: "Measurement", questionIds: [(await request("state")).nodes.find(n => n.kind === "q" && n.id !== target.id).id] }] }, status: "verify", verdict: "Measurement needed.", answer: "Decision subject to measurement." } });
   const commandReview = await event(watch(), "reread");
   assert.equal(contextCards(commandReview).find(n => n.id === target.id).status, "verify");
   await request("apply", { type: "reread", token: commandReview.token, summary: "Checked.", reserve: [],
-    audit: contextCards(commandReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
+    audit: contextCards(commandReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant.", ...(["weak", "gap", "verify"].includes(n.status) ? { coverage: { resolved: false, reason: "Fixture evidence", sources: [], gaps: [{ gap: "Measurement", questionIds: [contextCards(commandReview).find(q => q.id !== n.id).id] }] } } : {}) })) });
   const earlier = await event(watch(), "discuss");
   assert.match(earlier.message, /Earlier clarification/);
   await request("apply", { type: "discuss", id: target.id, token: earlier.token, reply: "Noted" });
   const targetAnswer = await event(watch(), "answer");
   assert.equal(targetAnswer.id, target.id);
-  await request("apply", { type: "answer", id: target.id, token: targetAnswer.token, status: "ok", verdict: "Initial grade." });
+  await request("apply", { type: "answer", id: target.id, token: targetAnswer.token, status: "ok", verdict: "Initial grade.", coverage: { resolved: true, reason: "Fixture closure", gaps: [], sources: [] } });
   const editReview = await event(watch(), "reread");
   await request("apply", { type: "reread", token: editReview.token, audit: contextCards(editReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant" })) });
   // CLI reread reuses the same deduplicated manual request path.
   assert.equal((await run(["reread"]).done).code, 0);
   const cliReview = await event(watch(), "reread");
   await request("apply", { type: "reread", token: cliReview.token, summary: "Checked again.", reserve: [],
-    audit: contextCards(cliReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant." })) });
+    audit: contextCards(cliReview).map(n => ({ id: n.id, action: "keep", reason: "Still relevant.", ...(["weak", "gap", "verify"].includes(n.status) ? { coverage: { resolved: false, reason: "Fixture evidence", sources: [], gaps: [{ gap: "Measurement", questionIds: [contextCards(commandReview).find(q => q.id !== n.id).id] }] } } : {}) })) });
   assert.equal((await request("state")).nodes.find(n => n.id === source.id).status, "open");
   await request("more", {});
   const more = await event(watch("--inbox"), "more");

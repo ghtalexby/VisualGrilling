@@ -1,0 +1,15 @@
+# Gap coverage contract
+
+Every grading entry accepts `coverage` (answer body, `ancestors[]`, discussion `assessment` and `answers[]`, reevaluate/reread `assessments[]`, and followup body):
+
+```json
+{"resolved":false,"reason":"What was checked across the map and why uncertainty remains","sources":[],"gaps":[{"gap":"Missing recovery measurement","questionIds":["existing-id","$recovery"]}],"questions":[{"key":"$recovery","q":"What recovery time was measured?","why":"Test the recovery claim","options":["Measured","Not measured"]}]}
+```
+
+Read full plausible evidence across all branches before deciding. `sources:[{id,answer,contribution}]` quotes the exact current source answer and explains its relevance (contribution <=2000 characters). The server snapshots its question, answer and grade as supplements visible beside the original answer and in exports. Original answers/history stay intact; replaced supplements remain in history. Only directly relevant checked evidence resolves a gap; a similar topic is insufficient. `reason` is required (<=2000). Each remaining gap has text <=1000 and one or more current question IDs. New `$key`s are local to this coverage object, unique, and every new question must cover a gap; they become children of the assessed card. Existing questions may be anywhere on the map, including already answered questions whose answers still need checking. Never reference the assessed card itself. Use shared question fields and duplicate rules.
+
+For substantive closure use status `ok`, `resolved:true`, `gaps:[]` and a reason explaining how the combined original answer, clarifications and sources resolve the original weakness. Otherwise preserve weak/gap/verify, `resolved:false` and all remaining gaps. Do not conclude ok merely because every child answered or is ok. No arbitrary question count or depth cutoff. Ordinary reread `add` and reserve issuance retain their separate three-question limit; mandatory questions go through coverage.questions instead.
+
+Technical limits: 500 entries per list, 500 nodes / 600000 characters per affected branch, normal HTTP size limits. Oversized/invalid results fail atomically, leaving the delivery pending. Never silently drop questions or describe a partial result as complete. Report a nonrecoverable limit with `failure`; unresolved work stays visible in queue problems and blocks spec/finish until retried or reassessed. Missing coverage saves the grade and queues a separate followup audit, including an unsupported upgrade from a problem grade to ok. A covered result does not queue itself again.
+
+Keep captured and live evidence separate. All frozen reads require the delivered read token; never import late answers. Stale 409 requires a new delivery, never reuse its result.

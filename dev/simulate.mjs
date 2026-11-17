@@ -52,7 +52,7 @@ function grade(e) {
     verify: "Держится на допущении, которое никто не проверял.",
   }[status];
   const n = { ok: e.level < 3 ? 1 : 0, weak: 2, verify: 2, gap: 1 }[status];
-  const maxKids = e.level >= 4 ? Math.min(n, 1) : n;
+  const maxKids = n;
   const children = Array.from({ length: maxKids }, (_, i) => ({
     q: `[sim ${e.id}] ${i === 0 ? "Какие измерения подтверждают решение" : "Какие ограничения опровергают допущение"}?`,
     why: `Подвопрос к «${e.question.slice(0, 60)}».`,
@@ -68,6 +68,13 @@ function grade(e) {
 
 let moreRound = 0;
 const handlers = {
+  followup: e => {
+    const n = contextCards(e).find(n => n.id === e.id), existing = contextCards(e).find(q => q.kind === "q" && q.parentId === e.id && !q.obsolete);
+    const resolved = n.status === "ok";
+    return { type: "followup", id: e.id, token: e.token, capturedForSpec: e.capturedForSpec, status: n.status, verdict: n.verdict,
+      coverage: { resolved, reason: "[sim] Transport audit; no semantic proof", sources: [], gaps: resolved ? [] : [{ gap: "[sim] Missing evidence", questionIds: [existing?.id || "$proof"] }],
+        questions: resolved || existing ? [] : [{ key: "$proof", q: `[sim ${e.id}] Which observation tests this claim?`, why: "[sim] Missing evidence", options: ["Measured", "Unknown"] }] } };
+  },
   knowledge: e => ({ type: "knowledge", token: e.token, files: [] }),
   preview: e => ({ type: "preview", id: e.id, projectId: e.projectId, base: e.base, token: e.token,
     ...(e.phase === "prepare" ? { question: e.request ? `[sim] Visual options for: ${e.request.slice(0, 450)}` : "[sim] Which visual explanation?", options: ["Circle size wireframe", "Relationship diagram"] } : { purpose: "[sim] Interactive circle size", files: circlePreview }) }),
