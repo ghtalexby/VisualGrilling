@@ -1,0 +1,182 @@
+{
+  "startedAt": "2026-11-17T11:59:12.723Z",
+  "boardId": "43824657-1c96-42aa-9471-0fb402fd25a0",
+  "expectedThread": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+  "temporaryRoot": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5",
+  "events": [
+    {
+      "at": "2026-11-17T11:59:12.725Z",
+      "event": "concurrent_play_requested"
+    },
+    {
+      "at": "2026-11-17T11:59:15.618Z",
+      "event": "concurrent_play_returned",
+      "resultsEqual": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "ownedPid": 5260
+    },
+    {
+      "at": "2026-11-17T11:59:15.622Z",
+      "event": "observed",
+      "phase": "before_stop",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": null,
+      "waiting": false,
+      "workActive": false,
+      "targetStatus": "open",
+      "targetPending": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:59:28.774Z",
+      "event": "observed",
+      "phase": "before_stop",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": false,
+      "workActive": false,
+      "targetStatus": "open",
+      "targetPending": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:59:47.971Z",
+      "event": "observed",
+      "phase": "before_stop",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": true,
+      "workActive": false,
+      "targetStatus": "open",
+      "targetPending": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:59:48.009Z",
+      "event": "one_answer_submitted",
+      "status": 200
+    },
+    {
+      "at": "2026-11-17T11:59:48.017Z",
+      "event": "before_stop_target",
+      "status": "open",
+      "pending": true,
+      "hasAnswer": false
+    },
+    {
+      "at": "2026-11-17T11:59:48.546Z",
+      "event": "stopped_unfinished",
+      "server": "stopped",
+      "targetStatus": "open",
+      "pending": true,
+      "pendingStage": "thinking",
+      "actions": [
+        {
+          "id": "189f9304-45d8-421b-b91e-b2545478890b",
+          "status": "running"
+        }
+      ]
+    },
+    {
+      "at": "2026-11-17T11:59:51.827Z",
+      "event": "replay_play_returned",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "ownedPid": 48676
+    },
+    {
+      "at": "2026-11-17T11:59:51.833Z",
+      "event": "observed",
+      "phase": "replay_grading",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": null,
+      "waiting": false,
+      "workActive": false,
+      "targetStatus": "open",
+      "targetPending": true,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:59:59.925Z",
+      "event": "observed",
+      "phase": "replay_grading",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": false,
+      "workActive": false,
+      "targetStatus": "open",
+      "targetPending": true,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T12:00:20.118Z",
+      "event": "observed",
+      "phase": "replay_grading",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": false,
+      "workActive": true,
+      "targetStatus": "open",
+      "targetPending": true,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T12:00:41.360Z",
+      "event": "observed",
+      "phase": "replay_grading",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": false,
+      "workActive": false,
+      "targetStatus": "ok",
+      "targetPending": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T12:00:41.360Z",
+      "event": "answer_graded",
+      "status": "ok",
+      "verdict": "README.md explicitly excludes deployment and implementation. The answer accurately limits this fixture to a local saved-board acceptance check."
+    }
+  ],
+  "checks": {
+    "concurrentResultsEqual": true,
+    "sameSavedThread": true,
+    "singleAdapterSession": true,
+    "actualWaitBeforeSubmission": true,
+    "stoppedBeforeGrade": true,
+    "firstOwnedProcessEnded": true,
+    "replaySameThread": true,
+    "serverStopped": true,
+    "secondOwnedProcessEnded": true,
+    "answerAcceptedOnce": true,
+    "singleCompletedReceipt": true,
+    "sameReceiptReplayed": true,
+    "originalAnswerPreserved": true,
+    "unfinished": true
+  },
+  "temporaryStateRetained": true,
+  "targetId": "n79y5jkx",
+  "firstOwnedPid": 5260,
+  "secondOwnedPid": 48676,
+  "receipt": {
+    "id": "189f9304-45d8-421b-b91e-b2545478890b",
+    "status": "done",
+    "count": 1
+  },
+  "outcome": "PASS",
+  "finishedAt": "2026-11-17T12:00:42.000Z"
+}

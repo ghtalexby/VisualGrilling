@@ -1,27 +1,27 @@
-# Boards hub implementation preparation
+# Boards hub implementation and acceptance
 
 Project: VisualGrilling. Source: docs/vgril/specs/grill-boards-hub.md (2026-11-17).
 Source SHA256: 53c93b3d215ac16bad568ddac615fb5031cedf11bd1aa620f30cfa812ac04fc5.
 Base: 61b462f36d6db0499a830b72fe83d7679e4c0978. Initial working tree clean.
-Iteration 1, phase 2 (review pass 5 fixes). Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
+Iteration 1 complete; phase 3 verified, stopped with external acceptance blockers. Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
 User approved archival of completed ContextBudget; previous state saved as context-budget-completed.md. This is the canonical boards-hub state. Independent preparation record remains as history.
 
 ## Requirements
 | ID | Requirement/source | Acceptance | Status | Evidence |
 |---|---|---|---|---|
-| R1 | Spec requirement 1: stable registry identity | Same board across ports; concurrent atomic registration; copies detected; retain missing entries; rebind checks ID | REVIEW | Implementation and checks below; final independent verification pending |
-| R2 | Requirement 2: open existing board | Reopening tab preserves server/session and one handler | REVIEW | Implementation and checks below; final independent verification pending |
-| R3 | Requirement 3: Play | Resume available session; otherwise owned background session; concurrent requests share success/error | REVIEW | Implementation and checks below; final independent verification pending |
-| R4 | Requirement 4: Stop ownership | Stop server/processing, preserve terminal session, stop owned process, isolate neighbours; no finish | REVIEW | Implementation and checks below; final independent verification pending |
-| R5 | Requirement 5: durable stop fence | Accepted results exactly once; unfinished replay; old epoch rejected through restart/race | REVIEW | Implementation and checks below; final independent verification pending |
-| R6 | Requirement 6: independent state | Completion/server/agent/time separate; no connected claim on queue submission | REVIEW | Implementation and checks below; final independent verification pending |
-| R7 | Requirement 7: counts | Current q ok closed, open/weak/gap/verify open; exclude obsolete/other kinds | REVIEW | Implementation and checks below; final independent verification pending |
-| R8 | Requirement 8: background interaction | Chat link, login and approval visible and actionable | REVIEW | Implementation and checks below; final independent verification pending |
-| R9 | Requirement 9: demand launch/recovery | Native host launch after reboot; stale cached list/retry/help; no false empty success | REVIEW | Implementation and checks below; final independent verification pending |
-| R10 | Requirement 10: command admission | Installation secret and exact origin; installer bootstrap/rebind; negative tests | REVIEW | Implementation and checks below; final independent verification pending |
-| R11 | Requirement 11: navigation | Search/project groups; active means unfinished regardless of running status | REVIEW | Implementation and checks below; final independent verification pending |
-| R12 | Installation steps 8-9 | Unified Windows path, production distribution caveat explicit, version/install/docs synchronized | REVIEW | Implementation and checks below; final independent verification pending |
-| R13 | Verification section | Disposable simulator, worker/monitor/maps, restart/security, actual Chrome/Codex acceptance distinguished | REVIEW | Implementation and checks below; final independent verification pending |
+| R1 | Spec requirement 1: stable registry identity | Same board across ports; concurrent atomic registration; copies detected; retain missing entries; rebind checks ID | DONE | Verified6b884a2: hub/registry.mjs:18,73,94; grill.mjs:2229; hub-runtime concurrent writers, missing/copy/legacy/rebind checks PASS |
+| R2 | Requirement 2: open existing board | Reopening tab preserves server/session and one handler | DONE | Verified6b884a2: hub/service.mjs:266; extension/index.js:49; hub-service:80/browser:92 reuse URL without launching; installed Chrome acceptance retained in R13 |
+| R3 | Requirement 3: Play | Resume available session; otherwise owned background session; concurrent requests share success/error | BLOCKED | Verifier PARTIAL: service.mjs:159,225; codex.mjs:114,150,184; native.mjs:120; tests and real owned create/resume/crash PASS. Real terminal continuation blocked by PTY Access denied5 |
+| R4 | Requirement 4: Stop ownership | Stop server/processing, preserve terminal session, stop owned process, isolate neighbours; no finish | BLOCKED | Verifier PARTIAL: service.mjs:234; codex.mjs:286; grill.mjs:2027; scoped turn/race/failure tests and real owned Stop PASS. Real terminal preservation/isolation blocked by PTY Access denied5 |
+| R5 | Requirement 5: durable stop fence | Accepted results exactly once; unfinished replay; old epoch rejected through restart/race | DONE | Verified6b884a2: grill.mjs:122,125,2008; check-hub-runtime.mjs:86 onward replay/receipt/stale epoch PASS; real answer/receipt preserved and old write409; remaining real race acceptance in R13 |
+| R6 | Requirement 6: independent state | Completion/server/agent/time separate; no connected claim on queue submission | DONE | Verified6b884a2: service.mjs:37,112; extension/index.js:18,70; adapter checks104–129 and browser state checks PASS |
+| R7 | Requirement 7: counts | Current q ok closed, open/weak/gap/verify open; exclude obsolete/other kinds | DONE | Verified6b884a2: registry.mjs:66; grill.mjs:254; runtime/service/browser count fixtures PASS |
+| R8 | Requirement 8: background interaction | Chat link, login and approval visible and actionable | BLOCKED | Verifier PARTIAL: codex.mjs:230,264,273; chat.js:21,32,75; real chat read and deterministic interaction tests PASS. Real login/approval continuation not triggered in authenticated host; needs suitable acceptance session |
+| R9 | Requirement 9: demand launch/recovery | Native host launch after reboot; stale cached list/retry/help; no false empty success | BLOCKED | Verifier PARTIAL: NativeHost.cs:14; native.mjs:77; index.js:28,103; native staging/cache/browser tests PASS. Requires installed Chrome and reboot acceptance environment |
+| R10 | Requirement 10: command admission | Installation secret and exact origin; installer bootstrap/rebind; negative tests | DONE | Verified6b884a2: native.mjs:39,101; service.mjs:289,307; background.js:43,63; install.ps1:17,101. Secret/origin/rotation/streamed-body/binding checks PASS; actual browser reinstall in R12/R13 |
+| R11 | Requirement 11: navigation | Search/project groups; active means unfinished regardless of running status | DONE | Verified6b884a2: index.js:13,113; browser suite:85 stopped unfinished included, running finished excluded, search/groups PASS |
+| R12 | Installation steps 8-9 | Working unified Windows installation and reinstallation path, version/install/docs synchronized | BLOCKED | Verifier PARTIAL: install.ps1:120 requires Load unpacked; :124 opens externally supplied Store listing, none published. Staging/release1.0.22 PASS but caveat is not acceptance; publish extension and test clean installation |
+| R13 | Verification section | Disposable simulator, worker/monitor/maps, restart/security, actual Chrome/Codex acceptance | BLOCKED | Independent14 suites PASS on6b884a2; real owned create/grade/Stop/resume/crash PASS. Remaining installed Chrome/clean Windows/reboot/terminal/login/approval/race-isolation matrix must be accepted explicitly |
 
 ## Work units and dependencies
 - W0 read-only Codex and Chrome installation investigations in parallel; no model tasks or user profile mutations.
@@ -128,3 +128,37 @@ Real map-only crash acceptance PASS on1ac3d0f: killed only captured disposable s
 Frozen1ac3d0f independently reviewed full task. Six Hub suites + workers/monitor/maps/connection/transfer/usage/worker-cost/simulator PASS; mirrors/version/install links/visuals consistent. F1 P2 Stop races sendChat turn/start: terminal turn accepted before response lacks ownedTurnId, stop skips interruption and returns success; serialize admission/settlement and report ambiguity. F2 P2 extension ignores stopped:false/error and always reports success. Distinct fix_stop_5 assigned adapter/service/UI regressions/docs/mirrors. No version bump. Real owned crash acceptance remains PASS; terminal PTY/Chrome install/reboot external limits unchanged.
 
 Review5 fixes complete: adapter awaits admitted starts, prevents new starts while stopping, preserves failed stop result and ignores late callbacks; service serializes chat/login/approval with lifecycle and returns independent fenced flag. UI shows failed agent shutdown honestly. Deferred started/completed/unrelated-turn/closed-transport/interrupt-failure/exit-timeout/repeated-stop/cross-client/UI regressions PASS. Hub codex/service/extension/browser/runtime checks PASS, docs/mirrors synced. Preparing fix commit and fresh full review6; version remains1.0.22.
+
+## Full integration review pass 6 — approved
+Fresh read-only review of full61b462f..6b884a2 APPROVED with no confirmed defects. Independently all14 requested Hub/runtime/worker/monitor/maps/connection/transfer/usage/worker-cost/simulator suites PASS, disposable state only. Mirrors, release1.0.22, installed links, visuals and diff check agree. Code review is clean; external acceptance remains explicitly unproven. Proceed to distinct whole-spec verifier, all requirements still REVIEW until its evidence.
+
+## Final independent verification and stop condition
+Verifier verify_full_spec read the complete spec, linked relevant documentation and R1–R13 against integrated6b884a2. No additional requirement IDs or confirmed functional defects. Seven requirements DONE: R1,R2,R5,R6,R7,R10,R11. Six requirements implemented but acceptance PARTIAL and recorded BLOCKED: R3,R4,R8,R9,R12,R13. R12 acceptance corrected to the actual unified Windows installation requirement; merely documenting a distribution caveat never satisfies it. One implementation iteration, six fresh review passes (final pass clean), five nonclean passes fixed and committed. Stop condition: remaining acceptance requires external distribution/Windows interactive environments; do not report full specification readiness.
+
+Verifier independently ran all14 commands with exit0:
+- node dev/check-hub-runtime.mjs
+- node dev/check-hub-codex.mjs
+- node dev/check-hub-service.mjs
+- node dev/check-hub-native.mjs
+- node dev/check-hub-extension.mjs
+- node dev/check-hub-extension-browser.mjs
+- node dev/check-workers.mjs
+- node dev/check-monitor.mjs
+- node dev/check-maps.mjs
+- node dev/check-connection.mjs
+- node dev/check-session-transfer.mjs
+- node dev/check-usage.mjs
+- node dev/check-worker-cost.mjs
+- node dev/check-actions-simulator.mjs
+The simulator exercises the required no-open delay200 workflow: gap/ok/verify, discussion, more, finish/report and missing-header403. All39 mirrored source files byte-identical; package/source/mirror/extension release1.0.22 and UI stamps consistent; test-project/global Codex links resolve source. No second version bump or push.
+
+Additional real acceptance on unchanged6b884a2: hub-concurrent-replay-acceptance.json proves simultaneous Play returned equal results for one owned session and same thread; Stop caught pendingStage=thinking/running journal before grading; Play resumed same thread and completed the SAME receipt once with ok. Original answer retained, server and both owned processes stopped. Distinct verifier inspected its timeline/checks and accepted the evidence. This strengthens R3/R5/R13 without claiming exact simultaneous save/Stop, terminal or installed-Chrome acceptance.
+
+Remaining external prerequisites:
+- Publish/distribute the Chrome extension; test actual unified clean Windows installation/reinstall, automatic binding and native launch after reboot. Developer Load unpacked remains explicit, Store mode requires a real published ID.
+- Provide a working interactive Windows PTY/terminal acceptance environment (current host fails CreateProcessW with Access denied5) to test real terminal continuation/preservation and sibling/unrelated-task isolation.
+- Use a suitable real account/session to exercise login and approval continuation without changing the user's global authentication/approval policy; authenticated owned test sessions never requested these flows.
+- Complete the exact real save/Stop race acceptance matrix; deterministic fence/receipt/race tests pass, real before-save replay and after-save preservation pass, but an actual simultaneous in-flight model save was not established.
+No pending user question; these prerequisites are not substituted by fixture results. Resume from this registry after external acceptance is available; source code review is clean, full production acceptance is not.
+
+Automatic approval review rejected recursive cleanup of the disposable real-model fixture (reason returned only as "blocked by policy"). No retry or workaround; directory C:/Users/yxang/AppData/Local/Temp/grill-hub-live-RkYGt5 remains, with all test-owned processes stopped. This limitation must be mentioned in the final user report.
