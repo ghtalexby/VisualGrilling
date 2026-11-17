@@ -30,6 +30,7 @@ No dependencies, build step, automated test framework, or linter. Standalone API
 - `test-project/` — simulator workspace. The historical SmetaPhoto application fixture is absent in this checkout; use an idea brief or your own project for real sessions.
 - `dev/` — debug tooling: `simulate.mjs` (fake Claude driving the real CLI), `link-skill.mjs` (junction into `test-project/.claude/skills/grill`), `reset.mjs`, `fixtures/init.json`, `record-promo.mjs` (regenerates the README clip `images/promo.webp`, see [docs/development.md](docs/development.md#readme-promo-clip)).
 - `Examples/` — the original reference example; leave it untouched.
+- `skills/grill/hub/` — persistent board registry, local controller and Codex adapter; `hub/` — Windows native host, installer and Chrome extension. See [hub/README.md](hub/README.md) for developer installation and acceptance limits.
 
 ## Commands
 

@@ -18,3 +18,9 @@ for (const { directory, file, source } of updates) {
   fs.writeFileSync(new URL("version.json", directory), JSON.stringify({ version }, null, 2) + "\n");
   fs.writeFileSync(file, source);
 }
+const manifestFile = new URL("../hub/extension/manifest.json", import.meta.url);
+if (fs.existsSync(manifestFile)) {
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8").replace(/^\uFEFF/, ""));
+  manifest.version = version;
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest, null, 2) + "\n");
+}

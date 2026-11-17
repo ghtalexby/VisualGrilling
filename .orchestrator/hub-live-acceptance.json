@@ -1,0 +1,256 @@
+{
+  "startedAt": "2026-11-17T10:55:40.513Z",
+  "platform": "win32",
+  "node": "v22.19.0",
+  "temporaryRoot": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5",
+  "events": [
+    {
+      "at": "2026-11-17T10:55:40.519Z",
+      "event": "setup",
+      "temporaryRoot": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5",
+      "codexExecutable": "C:\\Users\\yxang\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe"
+    },
+    {
+      "at": "2026-11-17T10:55:41.207Z",
+      "event": "play_requested"
+    },
+    {
+      "at": "2026-11-17T10:55:43.138Z",
+      "event": "play_returned",
+      "board": {
+        "id": "43824657-1c96-42aa-9471-0fb402fd25a0",
+        "project": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project",
+        "dir": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill\\acceptance",
+        "base": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill",
+        "name": "acceptance",
+        "title": "Disposable Hub acceptance",
+        "finished": false,
+        "counts": {
+          "open": 2,
+          "closed": 0
+        },
+        "server": "running",
+        "agent": "working",
+        "connected": false,
+        "provider": "codex",
+        "transport": null,
+        "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+        "agentCheckedAt": 1794912943133,
+        "checkedAt": 1794912943134,
+        "attemptedAt": 1794912943134,
+        "stale": false,
+        "missing": false,
+        "error": null,
+        "url": "http://127.0.0.1:4781/",
+        "chatAvailable": true
+      }
+    },
+    {
+      "at": "2026-11-17T10:55:43.139Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": null,
+      "connected": false,
+      "waiting": false,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T10:55:59.212Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "connected": false,
+      "waiting": false,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T10:56:29.351Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "connected": true,
+      "waiting": true,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T10:56:29.394Z",
+      "event": "one_answer_submitted",
+      "status": 200
+    },
+    {
+      "at": "2026-11-17T10:56:31.402Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "connected": true,
+      "waiting": false,
+      "workActive": true,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T10:56:51.715Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "connected": true,
+      "waiting": false,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T10:56:51.764Z",
+      "event": "answer_graded",
+      "status": "ok",
+      "verdict": "The answer matches README.md: this disposable fixture contains only a README and no customer data or external application integration."
+    },
+    {
+      "at": "2026-11-17T10:56:51.774Z",
+      "event": "chat_read",
+      "turnCount": 1
+    },
+    {
+      "at": "2026-11-17T10:56:51.957Z",
+      "event": "stop_returned",
+      "board": {
+        "id": "43824657-1c96-42aa-9471-0fb402fd25a0",
+        "project": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project",
+        "dir": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill\\acceptance",
+        "base": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill",
+        "name": "acceptance",
+        "title": "Disposable Hub acceptance",
+        "finished": false,
+        "counts": {
+          "open": 1,
+          "closed": 1
+        },
+        "server": "stopped",
+        "agent": "disconnected",
+        "connected": false,
+        "provider": "codex",
+        "transport": null,
+        "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+        "agentCheckedAt": null,
+        "checkedAt": 1794913011942,
+        "attemptedAt": 1794913011942,
+        "stale": false,
+        "missing": false,
+        "error": null,
+        "url": null,
+        "chatAvailable": false
+      },
+      "stopped": true,
+      "preserved": false
+    },
+    {
+      "at": "2026-11-17T10:56:52.809Z",
+      "event": "restart_stale_write",
+      "status": 409,
+      "message": "This map belongs to another session. Stop processing it."
+    }
+  ],
+  "checks": {
+    "realListeningBeforeAnswer": true,
+    "answerGraded": {
+      "status": "ok",
+      "verdict": "The answer matches README.md: this disposable fixture contains only a README and no customer data or external application integration."
+    },
+    "ownedProcessEnded": true,
+    "serverStopped": true,
+    "staleWriteRejected": true,
+    "wholeStateUnchangedAcrossStop": false,
+    "stopPreservedAnswerAndReceipt": true,
+    "stopDidNotFinish": true,
+    "emptyQueueRetained": true
+  },
+  "codexExecutable": "C:\\Users\\yxang\\AppData\\Roaming\\npm\\node_modules\\@openai\\codex\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe",
+  "boardId": "43824657-1c96-42aa-9471-0fb402fd25a0",
+  "ownedPid": 51916,
+  "chat": {
+    "turns": [
+      {
+        "id": "01a1e925-fbda-7752-b17a-44d8dca22b8e",
+        "status": "inProgress",
+        "items": [
+          {
+            "type": "userMessage"
+          },
+          {
+            "type": "agentMessage",
+            "text": "Применю указанный навык grill: прочитаю инструкции, подключусь к существующей доске acceptance и продолжу ожидание событий в standalone-режиме.\n"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "agentMessage",
+            "text": "Board “acceptance” is open at http://127.0.0.1:4781/. Saved context is loaded. I’m using level 0 blocking waits as requested, with no monitor or queue wakeups.\n"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          },
+          {
+            "type": "commandExecution"
+          }
+        ]
+      }
+    ],
+    "state": "working"
+  },
+  "finishedAt": "2026-11-17T10:56:54.089Z",
+  "temporaryStateRetained": true,
+  "preservation": {
+    "answerCount": 1,
+    "answerStatus": "ok",
+    "receiptCount": 1,
+    "receiptStatus": "done",
+    "queue": [],
+    "finished": false,
+    "notes": "Whole-state equality is not an appropriate Stop invariant because fence() calls save(). Semantic data and completed journal receipt survived Stop and server-only restart."
+  },
+  "limitations": [
+    "No approval or login request arose; their real interaction remains untested.",
+    "Previously bound terminal resume, concurrent real Play and interruption of unfinished model grading were not exercised.",
+    "No Chrome UI, clean-install or post-reboot acceptance performed.",
+    "Queue preservation verified only for the drained queue and completed answer receipt; pending-work replay remains covered by separate runtime tests."
+  ],
+  "outcome": "PASS: one real owned app-server Play, attach, wait, answer grading, chat read, Stop and stale-write rejection after server-only restart.",
+  "cleanup": {
+    "temporaryStateRetained": true,
+    "ownedProcessEnded": true,
+    "reason": "Automatic approval policy rejected the combined evidence-update and PowerShell recursive temp cleanup command; retained disposable data rather than retry deletion."
+  }
+}

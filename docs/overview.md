@@ -59,11 +59,13 @@ skills/grill/          working skill; edit this copy
   parallel-maps.md     multi-map routing for levels 1/2
   config.default.json  griller model (inherit) and knowledge threshold
   grill.mjs            HTTP server and CLI bridge
+  hub/                 stable registry, local controller and Codex adapter
   context.mjs          evidence projection, index and semantic navigation
   ui.html              self-contained vanilla JavaScript map template
   i18n.mjs             locale validation and page rendering
   locales/en.json      English translations; keys are Russian source phrases
 test-project/          simulator workspace (.gitkeep is tracked; application sources are absent)
+hub/                   Windows native messaging host, installer and Chrome extension
 dev/                   simulator, linking, reset, API checks, and the README clip recorder
   fixtures/init.json   simulator's initial questions
 docs/                  developer documentation
@@ -76,6 +78,16 @@ package.json           npm scripts; no dependencies
 Requires Node 18+ (`fetch` and `AbortSignal.timeout`). No build step, linter, or automated test framework is configured; standalone API checks are available.
 
 Use `npm run link:codex` for the test workspace or `npm run link:codex:global` to also link `~/.agents/skills/grill`. Invoke with `$grill grill my project`. `link` and `link:global` are the Claude Code equivalents. After installation, restart the host; the agent starts the server itself.
+
+## Windows Boards Hub
+
+The optional Chrome extension lists registered boards across projects. Search and project groups work alongside Active, which means unfinished regardless of server or agent availability. Closed counts include only current `kind:q` cards graded `ok`; open counts include current `open`, `weak`, `gap`, and `verify` questions. Obsolete cards, root, ideas and previews contribute to neither count.
+
+Open reuses a running board. Play preserves its data and queue, requests the previous Codex session when available or creates an owned background session; command submission alone does not confirm an event consumer. Hub Stop stops the server and processing, preserving a user's terminal session and stopping an owned background process. It does not finish the board or generate a report. Closing a browser tab changes neither processing nor completion.
+
+Completion, server availability, agent state and last observation time are separate. Background chat exposes login and approval requests. Failed helper startup retains the last successful list marked stale, with retry and recovery guidance. Missing directories retain their entries; path recovery checks the board ID. Registration occurs on server startup, including old boards on their next start, without a disk-wide historical import.
+
+See [the Windows installation guide](../hub/README.md). Developer installation uses a per-user native host plus Chrome's manual Load unpacked step. Store publication, clean Windows installation, real model lifecycle and post-reboot startup require separate acceptance; fixture checks do not establish production readiness.
 
 ## Ideas on the project map
 

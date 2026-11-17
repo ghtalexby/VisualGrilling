@@ -15,7 +15,7 @@ const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url))
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const read = file => JSON.parse(fs.readFileSync(file, "utf8"));
 const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value));
-const binding = path.join(base, "agent-connection.json");
+const binding = path.join(map, "agent-connection.json");
 let channel, server, url, output = "";
 const original = { ...process.env };
 async function until(check) { for (let i = 0; i < 150; i++) { if (await check()) return; await sleep(50); } throw Error("Timed out"); }
@@ -37,7 +37,7 @@ try {
   delete process.env.CLAUDECODE; delete process.env.CLAUDE_CODE_ENTRYPOINT;
   process.env.CODEX_THREAD_ID = "11111111-1111-1111-1111-111111111111";
   process.env.CODEX_MANAGED_PACKAGE_ROOT = fakeRoot;
-  bindSession(base);
+  bindSession(base, "one");
   assert.equal(read(binding).id, process.env.CODEX_THREAD_ID);
   await start();
   await api("resume", {}, 403, {});
@@ -60,7 +60,13 @@ try {
   await api("resume", {}); assert.equal(read(path.join(map, "resume-request.json")).id, first.id);
   await stop(server); await start();
   await api("resume", {}); assert.equal(read(path.join(map, "resume-request.json")).id, first.id);
+  await assert.rejects(requestResume(base, "two"), /Связь с сессией/);
+  const siblingId = "22222222-2222-2222-2222-222222222222";
+  process.env.CODEX_THREAD_ID = siblingId; bindSession(base, "two");
+  process.env.CODEX_THREAD_ID = "11111111-1111-1111-1111-111111111111";
   await requestResume(base, "two"); assert.ok(read(log)[4].includes('"two"'));
+  assert.equal(read(log)[2], siblingId);
+  assert.equal(read(binding).id, process.env.CODEX_THREAD_ID, "Binding a sibling must preserve this map's session");
   fs.writeFileSync(path.join(fakeRoot, "bin", "codex.js"), "process.exit(1)");
   write(path.join(map, "resume-request.json"), { ...first, at: 0 });
   await api("resume", {}, 409); await api("resume", {}, 409);
@@ -75,12 +81,14 @@ try {
   await until(() => fs.existsSync(path.join(base, "claude-connection.json")));
   assert.equal(read(binding).provider, "codex", "Loading a channel must not change the selected session");
   const channelId = read(path.join(base, "claude-connection.json")).id;
-  process.env.CLAUDECODE = "1"; bindSession(base); assert.equal(read(binding).id, channelId);
+  process.env.CLAUDECODE = "1"; bindSession(base, "one"); assert.equal(read(binding).id, channelId);
+  assert.equal(read(path.join(other, "agent-connection.json")).id, siblingId);
   await api("resume", {});
   await until(() => output.includes('"notifications/claude/channel"'));
   const events = () => output.trim().split("\n").map(JSON.parse).filter(v => v.method === "notifications/claude/channel");
   assert.equal(events().length, 1); assert.equal(events()[0].params.meta.map, "one");
   await api("resume", {}); await sleep(650); assert.equal(events().length, 1);
+  bindSession(base, "two");
   await requestResume(base, "two"); await until(() => events().length === 2);
   assert.equal(events()[1].params.meta.map, "two");
   await assert.rejects(requestResume(base, "../escape"), /имя карты/);

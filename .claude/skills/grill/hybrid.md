@@ -1,5 +1,7 @@
 # Codex hybrid: wait 15 seconds, then monitor
 
+Hub-managed maps: preserve the supplied `hubEpoch`; include `--hub-epoch <captured epoch>` in every `G` command and copy it into every apply JSON, including notes and staged replies. On an epoch/Stop rejection, end this map loop; never claim or read a replacement epoch. Play preserves state and replays unfinished work; never initialize it.
+
 A session-transfer request takes priority over fetching/re-arming new work. Finish only the reserved event with plain apply, save notes, and follow [session-transfer.md](session-transfer.md). A `type:transfer` wait response is a control handoff, never a worker grading event.
 
 This is the default Codex mode. Keep pure monitor and blocking wait available when explicitly requested. Read [monitor.md](monitor.md) for host selection, binding, delivery identity, transport errors and restart recovery. Its immediate arm and `apply --rearm` steps apply only to pure monitor; use the loop below in hybrid mode. A confirmed standalone `--no-daemon` host or diagnosed unavailable wake-up transport uses level 0 instead. One map and one event worker per session.

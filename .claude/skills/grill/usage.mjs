@@ -110,8 +110,8 @@ function threadUsage(resolveBinding) {
 }
 
 // Discover relationships from metadata only. Never infer ownership from cwd/time.
-export function sessionUsage(base) {
-  const binding = async () => JSON.parse(await fs.readFile(path.join(base, "agent-connection.json"), "utf8"));
+export function sessionUsage(base, name = null) {
+  const binding = async () => JSON.parse(await fs.readFile(path.join(name === null ? base : path.join(base, name), "agent-connection.json"), "utf8"));
   const parent = threadUsage(binding), readers = new Map(), metadata = new Map();
   let identity, discovered = 0, descendants = [], discoveryComplete = false, discovery, pending;
   async function discover(home, rootId, parentFile) {

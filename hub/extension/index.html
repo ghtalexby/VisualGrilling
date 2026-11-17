@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Доски — VisualGrilling</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<header><a class="brand" href="index.html">VisualGrilling</a><span>Доски проектов</span></header>
+<main>
+  <div class="heading"><div><h1>Ваши доски</h1><p>Возвращайтесь к вопросам. Продолжайте с того же места.</p></div><button id="refresh" type="button">Обновить</button></div>
+  <form class="toolbar" role="search" id="filters">
+    <label class="search">Поиск<input id="search" type="search" placeholder="Доска или путь проекта" autocomplete="off"></label>
+    <label class="check"><input id="active" type="checkbox">Только активные <span class="muted">(незавершённые)</span></label>
+    <label class="check"><input id="group" type="checkbox" checked>По проектам</label>
+  </form>
+  <div class="freshness" id="freshness" role="status" aria-live="polite">Подключаем локальный компонент…</div>
+  <div id="error" class="error" role="alert" hidden></div>
+  <details id="help"><summary>Установка и восстановление</summary><p>Запустите <code>hub/install.ps1</code> из VisualGrilling. Затем в <code>chrome://extensions</code> выберите «Загрузить распакованное расширение» и папку <code>extension</code>, указанную установщиком. После переустановки перезагрузите расширение и нажмите «Обновить».</p><p>Список пополняется при запуске досок с поддержкой реестра. Старые доски появятся после следующего запуска. Если команда прервалась, сначала обновите список: она могла уже выполниться.</p></details>
+  <div id="boards" aria-label="Доски"></div>
+</main><script type="module" src="index.js"></script>
+</body></html>

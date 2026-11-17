@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Чат Codex — VisualGrilling</title><link rel="stylesheet" href="styles.css"></head>
+<body><header><a class="brand" href="index.html">VisualGrilling</a><a href="index.html">Все доски</a></header>
+<main class="chat-main">
+  <div class="heading"><div><h1>Чат Codex</h1><p id="session" class="chat-state">Получаем состояние сессии…</p></div><button id="refresh" type="button">Обновить</button></div>
+  <p id="freshness" class="freshness" role="status" aria-live="polite"></p>
+  <div id="error" class="error" role="alert" hidden></div>
+  <div id="requests"></div><div id="login"></div>
+  <div id="messages" class="messages" aria-label="История сессии"></div>
+  <button id="older" type="button" hidden>Предыдущие сообщения</button>
+  <form id="composer" class="composer"><label for="message">Сообщение агенту</label><textarea id="message" maxlength="100000" required placeholder="Напишите сообщение…"></textarea><p class="muted">Отправка доступна, когда сессия Codex ожидает сообщение.</p><button id="send" class="primary" disabled>Отправить</button></form>
+</main><script type="module" src="chat.js"></script></body></html>

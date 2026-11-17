@@ -1,5 +1,7 @@
 # Codex pure monitor: immediate event-driven wake-up
 
+Hub-managed maps: preserve the supplied `hubEpoch`; include `--hub-epoch <captured epoch>` in every `G` command and copy it into every apply JSON, including notes and staged replies. On an epoch/Stop rejection, end this map loop; never claim or read a replacement epoch. Play preserves state and replays unfinished work; never initialize it.
+
 A session-transfer request takes priority over fetching/re-arming new work. Finish only the reserved event with plain apply, save notes, and follow [session-transfer.md](session-transfer.md). A `type:transfer` wait response is a control handoff, never a worker grading event.
 
 Use this mode when explicitly requested in Codex. The default is [hybrid.md](hybrid.md), which waits 15 seconds before arming; the user has confirmed that automatic wake-up works. Do not repeat wake-up verification on ordinary launches or continuations. Launch Codex through its shared server, without `--no-daemon`. Run normal `G start` from the intended session to bind it (`G start --continue` when the user explicitly continues an existing map), then initialize or continue the map normally. Keep one map per Codex session; monitor does not enable parallel workers.

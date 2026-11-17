@@ -21,6 +21,10 @@ The page and agent replies use the language in which you ask to start grilling. 
 
 ## Installation
 
+The optional Windows **Boards Hub** lists registered maps across projects in a Chrome extension, with search, project groups and an Active filter that includes every unfinished board, even when stopped. Open returns to a running map; Play resumes Codex or starts an owned background session. Hub Stop stops that board's server and processing while retaining saved work and pending events. It does not request the map's finish report. Completion, server availability, agent state and observation time are shown separately.
+
+See [the Hub installation guide](hub/README.md) for the per-user Windows installer and manual Chrome **Load unpacked** step. The Chrome Web Store listing is not published; clean-machine, real Codex lifecycle and post-reboot acceptance remain separate checks. Existing maps enter the registry on their next server start; the installer does not scan historical projects.
+
 Requires Node.js 18+ and an installed Claude Code or Codex. No dependency installation or build step is needed.
 
 From this repository's root, run the command for your agent:

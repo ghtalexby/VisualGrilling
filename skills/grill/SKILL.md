@@ -13,6 +13,12 @@ Use the user's current Codex or Claude Code session. No separate API key or nest
 
 A project can have several named maps, such as `arch`, `money`, or `security`, stored in `.grill/<name>/` under the current working directory. Names use lowercase Latin letters, digits, and hyphens, up to 40 characters; Windows reserved names `con`, `prn`, `aux`, `nul`, `com0`–`com9`, and `lpt0`–`lpt9` are forbidden. Every command below means `node "<skill directory>/grill.mjs" <command> --name <name>`, abbreviated as `G <command>`. Pass the current map's `--name` to every command except `list`. Legacy unnamed maps use `.grill/state.json`, appear with `"name": null`, and require commands without `--name`.
 
+## Hub Play and Stop
+
+When the local boards hub launches or resumes this map, it supplies a captured epoch. Use `G hub --attach --hub-epoch <epoch>` from the selected Codex thread before the waiting loop. Include that exact `--hub-epoch` in every subsequent command (or set `GRILL_HUB_EPOCH` to that supplied value). Copy event `hubEpoch` unchanged into all apply results, including notes and multipart replies. Pass it to delegated workers and preserve it across compaction and monitor wake-ups. Never obtain a newer epoch to bypass rejection.
+
+`G hub --status` reads lifecycle status. `G hub --claim` is the local controller's idempotent lease preparation; it does not prove agent attachment. `G hub --stop` fences results immediately and stops the map server while preserving accepted results and pending events. Stop is separate from `finish`; it creates no summary. A late-result or stopped-epoch 409 ends the current map loop without rearming. Play resumes the same state and replays unfinished work: do not use `init`, reset answers, create a replacement map or duplicate the consumer. The controller owns background process cleanup; preserve a user's terminal session.
+
 ## Map storage: choose before the first command
 
 The project working directory and the maps root are different paths. For new maps, use `<project>/.grill` unless the user explicitly requests another storage location. `--dir` is the maps root itself: the CLI does not append `.grill`. Passing `--dir <project>` puts named maps and root-level runtime files directly in the project root; do not do this merely to identify the project.

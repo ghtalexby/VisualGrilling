@@ -50,6 +50,14 @@ Codex monitor is mutually exclusive with wait/watch. Hybrid composes them sequen
 
 `GET /api/maps` reads only the server's `--dir` root and valid sibling map directories, ignores request parameters, and never starts processes. Keep list discovery shared with CLI `list`. Escape map text and validate local link URLs in the switcher. `name` in inbox-mode watch lines identifies the map; plain watch uses file output above 20000 characters unless `--inline` is supplied. Keep dispatcher rules, worker checks and map checks synchronized.
 
+## Boards Hub synchronization
+
+Keep `skills/grill/hub/{registry,service,codex}.mjs`, runtime lifecycle gates, per-map connection/usage readers, `hub/` native transport/installer/extension and [the contract](contract.md) synchronized. Copy the whole skill package, including its `hub/` directory. Hub packaging is a separate Windows step described in [hub/README.md](../hub/README.md); do not claim Store distribution or reboot acceptance from staging tests.
+
+Preserve stable board IDs independently of port, missing registry entries, ID-checked rebind, per-map session ownership and atomic epoch fences. Never refresh a stale worker's credentials from disk or interpret queued resume as connected. Keep Hub Stop distinct from finish; preserve terminal sessions and terminate only owned background processes. Hub question counts exclude obsolete and non-question cards; Active means unfinished. Preserve native caller-origin checks and service installation-secret/epoch admission in addition to existing map API protections.
+
+Run the Hub checks and affected connection, transfer, monitor, usage, workers and maps checks with a disposable `GRILL_HUB_HOME`, so fixture registrations never pollute the user's registry. Test real Chrome startup, background Codex login/approvals and reboot separately; preserve user boards throughout.
+
 ## Preview synchronization
 
 Changes to preview files, reducers, message protocol or versions must synchronize `preview.mjs`, `preview-view.mjs`, `ui.html`, agent instructions, [preview.md](preview.md), simulator fixtures and preview checks. Never run generated project code in the map window or grant iframe same-origin privileges. Preserve per-version state, token/base/epoch checks, immutable snapshots, explicit deletion choices and independent Git copies. Do not count previews as questions.
