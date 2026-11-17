@@ -179,5 +179,17 @@ try {
       assert.match(await api("report"), /Recovered supplement/);
     }
   }
+  // Lost clarification references are repaired independently in frozen evidence.
+  const orphan = await seed(true); await stop();
+  const orphanFile = path.join(dir, "check", "state.json"), orphanState = JSON.parse(fs.readFileSync(orphanFile));
+  const frozenTarget = orphanState.specJob.gradingNodes.find(n => n.id === orphan.target.id);
+  delete frozenTarget.followup; frozenTarget.gapCoverage = { resolved: false, reason: "Covered before removal", gaps: [{ gap: "Missing evidence", questionIds: [orphan.source.id] }] };
+  orphanState.specJob.gradingNodes = orphanState.specJob.gradingNodes.filter(n => n.id !== orphan.source.id);
+  fs.writeFileSync(orphanFile, JSON.stringify(orphanState)); await start();
+  e = await wait(); assert.equal(e.type, "followup"); assert.equal(e.capturedForSpec, true);
+  const frozenSpare = contextCards(e).find(n => n.kind === "q" && n.id !== orphan.target.id)?.id || (await api("state")).nodes.find(n => n.q === "Spare?").id;
+  await apply(e, { status: "weak", verdict: "Still missing", coverage: covered(frozenSpare) });
+  e = await wait(); assert.equal(e.type, "spec"); assert.ok(!e.nodes.some(n => n.id === orphan.source.id));
+  await apply(e, { markdown: "# Frozen repair" });
   console.log("Follow-up coverage checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

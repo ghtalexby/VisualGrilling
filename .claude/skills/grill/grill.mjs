@@ -202,11 +202,11 @@ async function serve() {
   }
 
   const syncFollowups = () => {
-    for (const n of S.nodes) {
+    for (const nodes of [S.nodes, S.specJob?.gradingNodes || []]) for (const n of nodes) {
       if (n.obsolete) delete n.followup;
-      else if (problemGrade(n.status) && n.gapCoverage?.gaps.some(g => g.questionIds.some(id => !S.nodes.some(q => q.id === id && !q.obsolete)))) { delete n.gapCoverage; n.followup = { stage: "queued" }; }
-      if (n.followup?.stage === "queued" && ![...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || [])].includes(n.id) && !S.queue.some(e => e.type === "followup" && e.id === n.id)) S.queue.push({ type: "followup", id: n.id });
+      else if (problemGrade(n.status) && n.gapCoverage?.gaps.some(g => g.questionIds.some(id => !nodes.some(q => q.id === id && !q.obsolete)))) { delete n.gapCoverage; n.followup = { stage: "queued" }; }
     }
+    for (const n of S.nodes) if (n.followup?.stage === "queued" && ![...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || [])].includes(n.id) && !S.queue.some(e => e.type === "followup" && e.id === n.id)) S.queue.push({ type: "followup", id: n.id });
     S.queue = S.queue.filter(e => e.type !== "followup" || S.nodes.some(n => n.id === e.id && n.followup?.stage === "queued"));
   };
   const save = () => {
@@ -245,7 +245,7 @@ ${S.notes || "—"}
     if (!S.specJob) return;
     if (S.specJob.stage !== "refresh") S.specJob.stage = "queued";
     S.specJob.token = null; delete S.specJob.ideaWork; delete S.specJob.reviewWork;
-    for (const n of S.specJob.gradingNodes || []) if (n.followup) n.followup = { stage: "queued" };
+    for (const n of S.specJob.gradingNodes || []) if (n.followup || n.kind === "q" && !n.obsolete && problemGrade(n.status) && !n.gapCoverage) n.followup = { stage: "queued" };
     S.specJob.ideaWaiting ||= [];
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
