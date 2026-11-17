@@ -16,6 +16,7 @@
 //   node grill.mjs knowledge [--compact] | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate
 //   node grill.mjs config                                       print merged griller model config
 //   node grill.mjs spec                                         request an implementation plan
+//   node grill.mjs transfer [--status | --prepare | --claim | --error message] [--id request]
 //   node grill.mjs status | report | stop
 //   node grill.mjs list                                              all grillings in --dir
 //
@@ -36,7 +37,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { locale, revision, translate, page } from "./i18n.mjs";
 import { previews } from "./preview.mjs";
 import { sessionUsage } from "./usage.mjs";
-import { bindSession, requestResume, codexConnection, requestWake, ResumeError } from "./connection.mjs";
+import { bindSession, requestResume, codexConnection, requestWake, requestTransfer, transferBinding, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
 import { knowledge, digest, agentIndex } from "./knowledge.mjs";
 
@@ -157,6 +158,8 @@ async function serve() {
   let lastActivity = 0;
   // Delivery identity is process-local: recovery queues work, but does not execute it.
   let currentWork = null;
+  const transferring = () => S.sessionTransfer && S.sessionTransfer.phase !== "attached";
+  const transferStatus = () => S.sessionTransfer || null;
   // A monitor is a process-local, one-event subscription, never a second waiter.
   let monitor = null;
   let applying = false;
@@ -764,6 +767,7 @@ ${S.notes || "—"}
     for (const key of ["characters", "focus", "related", "index"]) total[key] += entry[key];
   }
   function takeEvent() {
+    if (transferring()) return null;
     if (workIsCurrent()) return null;
     advanceActions();
     if (S.actionPaused) return null;
@@ -1835,8 +1839,15 @@ ${S.notes || "—"}
       if (req.method === "GET" && (p === "/" || p === "/index.html")) return send(res, 200, page(fs.readFileSync(path.join(HERE, "ui.html"), "utf8"), S.locale, await doubleClickTime()), "text/html; charset=utf-8");
       if (!p.startsWith("/api/")) return send(res, 404, { error: "not found" });
       if (req.headers["x-grill"] !== "1") return send(res, 403, { error: "missing x-grill header" });
+      const checkOwner = () => {
+        const sessionOwner = S.sessionOwner || S.sessionTransfer?.from;
+        if (sessionOwner && ["/api/wait", "/api/monitor", "/api/apply", "/api/init", "/api/stop"].includes(p) && req.headers["x-grill-owner"] !== sessionOwner) throw [409, "Карта передана другой сессии. Прекратите обработку этой карты."];
+      };
+      checkOwner();
+      if (req.method === "GET" && p === "/api/transfer") return send(res, 200, transferStatus());
       if (req.headers["x-grill-cli"] === "1" && p !== "/api/ping") {
         await readUsage();
+        checkOwner();
         if (activeStats) { activeStats.requests++; const total = S.contextStats.totals[activeStats.type]; total.requests = (total.requests || 0) + 1; }
       }
       if (req.method === "GET" && ["/api/node", "/api/branch", "/api/index", "/api/search", "/api/related"].includes(p)) {
@@ -1924,6 +1935,7 @@ ${S.notes || "—"}
         return res.end(data);
       }
       if (req.method === "GET" && p === "/api/wait") {
+        if (transferring()) return send(res, 200, { type: "transfer", transfer: transferStatus(), instructions: path.join(HERE, "session-transfer.md") });
         if (monitor) throw [409, "Сначала остановите монитор; wait/watch не могут работать одновременно с ним"];
         actionsEnabled = true;
         closeStats();
@@ -1959,6 +1971,54 @@ ${S.notes || "—"}
       if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
       // Only a discussion message carries images: base64 of the allowed files plus its text.
       const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
+      checkOwner();
+      if (p === "/api/transfer") {
+        const owner = clean(req.headers["x-grill-owner"], 80), action = clean(b.action || "request", 20);
+        if (action === "request") {
+          if (transferring()) return send(res, 200, transferStatus());
+          if (S.finishPending || S.actionPaused) throw [409, "Сначала продолжите карту после завершения грилинга."];
+          const binding = codexConnection(BASE);
+          if (S.sessionOwner && S.sessionOwner !== binding.id) throw [409, "Сессия карты изменилась. Проверьте подключение."];
+          S.sessionTransfer = { id: randomUUID(), from: binding.id, phase: "requested", at: Date.now() };
+          save();
+          for (const w of waiters.splice(0)) { clearTimeout(w.timer); send(w.res, 200, { type: "transfer", transfer: transferStatus(), instructions: path.join(HERE, "session-transfer.md") }); }
+          const transfer = S.sessionTransfer;
+          try {
+            const result = await requestTransfer(BASE, NAME, transfer.id, path.join(HERE, "session-transfer.md"));
+            if (result.resumeWarning) transfer.error = "Запрос сохранён, но пробуждение агента не подтверждено. Продолжите переход в старой сессии.";
+          } catch { transfer.error = "Не удалось подтвердить доставку запроса. Продолжите переход в старой сессии; повторный запуск не выполнялся."; }
+          save(); return send(res, 200, transferStatus());
+        }
+        const transfer = S.sessionTransfer;
+        if (!transfer || clean(b.id, 80) !== transfer.id) throw [409, "Запрос перехода устарел."];
+        if (action === "claim") {
+          if (transfer.phase === "attached" && owner === transfer.to) return send(res, 200, transferStatus());
+          if (transfer.phase !== "creating" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(owner) || owner === transfer.from) throw [409, "Новая сессия пока не может принять карту."];
+          if (transfer.to && transfer.to !== owner) throw [409, "Новая сессия пока не может принять карту."];
+          // Persist the claimant before changing the shared binding. A restart can
+          // replay this same claim across either side of the two-file update.
+          transfer.to = owner; save();
+          transferBinding(BASE, transfer.from, owner);
+          transfer.phase = "attached"; transfer.to = owner; delete transfer.error;
+          S.sessionOwner = owner; lastActivity = 0; save();
+          return send(res, 200, transferStatus());
+        }
+        if (owner !== transfer.from) throw [409, "Переход должна подготовить текущая сессия карты."];
+        if (action === "prepare") {
+          if (transfer.phase !== "requested") throw [409, "Создание новой сессии уже начато. Не создавайте вторую сессию."];
+          if (workIsCurrent()) throw [409, "Сначала завершите обработку текущего события."];
+          closeStats(); monitor = null; currentWork = null; lastActivity = 0;
+          const file = path.join(DIR, "session-transfer.json");
+          writeSession();
+          atomicWrite(file, JSON.stringify({ id: transfer.id, from: transfer.from, project: process.cwd(), dir: BASE, name: NAME, cli: path.join(HERE, "grill.mjs"), skill: path.join(HERE, "SKILL.md"), instructions: path.join(HERE, "session-transfer.md"), session: path.join(DIR, "session.md") }, null, 2));
+          transfer.phase = "creating"; delete transfer.error; save();
+          return send(res, 200, { ...transfer, file });
+        }
+        if (action === "error" && transfer.phase !== "attached") {
+          transfer.error = clean(b.error, 1000) || "Переход не завершён. Проверьте старую сессию."; save(); return send(res, 200, transferStatus());
+        }
+        throw [400, "Неизвестное действие перехода."];
+      }
       if (p === "/api/knowledge-ignore") {
         if (typeof b.path !== "string" || clean(b.path, 1000) !== b.path || typeof b.ignored !== "boolean") throw [400, "Некорректное исключение знаний"];
         try { return send(res, 200, memory.setIgnored(b.path, b.ignored)); }
@@ -1966,6 +2026,7 @@ ${S.notes || "—"}
       }
       if (p === "/api/monitor") {
         if (b.action === "stop") { closeStats(); monitor = null; return send(res, 200, monitorStatus()); }
+        if (transferring()) throw [409, "Запрошен переход в новую сессию. Прочитайте session-transfer.md."];
         if (b.action !== "arm") throw [400, "Неизвестное действие монитора"];
         const binding = codexConnection(BASE);
         if (clean(b.owner, 80) !== binding.id) throw [409, "Включите монитор из привязанной сессии Codex"];
@@ -2016,6 +2077,7 @@ ${S.notes || "—"}
       }
       if (["/api/locale", "/api/discuss/read", "/api/conversations", "/api/knowledge-retry", "/api/knowledge-skip"].includes(p)) return actionRoute(p, b, res);
       if (p === "/api/init") {
+        if (S.sessionTransfer) throw [409, "Нельзя заново инициализировать переданную карту."];
         if (monitor) throw [409, "Перед инициализацией остановите монитор"];
         const roots = (Array.isArray(b.questions) ? b.questions : []).slice(0, 8);
         if (!roots.length) return send(res, 400, { error: "Нужен хотя бы один вопрос в questions" });
@@ -2037,6 +2099,7 @@ ${S.notes || "—"}
         return send(res, 200, await requestResume(BASE, NAME));
       }
       if (p === "/api/apply") {
+        if (transferring() && S.sessionTransfer.phase !== "requested") throw [409, "Обработка остановлена для перехода в новую сессию."];
         const rearm = b.rearm;
         if (rearm !== undefined && (rearm !== true || !monitor || clean(b.owner, 80) !== monitor.owner || codexConnection(BASE).id !== monitor.owner)) throw [409, "Для --rearm нужен монитор привязанной сессии"];
         const { rearm: ignored, owner, ...body } = b;
@@ -2108,7 +2171,7 @@ async function api(method, p, body, signal) {
   let r;
   try {
     if (!info) throw 0;
-    r = await fetch(`http://127.0.0.1:${info.port}${p}`, { method, headers: { "content-type": "application/json", "x-grill": "1", "x-grill-cli": "1" }, body: body === undefined ? undefined : JSON.stringify(body), signal });
+    r = await fetch(`http://127.0.0.1:${info.port}${p}`, { method, headers: { "content-type": "application/json", "x-grill": "1", "x-grill-cli": "1", ...(process.env.CODEX_THREAD_ID ? { "x-grill-owner": process.env.CODEX_THREAD_ID } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal });
   } catch {
     if (signal?.aborted) throw signal.reason;
     console.error(`Сервер карты не отвечает. Выполните: ${START}`); process.exit(2);
@@ -2159,6 +2222,8 @@ function openBrowser(url) {
   try { const ch = spawn(c, a, { detached: true, stdio: "ignore" }); ch.on("error", () => {}); ch.unref(); } catch {}
 }
 async function start() {
+  const saved = readJSON(STATE);
+  if (saved?.sessionTransfer && (saved.sessionTransfer.phase !== "attached" || saved.sessionOwner !== process.env.CODEX_THREAD_ID)) throw new Error("Переход сессии: сначала выполните transfer --claim в новой сессии по session-transfer.md; старой сессии нельзя перепривязывать карту.");
   bindSession(BASE);
   const selectedLocale = has("lang") || has("locale") ? requestedLocale() : null;
   let info = await alive();
@@ -2255,6 +2320,10 @@ function printEvent(body, inboxMode = false) {
   } else console.log(body);
 }
 const commands = {
+  transfer: async () => {
+    if (has("status")) console.log(await api("GET", "/api/transfer"));
+    else console.log(await api("POST", "/api/transfer", { action: has("prepare") ? "prepare" : has("claim") ? "claim" : has("error") ? "error" : "request", id: opt("id", ""), error: opt("error", "") }));
+  },
   config: async () => config(),
   node: async () => console.log(JSON.stringify(await readRoute("node", readArgs().map(id => ["id", id])))),
   branch: async () => console.log(JSON.stringify(await readRoute("branch", [["id", readArgs()[0] || ""]]))),
@@ -2326,5 +2395,5 @@ const commands = {
     if (await alive()) { await api("POST", "/api/stop", {}); for (let i = 0; i < 20 && await alive(); i++) await new Promise(r => setTimeout(r, 150)); }
     console.log("Сервер карты остановлен. Карта сохранена в " + STATE); },
 };
-if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | monitor | apply | spec | reread | discuss | state | node | branch | index [--questions] | search | related | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
+if (!commands[cmd]) { console.error("Команды: start | init | wait | watch | monitor | transfer | apply | spec | reread | discuss | state | node | branch | index [--questions] | search | related | status | report | stop | list | config | knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate | serve"); process.exit(1); }
 commands[cmd]().catch(e => { console.error(e && e.message || e); process.exit(1); });

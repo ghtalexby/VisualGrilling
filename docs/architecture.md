@@ -284,3 +284,7 @@ Mandatory clarification coverage is implemented in `followups.mjs`, called by ev
 ## Worker context and session-tree cost
 
 See [the contract](contract.md#worker-context-and-session-tree-cost) and [resumable task](plans/TokenEfficiency/TASK.md). Agent navigation uses a compact index; delegated Codex events/results use file receipts; usage sums observed descendant sessions with explicit partial-data reporting. Discovery runs in the background with bounded filesystem concurrency so metadata scans do not hold server startup.
+
+## Fresh-session transfer
+
+The connection dropdown sends a control request to the existing Codex session through connection.mjs. The server persists sessionTransfer and pauses further event delivery while allowing the reserved result and notes to complete. The old session prepares a file handoff, creates one fresh host task using create_thread, and ends its map loop. The new session claims the same map, updates the binding and resumes the normal loop. The browser URL, state and action journal remain intact. Persisted sessionOwner fences old wait/monitor/apply/init/stop requests. Creation is performed by the host agent, not a nested CLI model process; host failures remain visible and never trigger an automatic duplicate. See contract.md and skills/grill/session-transfer.md.

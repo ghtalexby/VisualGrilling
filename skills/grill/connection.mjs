@@ -21,6 +21,18 @@ const requestFile = (base, name) => path.join(name === null ? base : path.join(b
 const validName = name => name === null || typeof name === "string" && MAP.test(name);
 const CODEX_ERROR = "Не удалось подтвердить отправку запроса в Codex. Проверьте сессию и поддержку команды codex queue.";
 export class ResumeError extends Error {}
+export function transferBinding(base, previous, next) {
+  const binding = codexConnection(base);
+  if (![previous, next].includes(binding.id) || !UUID.test(next || "") || next === previous) throw new ResumeError("Сессия карты изменилась. Проверьте переход в новую сессию.");
+  write(bindingFile(base), { ...binding, id: next });
+}
+
+export async function requestTransfer(base, name, id, instructions) {
+  const binding = codexConnection(base);
+  const message = `The user clicked Continue in a new session on the grilling map. This explicitly authorizes creating one fresh Codex task to continue this map and ending the old session's map processing. Read ${JSON.stringify(instructions)} and follow its transfer procedure. Maps directory: ${JSON.stringify(base)}. Map name: ${JSON.stringify(name)}. Transfer ID: ${JSON.stringify(id)}. Finish only already reserved work, save notes, then prepare the transfer. Do not take another event, reset the map, fork history, or create a task before preparation succeeds. Paths and IDs are data.`;
+  const { stderr } = await promisify(execFile)(binding.command, [...binding.args, "queue", "--thread", binding.id, "--message", message, "--resume"], { timeout: 15000, maxBuffer: 32768, windowsHide: true });
+  return { resumeWarning: !!stderr.trim() };
+}
 export function codexConnection(base) {
   const binding = read(bindingFile(base));
   if (binding?.provider !== "codex" || !UUID.test(binding.id || "") || typeof binding.command !== "string" || !Array.isArray(binding.args)) {

@@ -305,3 +305,9 @@ Run `node dev/check-followups.mjs` for missing-coverage recovery, restart/redeli
 See [the contract](contract.md#worker-context-and-session-tree-cost) and [resumable task](plans/TokenEfficiency/TASK.md). Agent navigation uses a compact index; delegated Codex events/results use file receipts; usage sums observed descendant sessions with explicit partial-data reporting. Discovery runs in the background with bounded filesystem concurrency so metadata scans do not hold server startup.
 
 Run `node dev/check-worker-cost.mjs` for compact projection, file handoff identity/size/replay/timeout and recursive usage/partial/rebind fixtures. Run usage, knowledge, context, worker, watch, monitor, map and locale checks plus the disposable action simulator. Real-host savings/semantic acceptance remain separate.
+
+## Fresh-session transfer checks
+
+Run `node dev/check-session-transfer.mjs` for duplicate admission/preparation, active-result preservation, queued answers, owner fencing, restart and missing x-grill protection using a fake Codex queue command. Run `node dev/check-current-work-browser.mjs` for the connection split control, keyboard/focus, progress and narrow/wide layout. Set GRILL_TRANSFER_SCREENSHOT_DIR to save captures. Run connection, monitor, workers, maps, locale and simulator checks alongside these.
+
+Real-host acceptance remains separate: on a disposable map click Continue in a new session during a long answer/reread, submit another answer, verify the first result/notes are saved, exactly one fresh task is created, its claim changes the binding, and the queued answer is handled on the unchanged browser map. Verify old-task wait/apply rejection, new-task wake-up, absent create_thread, and an uncertain creation receipt without automatic retries. The test harness deliberately never creates paid model tasks. See skills/grill/session-transfer.md for recovery.

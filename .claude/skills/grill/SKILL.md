@@ -5,6 +5,8 @@ description: Interactive project grilling in the browser, with a map of question
 
 # Project grilling
 
+The connection dropdown can explicitly request continuation in a fresh Codex task. On a queued transfer notification, `type:transfer` from wait/watch, or a transfer fence, read [session-transfer.md](session-transfer.md) before taking more work. Finish the reserved event and save notes, then create exactly one fresh task via the host tool. Never treat this as finish or reset. A prepared transfer fences the old consumer; the new task claims the same map before start. Manual copy continuation remains available.
+
 Run a tough project review: ask critical questions, let the user answer on an interactive browser map, grade each answer, and probe weak spots. Keep questions and answers on the map. In chat, provide short status updates rather than repeating the discussion.
 
 Use the user's current Codex or Claude Code session. No separate API key or nested model process is needed. The skill directory contains this `SKILL.md` (use the skill-list path in Codex or Base directory for this skill in Claude Code). Requires Node 18+. Run commands from the user's project, using an absolute path to `grill.mjs`; do not change into the installed skill directory.

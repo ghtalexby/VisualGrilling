@@ -132,6 +132,7 @@ async function main() {
   for (;;) {
     const line = JSON.parse(G(has("inbox") ? ["watch", "--inbox"] : has("watch") ? ["watch"] : ["wait", "--timeout", "60"]));
     const e = line.inbox ? JSON.parse(fs.readFileSync(line.inbox, "utf8")) : line;
+    if (e.type === "transfer") { log("Запрошена новая сессия: симулятор прекращает обработку. Продолжите переход в Codex по session-transfer.md."); break; }
     if (e.type === "timeout") { log(`timeout, ждут ответа: ${e.waitingAnswers}, обсуждений: ${e.waitingDiscussions}`); continue; }
     const txt = e.type === "discuss" ? e.message : e.answer;
     log(`<- ${e.type}${e.id ? " " + e.id : ""}${txt ? ` «${txt.slice(0, 60)}»` : ""}`);

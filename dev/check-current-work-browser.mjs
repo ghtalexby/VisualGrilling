@@ -40,6 +40,38 @@ try {
   ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
+  // Connection split control: keyboard, focus, endpoint, progress and responsive bounds.
+  await js('document.querySelector("#bConnectionMenu").focus()');
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "ArrowDown", code: "ArrowDown" });
+  assert.equal(await js('document.activeElement.id'), "bTransfer");
+  assert.equal(await js('document.querySelector("#bTransfer").textContent'), "Continue in a new session");
+  await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape" });
+  assert.equal(await js('document.querySelector("#connectionMenu").hidden'), true);
+  assert.equal(await js('document.activeElement.id'), "bConnectionMenu");
+  await js('window.transferApi=api;window.transferPoll=poll;window.transferCalls=[];poll=async()=>{};api=async(p,b)=>{transferCalls.push(p);return {id:"test",phase:"requested"}};openConnectionMenu();document.querySelector("#bTransfer").click()');
+  await until(() => js('!resumeSending'));
+  assert.deepEqual(await js('transferCalls'), ["/api/transfer"]);
+  assert.equal(await js('document.querySelector("#bTransfer").disabled'), true);
+  assert.equal(await js('document.querySelector("#transferStatus").textContent'), "Finishing current work…");
+  for (const width of [1280, 390]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    for (const scheme of ["light", "dark"]) {
+      await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
+      await js('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+      await js('openConnectionMenu()');
+      assert.equal(await js('(()=>{const r=document.querySelector("#connectionMenu").getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight})()'), true);
+      if (process.env.GRILL_TRANSFER_SCREENSHOT_DIR) {
+        fs.mkdirSync(process.env.GRILL_TRANSFER_SCREENSHOT_DIR, { recursive: true });
+        assert.equal(await js('document.querySelector("#connectionMenu").hidden'), false);
+        const shot = await cdp("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync(path.join(process.env.GRILL_TRANSFER_SCREENSHOT_DIR, `transfer-${width}-${scheme}.png`), Buffer.from(shot.data, "base64"));
+      }
+    }
+  }
+  await js('closeConnectionMenu();api=transferApi;poll=transferPoll;delete S.sessionTransfer;renderHeader()');
+  await cdp("Emulation.clearDeviceMetricsOverride");
+  await cdp("Emulation.setEmulatedMedia", { features: [] });
+
   // The split spec control keeps read-only navigation independent of generation.
   await js('window.specPoll=poll;poll=async()=>{};window.specAct=act;window.specCalls=[];act=async p=>{specCalls.push(p)}');
   assert.equal(await js('document.querySelector("#bSpec").textContent'), "Create spec");

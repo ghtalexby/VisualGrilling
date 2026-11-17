@@ -59,6 +59,11 @@ header{background:var(--surface);border-bottom:1px solid var(--line);padding:10p
 .spec-control>#bSpecMenu{border-radius:0 6px 6px 0;margin-left:-1px;padding:7px 10px;display:grid;place-items:center}
 .spec-menu{position:absolute;top:calc(100% + 6px);right:0;min-width:160px;max-width:calc(100vw - 32px);padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:6px;z-index:10}
 .spec-menu[hidden]{display:none}
+.connection-control{display:inline-flex;position:relative;flex-shrink:0}
+.connection-control>#bConnection{border-radius:6px 0 0 6px}
+.connection-control>#bConnectionMenu{border-radius:0 6px 6px 0;margin-left:-1px;padding:7px 8px;display:grid;place-items:center}
+#connectionMenu{position:fixed;width:280px;max-height:60vh;overflow:auto;z-index:40}
+#transferStatus{margin:6px 8px;font-size:12px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
 .spec-menu .btn{display:block;width:100%;text-align:start;border:0}
 .knowledge-file-tabs .btn[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .knowledge-file{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
@@ -284,7 +289,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.20">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.21">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -292,8 +297,8 @@ label.fl{display:flex;flex-direction:column;gap:6px}
   </div>
   <div class="lrow"><div class="ledger" id="ledger"></div><div class="agent-controls"><div class="notification-control" id="notificationControl" hidden><button class="btn" id="bNotifications" type="button" title="Уведомления" aria-label="Уведомления" aria-expanded="false" aria-controls="notificationsPanel"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg><span id="notificationCount">0</span></button><section id="notificationsPanel" aria-labelledby="notificationsTitle" tabindex="-1" hidden><div class="notifications-head"><b id="notificationsTitle">Уведомления</b><button class="btn small" id="closeNotifications" type="button">Закрыть</button></div><div id="notificationItems">  <div id="sessionHint" class="why" role="status" hidden>Продолжение в новой сессии снизит расход токенов. Скопируйте контекст у названия карты.</div>
   <div id="queueNotice" role="status"></div>
-  <div id="resumeNotice" class="why" role="status" hidden></div>
-  <div id="finishedNotice" hidden></div></div><p id="notificationsEmpty">Нет уведомлений</p></section></div><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><button class="btn agent-control" id="bConnection" aria-label="Проверить связь" title="Проверить связь с агентом и восстановить при отключении"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></button><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
+  <div id="transferNotice" class="why" role="status" hidden></div><div id="resumeNotice" class="why" role="status" hidden></div>
+  <div id="finishedNotice" hidden></div></div><p id="notificationsEmpty">Нет уведомлений</p></section></div><div class="conn" id="conn"></div><div class="queue-control" id="queueControl"><button class="queue-circle" id="queueCount" title="Очередь" hidden></button><button class="queue-circle" id="queueIssues" title="Ошибки очереди" hidden>!</button><div id="queueWindow" hidden></div></div><div class="session-usage"><button type="button" id="usageTotal" aria-describedby="usageDetails">Токены сессии: нет данных</button><div class="usage-tooltip" id="usageDetails" role="tooltip" hidden></div></div><div class="connection-control" id="connectionControl"><button class="btn agent-control" id="bConnection" aria-label="Проверить связь" title="Проверить связь с агентом и восстановить при отключении"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg></button><button class="btn" id="bConnectionMenu" aria-label="Действия с сессией" aria-expanded="false" aria-controls="connectionMenu"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="spec-menu" id="connectionMenu" hidden><button class="btn" id="bTransfer">Продолжить в новой сессии</button><p id="transferStatus" role="status" hidden></p></div></div><button class="btn agent-control" id="bStop" aria-label="Остановить" title="Завершить грилинг: агент подготовит итог и перестанет слушать карту"><svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg></button></div></div>
 
 </header>
 <main>
@@ -780,7 +785,13 @@ function renderHeader(){
   $("#bStop").setAttribute("aria-label",S.finishPending?"Останавливаю…":"Остановить");
   $("#bStop").setAttribute("aria-busy",String(!!S.finishPending));
   $("#bStop").disabled=!!S.finishPending||!qs().length||!listening||offline;
-  $("#bConnection").disabled=resumeSending||!loaded;
+  const transfer=S.sessionTransfer, transferring=transfer&&transfer.phase!=="attached";
+  $("#bConnection").disabled=resumeSending||!loaded||!!transferring;
+  $("#bTransfer").disabled=resumeSending||!loaded||offline||!!transferring;
+  $("#bConnectionMenu").disabled=!loaded;
+  const transferText=transfer?.error||(transfer?.phase==="requested"?"Завершаем текущую обработку…":transfer?.phase==="creating"?"Подключаем новую сессию…":transfer?.phase==="attached"?"Карта передана новой сессии.":"");
+  $("#transferStatus").hidden=!transferText;$("#transferStatus").textContent=transferText;
+  $("#transferNotice").hidden=!transferText;$("#transferNotice").textContent=transferText;
   $("#bConnection").setAttribute("aria-busy",String(resumeSending));
   $("#ptitle").textContent=S.title||"";document.title=S.title?`Грилинг: ${S.title}`:"Грилинг-карта";
   renderResumeCopy();
@@ -1269,6 +1280,27 @@ async function checkConnection(forceResume=false){
   }catch(e){notice.hidden=true;showError(e.message)}
   finally{resumeSending=false;renderHeader()}
 }
+function closeConnectionMenu(){
+  $("#connectionMenu").hidden=true;$("#bConnectionMenu").setAttribute("aria-expanded","false");
+}
+function openConnectionMenu(){
+  closeSpecMenu();$("#connectionMenu").hidden=false;$("#bConnectionMenu").setAttribute("aria-expanded","true");
+  const menu=$("#connectionMenu"),r=$("#connectionControl").getBoundingClientRect();
+  menu.style.right="auto";menu.style.left=Math.max(16,Math.min(r.right-menu.offsetWidth,innerWidth-menu.offsetWidth-16))+"px";
+  menu.style.top=Math.max(16,Math.min(r.bottom+6,innerHeight-menu.offsetHeight-16))+"px";
+}
+addEventListener("resize",closeConnectionMenu);
+$("#bConnectionMenu").onclick=()=>$("#connectionMenu").hidden?openConnectionMenu():closeConnectionMenu();
+$("#bConnectionMenu").onkeydown=e=>{if(e.key==="ArrowDown"){e.preventDefault();openConnectionMenu();$("#bTransfer").focus()}};
+$("#connectionControl").addEventListener("focusout",e=>{if(!e.relatedTarget||!$("#connectionControl").contains(e.relatedTarget))closeConnectionMenu()});
+document.addEventListener("pointerdown",e=>{if(!$("#connectionControl").contains(e.target))closeConnectionMenu()},true);
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!$("#connectionMenu").hidden){e.preventDefault();e.stopImmediatePropagation();closeConnectionMenu();$("#bConnectionMenu").focus()}},true);
+$("#bTransfer").onclick=async()=>{
+  if(resumeSending)return;
+  resumeSending=true;clearError();renderHeader();
+  try{S.sessionTransfer=await api("/api/transfer",{});await poll(true)}catch(e){showError(e.message)}
+  finally{resumeSending=false;renderHeader();$("#bConnectionMenu").focus()}
+};
 $("#bConnection").onclick=()=>checkConnection();
 $("#bStop").onclick=()=>act("/api/finish");
 $("#bReread").onclick=requestReread;
