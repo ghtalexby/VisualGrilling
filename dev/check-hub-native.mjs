@@ -163,6 +163,27 @@ try {
     const launcher = spawnSync(manifest.path, [origin], { input: frame({ v: 1, id: "compiled", method: "bind" }), windowsHide: true, timeout: 15000 });
     assert.equal(launcher.status, 0, launcher.stderr?.toString());
     assert.equal((await collect([launcher.stdout]))[0].result.secret, second.secret);
+    // Chrome keeps stdin open between requests. EOF-only fixtures miss buffered
+    // launcher pipes that never deliver a small request or response while live.
+    const persistent = spawn(manifest.path, [origin], { windowsHide: true });
+    const closed = new Promise((resolve, reject) => { persistent.once("error", reject); persistent.once("close", resolve); });
+    const replies = messages(persistent.stdout)[Symbol.asyncIterator]();
+    const deadline = setTimeout(() => persistent.kill(), 10000);
+    try {
+      for (const id of ["persistent-first", "persistent-second"]) {
+        persistent.stdin.write(frame({ v: 1, id, method: "bind" }));
+        const reply = await replies.next();
+        assert.equal(reply.done, false, "Launcher must reply before stdin closes");
+        assert.equal(reply.value.id, id);
+        assert.equal(reply.value.ok, true);
+        assert.equal(reply.value.result.secret, second.secret);
+        assert.equal(persistent.stdin.writableEnded, false);
+      }
+    } finally {
+      persistent.stdin.end();
+      await closed;
+      clearTimeout(deadline);
+    }
     console.log("Native framing, admission, rotation, compiled launcher and isolated installer checks passed.");
   } else console.log("Native framing, admission and rotation passed; Windows installer/launcher not tested on this platform.");
 } finally {

@@ -10,6 +10,14 @@ internal static class NativeHost {
   private const string Config = @"@@CONFIG@@";
   private const string Origin = @"@@ORIGIN@@";
   private static string Quote(string value) { return "\"" + value.Replace("\"", "\\\"") + "\""; }
+  private static async Task Pump(Stream source, Stream destination) {
+    var buffer = new byte[8192];
+    int count;
+    while ((count = await source.ReadAsync(buffer, 0, buffer.Length)) != 0) {
+      await destination.WriteAsync(buffer, 0, count);
+      await destination.FlushAsync();
+    }
+  }
   [STAThread]
   private static int Main(string[] args) {
     if (args.Length < 1 || args[0] != Origin) return 2;
@@ -22,11 +30,11 @@ internal static class NativeHost {
       start.RedirectStandardError = true;
       using (var child = Process.Start(start)) {
         var input = Task.Run(async () => {
-          try { await Console.OpenStandardInput().CopyToAsync(child.StandardInput.BaseStream); }
+          try { await Pump(Console.OpenStandardInput(), child.StandardInput.BaseStream); }
           finally { child.StandardInput.Close(); }
         });
-        var output = child.StandardOutput.BaseStream.CopyToAsync(Console.OpenStandardOutput());
-        var errors = child.StandardError.BaseStream.CopyToAsync(Console.OpenStandardError());
+        var output = Pump(child.StandardOutput.BaseStream, Console.OpenStandardOutput());
+        var errors = Pump(child.StandardError.BaseStream, Console.OpenStandardError());
         child.WaitForExit();
         output.GetAwaiter().GetResult();
         errors.GetAwaiter().GetResult();
