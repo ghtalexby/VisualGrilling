@@ -23,6 +23,25 @@ function selectedBinding(record) {
   try { const value = read(bindingFile(record.base, record.name)); return validBinding(value) ? value : null; } catch { return null; }
 }
 
+export function agentObservation(status, candidate, binding, rpcLive) {
+  const hub = status.hub;
+  // Before first attach, a newly claimed adapter may need login or approval
+  // while the map still stores its unavailable predecessor's binding.
+  const pendingAttach = hub?.managed && !hub.paused && !hub.attached && candidate?.epoch === hub.epoch;
+  const identity = hub?.attached ? { provider: "codex", id: hub.attached } : pendingAttach ? candidate : binding || candidate;
+  const threadId = identity?.threadId || identity?.id || null;
+  const state = candidate && candidate.threadId === threadId && candidate.provider === identity?.provider && (!hub?.managed || candidate.epoch === hub.epoch && (!hub.attached || hub.attached === candidate.threadId)) ? candidate : null;
+  const attached = !hub?.managed || !!threadId && hub.attached === threadId;
+  // A live transport proves liveness only after this exact thread/epoch has
+  // attached and taken board work. A failed owned transport overrides a waiter
+  // whose HTTP connection has not noticed the process exit yet.
+  const failed = state?.owned && state.status === "error" && rpcLive === false;
+  const connected = !!hub && !hub.paused && attached && !failed && !!(hub.connected && hub.waiting || hub.workActive && state?.status === "working" && rpcLive === true);
+  const connection = connected ? "connected" : failed || status.server === "stopped" || hub?.paused ? "disconnected" : "unconfirmed";
+  const agent = failed ? "error" : connected ? "connected" : hub?.monitorArmed ? "monitor_armed" : state && state.status !== "stopped" ? state.status : hub?.connected ? "recently_seen" : connection === "unconfirmed" ? "unknown" : "disconnected";
+  return { state, identity, threadId, connection, connected, agent };
+}
+
 // A lifetime lock is published with its owner already present. Reclaim only the
 // uniquely named dead owner's marker; never remove a replacement owner's lock.
 function acquire(home) {
@@ -76,12 +95,9 @@ export function createHubController(config, options = {}) {
   }
   async function observe(record) {
     let status; try { status = await probe(record); } catch (error) { status = { server: "unknown", stale: true, error: error.message }; }
-    const state = adapter.getState(record.id);
-    const identity = state || selectedBinding(record);
-    const connected = !!status.hub?.connected && !!(status.hub.waiting || status.hub.workActive && state?.status === "working" && Date.now() - state.lastCheckedAt < 15000);
-    const agent = connected ? "connected" : status.hub?.monitorArmed ? "monitor_armed" : state && state.status !== "stopped" ? state.status : status.hub?.connected ? "recently_seen" : status.server === "unknown" ? "unknown" : "disconnected";
+    const { state, identity, threadId, connection, connected, agent } = agentObservation(status, adapter.getState(record.id), selectedBinding(record), adapter.canReadChat?.(record.id));
     const stale = status.stale || !!record.readError;
-    const observation = { title: record.title, finished: record.finished, counts: record.counts, server: status.server, agent, connected, provider: identity?.provider || null, transport: state?.transport || null, threadId: identity?.threadId || identity?.id || null, agentCheckedAt: status.hub?.checkedAt || null, checkedAt: stale ? record.checkedAt || null : Date.now(), attemptedAt: Date.now(), stale, missing: record.missing, error: status.error || record.readError || null, url: status.url || null, chatAvailable: !!state && state.status !== "stopped" && state.transport !== "queue" && (adapter.canReadChat?.(record.id) ?? true) };
+    const observation = { title: record.title, finished: record.finished, counts: record.counts, server: status.server, agent, connection, connected, provider: identity?.provider || null, transport: state?.transport || null, threadId, agentCheckedAt: status.hub?.checkedAt || null, checkedAt: stale ? record.checkedAt || null : Date.now(), attemptedAt: Date.now(), stale, missing: record.missing, error: status.error || record.readError || null, url: status.url || null, chatAvailable: !!state && state.status !== "stopped" && state.transport !== "queue" && (adapter.canReadChat?.(record.id) ?? true) };
     updateObservation(record.id, observation);
     return { id: record.id, project: record.project, dir: record.dir, base: record.base, name: record.name, ...observation };
   }
@@ -125,7 +141,10 @@ export function createHubController(config, options = {}) {
     const existing = adapter.getState(id);
     if (existing && !["stopped", "error"].includes(existing.status)) return { board: await observe(record) };
     const selected = read(bindingFile(record.base, record.name)), saved = read(metadataFile(id));
-    const source = selected || saved;
+    // The adapter persists a real thread ID before turn/start. A trusted owned
+    // pre-thread record can therefore restart login without duplicating a turn.
+    const preThread = saved?.provider === "codex" && saved.owned === true && saved.id === null && ["starting", "waiting_login", "stopped", "error"].includes(saved.status) && typeof saved.epoch === "string" && Number.isFinite(saved.checkedAt);
+    const source = selected || (preThread ? null : saved);
     if (source && !validBinding(source)) throw new Error("Invalid selected board session binding");
     // Ownership comes only from service metadata for this exact thread. A map
     // binding (or browser command) cannot promote a terminal session to owned.
@@ -162,6 +181,7 @@ export function createHubController(config, options = {}) {
         }
         return plays.get(id);
       }
+      if (method === "stop" || method === "rebind") plays.delete(id);
       if (method === "stop") return serial(id, async () => {
         const record = board(id), status = await startServer(record);
         await call(record, status, "stop"); const result = await adapter.stop(id);

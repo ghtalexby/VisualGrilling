@@ -22,7 +22,7 @@ fixture.boards=[
 {id:"22222222-2222-4222-8222-222222222222",title:"Проверка архитектуры",project:"D:\\Projects\\VisualGrilling",dir:"D:\\Projects\\VisualGrilling\\.grill\\architecture",finished:false,counts:{open:12,closed:7},server:"stopped",agent:"stopped",connected:false,checkedAt},
 {id:"33333333-3333-4333-8333-333333333333",title:"Границы API",project:"D:\\Projects\\Atlas",dir:"D:\\Projects\\Atlas\\.grill\\api",finished:true,counts:{open:0,closed:16},server:"running",agent:"connected",connected:true,checkedAt},
 {id:"44444444-4444-4444-8444-444444444444",title:"Проверка архитектуры",project:"D:\\Projects\\Archive",dir:"D:\\Projects\\Archive\\.grill\\architecture",finished:false,counts:{open:5,closed:9},missing:true,stale:true,server:"unknown",agent:"unknown",connected:false,checkedAt:checkedAt-3600000},
-{id:"55555555-5555-4555-8555-555555555555",title:"<unsafe> Нужны разрешения",project:"D:\\Projects\\Atlas",dir:"D:\\Projects\\Atlas\\.grill\\permissions",finished:false,counts:{open:3,closed:6},server:"running",agent:"waiting_permission",connected:false,checkedAt,chatAvailable:true}];
+{id:"55555555-5555-4555-8555-555555555555",title:"<unsafe> Нужны разрешения",project:"D:\\Projects\\Atlas",dir:"D:\\Projects\\Atlas\\.grill\\permissions",finished:false,counts:{open:3,closed:6},server:"running",agent:"waiting_permission",connected:false,connection:"unconfirmed",checkedAt,chatAvailable:true}];
 window.chrome={storage:{local:{get:async()=>({boardsCache:fixture.cache}),set:async data=>{fixture.cache=data.boardsCache;}}},tabs:{create:async value=>fixture.tabs.push(value)},runtime:{sendMessage:async message=>{
 fixture.calls.push(message); if(fixture.fail)return {ok:false,error:{code:"UNAVAILABLE",message:"Локальный компонент недоступен. Повторите запуск."}};
 let result={};const board=fixture.boards.find(board=>board.id===message.params.boardId);
@@ -74,7 +74,11 @@ try {
   try { await until(() => js("document.querySelectorAll('.board').length===5")); }
   catch (error) { console.error(await js("({body:document.body.innerText,fixture:window.fixture,c:typeof chrome.runtime})")); throw error; }
   assert.equal(await js("document.querySelector('unsafe')"), null);
+  assert.equal(await js("document.querySelector('[data-board-id^=\"5555\"]').textContent.includes('подключение не подтверждено')"), true);
   await capture("boards-wide", 1280, 1000); await capture("boards-narrow", 390, 844);
+  await input("#search", "Нужны разрешения");
+  await capture("connection-unconfirmed-wide", 1280, 1000); await capture("connection-unconfirmed-narrow", 390, 844);
+  await input("#search", "");
   await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
   await capture("boards-light", 1280, 1000);
   await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });

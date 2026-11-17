@@ -67,7 +67,7 @@ function renderBoard(board) {
   }
   identity.append(counts);
   const state = element("div", undefined, "state"), dl = element("dl");
-  const attachment = board.connected === true ? "подключён" : "не подключён";
+  const attachment = board.connected === true ? "подключён" : board.connection === "disconnected" || !board.connection && board.server === "stopped" ? "не подключён" : "подключение не подтверждено";
   const provider = ({ codex: "Codex", claude: "Claude", "claude-code": "Claude Code" })[board.provider] || board.provider;
   const agent = [provider, attachment, agentLabels[board.agent] || board.agent || "неизвестно"].filter((v, i, all) => v && all.indexOf(v) === i).join(" · ");
   const lines = [["Доска", board.finished === true ? "завершена" : board.finished === false ? "не завершена" : "состояние неизвестно"], ["Сервер", ({ running: "работает", stopped: "выключен", unknown: "неизвестно" })[board.server] || "неизвестно"], ["Агент", agent]];

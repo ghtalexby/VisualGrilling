@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import { createCodexAdapter, CodexRpc } from "../skills/grill/hub/codex.mjs";
+import { agentObservation } from "../skills/grill/hub/service.mjs";
 
 const self = fileURLToPath(import.meta.url);
 if (process.argv[2] === "--fake") {
@@ -43,11 +44,38 @@ if (process.argv[2] === "--fake") {
   const resumed = await owned.resume({ provider: "codex", id: started.threadId, owned: true }, spec);
   assert.equal(resumed.owned, true); assert.equal(resumed.threadId, started.threadId);
   assert.equal(owned.canReadChat(spec.boardId), true);
+  const ownedState = owned.getState(spec.boardId);
+  const liveBoard = { server: "running", hub: { managed: true, epoch: spec.epoch, attached: ownedState.threadId, connected: true, workActive: true } };
+  const selected = { provider: "codex", id: ownedState.threadId };
+  const oldWorking = { ...ownedState, lastCheckedAt: Date.now() - 16000 };
+  assert.equal(agentObservation(liveBoard, oldWorking, selected, owned.canReadChat(spec.boardId)).connection, "connected", "A long active turn retains its verified live RPC proof");
+  assert.equal(agentObservation({ ...liveBoard, hub: { ...liveBoard.hub, connected: false } }, oldWorking, selected, true).connection, "connected", "Long work outlives the runtime activity grace too");
+  assert.equal(agentObservation(liveBoard, oldWorking, { provider: "codex", id: "22222222-2222-4222-8222-222222222222" }, true).threadId, ownedState.threadId, "The runtime attachment takes precedence over a stale binding");
+  for (const phase of ["waiting_login", "waiting_permission"]) {
+    const pendingState = { ...oldWorking, status: phase, ...(phase === "waiting_login" ? { threadId: null, id: null } : {}) };
+    const pendingBoard = { ...liveBoard, hub: { ...liveBoard.hub, attached: null, paused: false } };
+    const observation = agentObservation(pendingBoard, pendingState, { provider: "codex", id: "22222222-2222-4222-8222-222222222222" }, true);
+    assert.equal(observation.agent, phase); assert.equal(observation.state, pendingState);
+    assert.equal(observation.threadId, pendingState.threadId); assert.equal(observation.connection, "unconfirmed");
+    assert.equal(observation.connected, false, "Login/approval remains actionable without claiming attachment");
+  }
+  assert.equal(agentObservation(liveBoard, { ...oldWorking, epoch: 3 }, selected, true).connection, "unconfirmed", "Old epoch cannot prove current work");
+  assert.equal(agentObservation({ ...liveBoard, hub: { ...liveBoard.hub, workActive: false } }, oldWorking, selected, true).connection, "unconfirmed", "A live process alone is not board consumption");
   assert.equal((await owned.readChat(spec.boardId)).data[0].id, "turn-1");
   const secondChild = owned.sessions.get(spec.boardId).rpc.child;
   assert.notEqual(firstChild.pid, secondChild.pid);
+  secondChild.kill();
+  await new Promise(resolve => secondChild.exitCode !== null || secondChild.signalCode !== null ? resolve() : secondChild.once("exit", resolve));
+  const failedState = owned.getState(spec.boardId);
+  assert.equal(failedState.status, "error");
+  const lingeringWait = { ...liveBoard, hub: { ...liveBoard.hub, waiting: true } };
+  const failedObservation = agentObservation(lingeringWait, failedState, selected, owned.canReadChat(spec.boardId));
+  assert.equal(failedObservation.connection, "disconnected"); assert.equal(failedObservation.agent, "error");
+  const transferredId = "22222222-2222-4222-8222-222222222222";
+  assert.equal(agentObservation({ ...lingeringWait, hub: { ...lingeringWait.hub, attached: transferredId } }, failedState, { provider: "codex", id: transferredId }, false).connection, "connected", "Old failed adapter cannot override a new attached consumer");
+  assert.equal(agentObservation({ ...lingeringWait, hub: { ...lingeringWait.hub, attached: transferredId } }, failedState, selected, false).connection, "connected", "Actual transferred attachment wins over stale binding and failed adapter");
   assert.equal((await owned.stop(spec.boardId)).preserved, false);
-  await new Promise(resolve => secondChild.exitCode !== null ? resolve() : secondChild.once("exit", resolve));
+  await new Promise(resolve => secondChild.exitCode !== null || secondChild.signalCode !== null ? resolve() : secondChild.once("exit", resolve));
   assert.equal(owned.canReadChat(spec.boardId), false); await owned.close();
   for (const mode of ["busy", "unknown"]) {
     const unsafe = adapter(mode);
@@ -85,6 +113,7 @@ if (process.argv[2] === "--fake") {
   fallback.connect = async (binding, owned, session) => { if (!owned) throw new Error("Unsupported proxy transport"); return connect(binding, owned, session); };
   assert.equal((await fallback.probeBinding(binding)).transport, "queue");
   const pending = await fallback.resume(binding, spec); assert.equal(pending.status, "starting"); assert.equal(pending.owned, false); assert.equal(queued, 1); assert.equal(fallback.canReadChat(spec.boardId), false);
+  assert.equal(agentObservation(liveBoard, pending, binding, false).connection, "unconfirmed", "Queue admission is not persistent RPC proof");
   assert.equal((await fallback.stop(spec.boardId)).preserved, true);
   warning = true; await assert.rejects(fallback.resume(binding, spec), /warning/);
   assert.equal(fallback.getState(spec.boardId).status, "error"); assert.equal(queued, 2);

@@ -3,25 +3,25 @@
 Project: VisualGrilling. Source: docs/vgril/specs/grill-boards-hub.md (2026-11-17).
 Source SHA256: 53c93b3d215ac16bad568ddac615fb5031cedf11bd1aa620f30cfa812ac04fc5.
 Base: 61b462f36d6db0499a830b72fe83d7679e4c0978. Initial working tree clean.
-Iteration 1, phase 0. Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
+Iteration 1, phase 2 (review pass 3 fixes). Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
 User approved archival of completed ContextBudget; previous state saved as context-budget-completed.md. This is the canonical boards-hub state. Independent preparation record remains as history.
 
 ## Requirements
 | ID | Requirement/source | Acceptance | Status | Evidence |
 |---|---|---|---|---|
-| R1 | Spec requirement 1: stable registry identity | Same board across ports; concurrent atomic registration; copies detected; retain missing entries; rebind checks ID | TODO | |
-| R2 | Requirement 2: open existing board | Reopening tab preserves server/session and one handler | TODO | |
-| R3 | Requirement 3: Play | Resume available session; otherwise owned background session; concurrent requests share success/error | TODO | |
-| R4 | Requirement 4: Stop ownership | Stop server/processing, preserve terminal session, stop owned process, isolate neighbours; no finish | TODO | |
-| R5 | Requirement 5: durable stop fence | Accepted results exactly once; unfinished replay; old epoch rejected through restart/race | TODO | |
-| R6 | Requirement 6: independent state | Completion/server/agent/time separate; no connected claim on queue submission | TODO | |
-| R7 | Requirement 7: counts | Current q ok closed, open/weak/gap/verify open; exclude obsolete/other kinds | TODO | |
-| R8 | Requirement 8: background interaction | Chat link, login and approval visible and actionable | TODO | |
-| R9 | Requirement 9: demand launch/recovery | Native host launch after reboot; stale cached list/retry/help; no false empty success | TODO | |
-| R10 | Requirement 10: command admission | Installation secret and exact origin; installer bootstrap/rebind; negative tests | TODO | |
-| R11 | Requirement 11: navigation | Search/project groups; active means unfinished regardless of running status | TODO | |
-| R12 | Installation steps 8-9 | Unified Windows path, production distribution caveat explicit, version/install/docs synchronized | TODO | |
-| R13 | Verification section | Disposable simulator, worker/monitor/maps, restart/security, actual Chrome/Codex acceptance distinguished | TODO | |
+| R1 | Spec requirement 1: stable registry identity | Same board across ports; concurrent atomic registration; copies detected; retain missing entries; rebind checks ID | REVIEW | Implementation and checks below; final independent verification pending |
+| R2 | Requirement 2: open existing board | Reopening tab preserves server/session and one handler | REVIEW | Implementation and checks below; final independent verification pending |
+| R3 | Requirement 3: Play | Resume available session; otherwise owned background session; concurrent requests share success/error | REVIEW | Implementation and checks below; final independent verification pending |
+| R4 | Requirement 4: Stop ownership | Stop server/processing, preserve terminal session, stop owned process, isolate neighbours; no finish | REVIEW | Implementation and checks below; final independent verification pending |
+| R5 | Requirement 5: durable stop fence | Accepted results exactly once; unfinished replay; old epoch rejected through restart/race | REVIEW | Implementation and checks below; final independent verification pending |
+| R6 | Requirement 6: independent state | Completion/server/agent/time separate; no connected claim on queue submission | REVIEW | Implementation and checks below; final independent verification pending |
+| R7 | Requirement 7: counts | Current q ok closed, open/weak/gap/verify open; exclude obsolete/other kinds | REVIEW | Implementation and checks below; final independent verification pending |
+| R8 | Requirement 8: background interaction | Chat link, login and approval visible and actionable | REVIEW | Implementation and checks below; final independent verification pending |
+| R9 | Requirement 9: demand launch/recovery | Native host launch after reboot; stale cached list/retry/help; no false empty success | REVIEW | Implementation and checks below; final independent verification pending |
+| R10 | Requirement 10: command admission | Installation secret and exact origin; installer bootstrap/rebind; negative tests | REVIEW | Implementation and checks below; final independent verification pending |
+| R11 | Requirement 11: navigation | Search/project groups; active means unfinished regardless of running status | REVIEW | Implementation and checks below; final independent verification pending |
+| R12 | Installation steps 8-9 | Unified Windows path, production distribution caveat explicit, version/install/docs synchronized | REVIEW | Implementation and checks below; final independent verification pending |
+| R13 | Verification section | Disposable simulator, worker/monitor/maps, restart/security, actual Chrome/Codex acceptance distinguished | REVIEW | Implementation and checks below; final independent verification pending |
 
 ## Work units and dependencies
 - W0 read-only Codex and Chrome installation investigations in parallel; no model tasks or user profile mutations.
@@ -99,6 +99,15 @@ Review2 fix evidence: fix_runtime_2 completed stale/current epoch Stop and same-
 Review2 complete: fix_service_2 preserves trusted same-thread ownership across Stop/Play/service restart, validates per-map provider identity separately from connectivity, and advertises chat only with live RPC; codex/service checks PASS. Windows read/rename timing made initial fixture polling transiently fail; settling admission before polling produced two passing final runs, no product error hidden. consumer_docs synchronized architecture/development/contract;30 local links and whitespace PASS.
 Real repeated acceptance PASS after recreating controller: same saved thread, new owned standalone process (no queue), attach+live wait in24seconds, Stop terminates owned process/server, original answer exactly once and receipts/queue unchanged. Evidence hub-live-resume.json; no additional answer, login or approval. Retained disposable directory was not deleted again.
 Preparing review2 fix commit, then fresh integrated review pass3. Version remains1.0.22; no second release bump.
+
+## Full integration review pass 3 — changes requested
+Frozen4b40c91 independently reviewed; all six Hub suites plus workers/monitor/maps/connection/transfer/usage/worker-cost and actual disposable simulator PASS. No new visual blocker. Found:
+- F1 P2 service Play->Stop->Play from independent clients reuses the pre-Stop pending Play; final server stays stopped despite third caller's running result. Requires clearing coalescing at control admission while keeping serialized execution.
+- F2 P2 stale working activity rendered definitely disconnected; known failed owned transport could be overridden by lingering waiter and rendered connected. Requires explicit uncertainty, known-failure priority and fresh relevant activity evidence.
+- F3 P3 architecture names wrong lifecycle epoch file (state.json instead of hub-lifecycle.json).
+Distinct fix_service_3 owns service/adapter/UI status consumers/tests, architecture/contract and own mirrors. No release bump. New clean independent pass required afterward; all requirement completion remains pending final verifier.
+
+Review3 fixes complete: Stop/rebind invalidate pending Play sharing at admission, with cross-HTTP-client ordering regression; connection tri-state matches current attachment/thread/epoch, uses live RPC for ongoing board work and prioritizes known owned failure; UI displays unconfirmed distinctly. Architecture names hub-lifecycle.json. Root integration inspection additionally found stale predecessor binding hiding new pending login/approval and pre-thread login metadata blocking restart; both corrected with current-epoch pending attachment precedence and narrowly validated pre-thread recovery. Ambiguous string IDs still fail closed. Codex/service/extension/browser/native/runtime checks PASS; wide/narrow status captures inspected; owned service mirror synced. Preparing third fix commit, then fresh review pass4. Version unchanged1.0.22.
 
 ## Checks
 Targeted new registry/lifecycle/adapter/native/extension checks; node dev/check-actions-simulator.mjs; worker/monitor/maps/connection/session-transfer/actions checks and affected consumers. Actual reboot, clean Windows install and model session tests cannot be replaced by fixtures.

@@ -18,11 +18,11 @@ const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url))
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify({ title: "Preserved", finished: true, nodes: ["open", "weak", "gap", "verify", "ok"].map((status, i) => ({ id: "q" + i, kind: "q", status })).concat([{ kind: "q", status: "ok", obsolete: true }, { kind: "idea", status: "ok" }]) }));
 const record = registerBoard({ dir, base, name: "test", project, cli });
-let launches = 0, fail = false, state = null, service;
+let launches = 0, fail = false, state = null, service, launchGate = null;
 const adapter = {
   getState: () => state,
   probeBinding: async binding => ({ status: binding ? "available" : "absent" }),
-  async startOwned(spec) { launches++; await new Promise(r => setTimeout(r, 100)); if (fail) throw new Error("Intentional launch failure"); state = { status: "working", owned: true, threadId: randomUUID(), provider: "codex", lastCheckedAt: Date.now() }; assert.match(spec.prompt, /standalone/); return state; },
+  async startOwned(spec) { launches++; if (launchGate) await launchGate; await new Promise(r => setTimeout(r, 100)); if (fail) throw new Error("Intentional launch failure"); state = { status: "working", owned: true, epoch: spec.epoch, threadId: randomUUID(), provider: "codex", lastCheckedAt: Date.now() }; assert.match(spec.prompt, /standalone/); return state; },
   async resume() { launches++; state = { status: "working", owned: false }; return state; },
   async stop() { const owned = state?.owned; state = { ...state, status: "stopped" }; return { stopped: true, preserved: !owned }; },
   async close() {},
@@ -81,6 +81,29 @@ try {
   fail = true;
   const failures = await Promise.all([request("play", params, {}, 400), request("play", params, {}, 400)]);
   assert.equal(launches, 2); assert.deepEqual(failures[0], failures[1]); assert.match(failures[0].error, /Intentional/);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  fail = false;
+  let releaseLaunch;
+  launchGate = new Promise(resolve => { releaseLaunch = resolve; });
+  const beforeOrdered = launches;
+  const earlyPlay = request("play", params);
+  while (launches === beforeOrdered) await new Promise(resolve => setTimeout(resolve, 10));
+  // A different authenticated HTTP client admits Stop between the two Plays.
+  const originalCommand = service.controller.command.bind(service.controller);
+  let admittedStop;
+  const stopAdmission = new Promise(resolve => { admittedStop = resolve; });
+  service.controller.command = (...args) => { const result = originalCommand(...args); if (args[0] === "stop") admittedStop(); return result; };
+  const middleStop = request("stop", params);
+  await stopAdmission;
+  const latePlay = request("play", params);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  releaseLaunch(); launchGate = null;
+  const ordered = await Promise.all([earlyPlay, middleStop, latePlay]);
+  service.controller.command = originalCommand;
+  assert.deepEqual(ordered.map(result => result.board.server), ["running", "stopped", "running"]);
+  assert.equal(launches - beforeOrdered, 2);
+  assert.equal((await request("list")).boards[0].server, "running");
+  await request("stop", params);
   await new Promise(r => setTimeout(r, 200));
   const prior = (await request("list")).boards[0]; fs.renameSync(dir, dir + "-moved");
   const missing = (await request("list")).boards[0]; assert.equal(missing.missing, true); assert.equal(missing.stale, true); assert.equal(missing.checkedAt, prior.checkedAt); assert.deepEqual(missing.counts, prior.counts);
@@ -120,6 +143,25 @@ try {
   // child. Its proxy intentionally fails: owned resume must use standalone stdio.
   fs.unlinkSync(path.join(dir, "agent-connection.json"));
   config.codexCommand = process.execPath;
+  config.codexArgs = [fileURLToPath(new URL("./check-hub-codex.mjs", import.meta.url)), "--fake", "login"];
+  fs.writeFileSync(configFile, JSON.stringify(config));
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  const loginPlay = await request("play", params);
+  assert.equal(loginPlay.board.agent, "waiting_login"); assert.equal(loginPlay.board.chatAvailable, true);
+  assert.equal(service.controller.adapter.getState(record.id).threadId, null);
+  await service.close();
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  const restartedLogin = await request("play", params);
+  assert.equal(restartedLogin.board.agent, "waiting_login"); assert.equal(restartedLogin.board.connected, false);
+  assert.equal(restartedLogin.board.chatAvailable, true); assert.equal(service.controller.adapter.getState(record.id).threadId, null);
+  await request("stop", params); await service.close();
+  const sessionFile = path.join(dataDir, "sessions", record.id + ".json");
+  const preThreadMetadata = fs.readFileSync(sessionFile, "utf8");
+  fs.writeFileSync(sessionFile, JSON.stringify({ ...JSON.parse(preThreadMetadata), id: "ambiguous" }));
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  assert.match((await request("play", params, {}, 400)).error, /Invalid selected board session binding/);
+  assert.equal(service.controller.adapter.getState(record.id), null);
+  await service.close(); fs.writeFileSync(sessionFile, preThreadMetadata);
   config.codexArgs = [fileURLToPath(new URL("./check-hub-codex.mjs", import.meta.url)), "--fake", "owned", project];
   fs.writeFileSync(configFile, JSON.stringify(config));
   service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
