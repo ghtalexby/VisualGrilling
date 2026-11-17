@@ -38,6 +38,7 @@ export class CodexRpc {
     const childEnv = { ...process.env, ...env };
     for (const key of ["CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID", "CODEX_DAEMON_SHUTDOWN_SOCKET", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete childEnv[key];
     this.child = spawnProcess(command, args, { cwd, env: childEnv, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+    this.exited = new Promise(resolve => { this.child.once("exit", resolve); this.child.once("error", resolve); });
     this.child.stdout.setEncoding("utf8");
     this.child.stdout.on("data", chunk => {
       this.buffer += chunk;
@@ -147,7 +148,10 @@ export class CodexAdapter {
     return this.runOnce(spec.boardId, async () => {
       const probe = await this.probeBinding(binding);
       if (probe.status !== "available") throw new Error(`Codex session ${probe.status}: ${probe.reason || "not idle"}`);
-      if (typeof probe.thread.cwd !== "string" || path.resolve(probe.thread.cwd).toLowerCase() !== path.resolve(spec.cwd).toLowerCase()) throw new Error("Codex session belongs to a different or unknown project");
+      const sameCwd = (a, b) => typeof a === "string" && typeof b === "string" && path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
+      const relocated = sameCwd(spec.relocation?.from, probe.thread.cwd) && sameCwd(spec.relocation?.to, spec.cwd) && !fs.existsSync(spec.relocation.from);
+      if (!sameCwd(probe.thread.cwd, spec.cwd) && !relocated) throw new Error("Codex session belongs to a different or unknown project");
+      if (relocated && probe.transport === "queue") throw new Error("Verified project relocation requires a Codex control transport with cwd support; the queue-only terminal is preserved");
       for (const session of this.sessions.values()) if (session.state.boardId !== spec.boardId && session.state.threadId === probe.thread.id && session.state.status !== "stopped") throw new Error("Codex session already serves another board");
       if (probe.transport === "queue") return this.launchQueued(binding, spec);
       return this.launch(binding, spec, binding.owned === true);
@@ -199,9 +203,10 @@ export class CodexAdapter {
     if (session.state.status === "stopped") throw new Error("Codex launch stopped");
     const { state, rpc, spec } = session;
     const result = state.threadId
-      ? await rpc.request("thread/resume", { threadId: state.threadId, excludeTurns: true })
+      ? await rpc.request("thread/resume", { threadId: state.threadId, excludeTurns: true, ...(spec.relocation ? { cwd: spec.cwd } : {}) })
       : await rpc.request("thread/start", { cwd: spec.cwd });
     if (state.threadId && result.thread?.id !== state.threadId) throw new Error("Codex resumed thread identity mismatch");
+    if (spec.relocation && (typeof result.thread?.cwd !== "string" || path.resolve(result.thread.cwd).toLowerCase() !== path.resolve(spec.cwd).toLowerCase())) throw new Error("Codex did not accept the verified project relocation");
     if (result.thread?.status?.type === "active") throw new Error("Codex session became busy; no input sent");
     if (state.threadId && !["idle", "notLoaded"].includes(result.thread?.status?.type)) throw new Error("Codex resumed session state is unknown; no input sent");
     this.emit(session, { id: result.thread.id, threadId: result.thread.id, status: "idle" });
@@ -279,6 +284,12 @@ export class CodexAdapter {
       try { await session.rpc.request("turn/interrupt", { threadId: session.state.threadId, turnId: session.ownedTurnId }); } catch (failure) { error = failure.message; }
     }
     this.emit(session, { status: "stopped", requests: [], turnId: null }); session.pending.clear(); session.rpc?.close();
+    if (session.state.owned && session.rpc?.exited) {
+      let timer;
+      const exited = await Promise.race([session.rpc.exited.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), 5000); })]);
+      clearTimeout(timer);
+      if (!exited) error = "Owned Codex process did not exit";
+    }
     return { stopped: !error, preserved: !session.state.owned, ...(error ? { error } : {}) };
   }
   async close() { await Promise.all([...new Set([...this.sessions.keys(), ...this.launches.keys()])].map(id => this.stop(id))); }

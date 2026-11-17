@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import readline from "node:readline";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createCodexAdapter, CodexRpc } from "../skills/grill/hub/codex.mjs";
 import { agentObservation } from "../skills/grill/hub/service.mjs";
@@ -7,7 +8,7 @@ import { agentObservation } from "../skills/grill/hub/service.mjs";
 const self = fileURLToPath(import.meta.url);
 if (process.argv[2] === "--fake") {
   const mode = process.argv[3];
-  if (mode === "owned" && process.argv.includes("proxy")) process.exit(2);
+  if (["owned", "queue-relocation"].includes(mode) && process.argv.includes("proxy")) process.exit(2);
   let authenticated = mode !== "login";
   const send = value => process.stdout.write(JSON.stringify(value) + "\n");
   readline.createInterface({ input: process.stdin }).on("line", line => {
@@ -16,7 +17,14 @@ if (process.argv[2] === "--fake") {
     if (mode === "timeout" && method !== "initialize") return;
     if (method === "thread/read" && mode === "absent") return send({ id, error: { code: -32600, message: "no rollout found for thread id absent" } });
     if (method === "thread/read" && mode === "unknown") return send({ id, error: { code: -32603, message: "Storage inaccessible" } });
-    const thread = { id: "11111111-1111-4111-8111-111111111111", cwd: mode === "owned" && process.argv[4] !== "app-server" ? process.argv[4] : process.cwd(), status: { type: mode === "busy" ? "active" : "idle" } };
+    const thread = { id: "11111111-1111-4111-8111-111111111111", cwd: ["owned", "relocated"].includes(mode) && process.argv[4] !== "app-server" ? process.argv[4] : process.cwd(), status: { type: mode === "busy" ? "active" : "idle" } };
+    if (mode === "queue-relocation") {
+      const replacement = "22222222-2222-4222-8222-222222222222";
+      thread.id = method === "thread/start" || params?.threadId === replacement ? replacement : thread.id;
+      thread.cwd = thread.id === replacement ? process.argv[5] : process.argv[4];
+      if (method === "thread/start") fs.appendFileSync(process.argv[6], "start\n");
+    }
+    if (method === "thread/resume" && params.cwd) thread.cwd = params.cwd;
     let result = {};
     if (method === "thread/read" || method === "thread/start" || method === "thread/resume") result = { thread };
     if (method === "account/read") result = { account: authenticated ? { type: "chatgpt" } : null, requiresOpenaiAuth: true };
@@ -40,7 +48,7 @@ if (process.argv[2] === "--fake") {
   const started = await owned.startOwned(spec);
   const firstChild = owned.sessions.get(spec.boardId).rpc.child;
   assert.equal((await owned.stop(spec.boardId)).preserved, false);
-  await new Promise(resolve => firstChild.exitCode !== null ? resolve() : firstChild.once("exit", resolve));
+  await new Promise(resolve => firstChild.exitCode !== null || firstChild.signalCode !== null ? resolve() : firstChild.once("exit", resolve));
   const resumed = await owned.resume({ provider: "codex", id: started.threadId, owned: true }, spec);
   assert.equal(resumed.owned, true); assert.equal(resumed.threadId, started.threadId);
   assert.equal(owned.canReadChat(spec.boardId), true);
@@ -94,6 +102,14 @@ if (process.argv[2] === "--fake") {
   assert.equal((await external.stopOwned(spec.boardId)).preserved, true);
   assert.equal(external.getState(spec.boardId).status, "working");
   assert.equal((await external.stop(spec.boardId)).preserved, true); await external.close();
+  const oldProject = process.cwd() + "-missing-relocated-project";
+  const relocated = createCodexAdapter({ command: process.execPath, args: [self, "--fake", "relocated", oldProject], timeoutMs: 2000 });
+  const relocatedSpec = { ...spec, relocation: { from: oldProject, to: spec.cwd } };
+  assert.equal((await relocated.resume(binding, relocatedSpec)).owned, false);
+  assert.equal((await relocated.stop(spec.boardId)).preserved, true); await relocated.close();
+  const queueRelocated = createCodexAdapter({ command: process.execPath, args: [self, "--fake", "owned", oldProject], timeoutMs: 2000 });
+  await assert.rejects(queueRelocated.resume(binding, relocatedSpec), /queue-only terminal is preserved/);
+  await queueRelocated.close();
   const approval = adapter("approval"); await approval.startOwned(spec);
   await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(approval.getState(spec.boardId).status, "waiting_permission");

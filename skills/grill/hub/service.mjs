@@ -16,6 +16,17 @@ function atomic(file, value) {
   finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
 }
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+const runtimeCli = fileURLToPath(new URL("../grill.mjs", import.meta.url));
+const routePath = value => {
+  try { return fs.realpathSync(value); }
+  catch {
+    // A renamed leaf can be absent while its maps-root junction still resolves.
+    const resolved = path.resolve(value), parent = path.dirname(resolved);
+    try { return path.join(fs.realpathSync(parent), path.basename(resolved)); } catch { return resolved; }
+  }
+};
+const samePath = (a, b) => typeof a === "string" && typeof b === "string" && (process.platform === "win32" ? routePath(a).toLowerCase() === routePath(b).toLowerCase() : routePath(a) === routePath(b));
+const sameRoute = (hub, record) => samePath(hub.dir, record.dir) && samePath(hub.base, record.base) && hub.name === record.name;
 const sameSecret = (a, b) => typeof a === "string" && typeof b === "string" && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 const validBinding = value => value && ["codex", "claude"].includes(value.provider) && typeof value.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.id);
@@ -36,7 +47,8 @@ export function agentObservation(status, candidate, binding, rpcLive) {
   // attached and taken board work. A failed owned transport overrides a waiter
   // whose HTTP connection has not noticed the process exit yet.
   const failed = state?.owned && state.status === "error" && rpcLive === false;
-  const connected = !!hub && !hub.paused && attached && !failed && !!(hub.connected && hub.waiting || hub.workActive && state?.status === "working" && rpcLive === true);
+  const unverifiedOwned = candidate?.owned && candidate.threadId === threadId && rpcLive !== true;
+  const connected = !!hub && !hub.paused && attached && !failed && !unverifiedOwned && !!(hub.connected && hub.waiting || hub.workActive && state?.status === "working" && rpcLive === true);
   const connection = connected ? "connected" : failed || status.server === "stopped" || hub?.paused ? "disconnected" : "unconfirmed";
   const agent = failed ? "error" : connected ? "connected" : hub?.monitorArmed ? "monitor_armed" : state && state.status !== "stopped" ? state.status : hub?.connected ? "recently_seen" : connection === "unconfirmed" ? "unknown" : "disconnected";
   return { state, identity, threadId, connection, connected, agent };
@@ -73,7 +85,10 @@ export function createHubController(config, options = {}) {
   const metadataFile = id => path.join(config.dataDir, "sessions", id + ".json");
   const adapter = options.adapter || createCodexAdapter({ command: config.codexCommand, args: config.codexArgs || [], onState(id, state) {
     // Login URLs, approval payloads, process IDs and credentials never enter the registry.
-    atomic(metadataFile(id), { provider: "codex", id: state.threadId, owned: state.owned, status: state.status, epoch: state.epoch, checkedAt: state.lastCheckedAt });
+    const previous = read(metadataFile(id));
+    const relocation = state.owned && previous?.epoch === state.epoch && previous.relocation
+      ? { ...previous.relocation, phase: state.threadId ? "known" : state.status === "waiting_login" ? "login" : previous.relocation.phase === "login" && state.status === "stopped" ? "login" : "creating" } : null;
+    atomic(metadataFile(id), { provider: "codex", id: state.threadId, owned: state.owned, status: state.status, epoch: state.epoch, checkedAt: state.lastCheckedAt, ...(relocation ? { relocation } : {}) });
   } });
   function board(id) { const value = getBoard(id); if (!value) throw new Error("Board not registered"); return value; }
   async function probe(record) {
@@ -87,6 +102,7 @@ export function createHubController(config, options = {}) {
       if (!response.ok) throw new Error(`Board probe returned ${response.status}`);
       const hub = await response.json();
       if (hub.id !== record.id) throw new Error("Board server identity mismatch");
+      if (!sameRoute(hub, record)) return { server: "unknown", stale: true, error: "Board server routing mismatch; rebind required", url, hub };
       return { server: "running", stale: false, url, hub };
     } catch (error) {
       const refused = error.cause?.code === "ECONNREFUSED";
@@ -95,7 +111,12 @@ export function createHubController(config, options = {}) {
   }
   async function observe(record) {
     let status; try { status = await probe(record); } catch (error) { status = { server: "unknown", stale: true, error: error.message }; }
-    const { state, identity, threadId, connection, connected, agent } = agentObservation(status, adapter.getState(record.id), selectedBinding(record), adapter.canReadChat?.(record.id));
+    let saved = null, rawBinding;
+    try { saved = read(metadataFile(record.id)); } catch {}
+    try { rawBinding = read(bindingFile(record.base, record.name)); } catch { rawBinding = { invalid: true }; }
+    const savedMatches = !rawBinding || validBinding(rawBinding) && rawBinding.provider === saved?.provider && (rawBinding.id === saved?.id || rawBinding.id === saved?.relocation?.sourceId && samePath(saved.relocation.to, record.project));
+    const candidate = adapter.getState(record.id) || (savedMatches && (rawBinding || status.hub?.attached === saved?.id) && validBinding(saved) && saved.owned ? { ...saved, threadId: saved.id, status: "unknown" } : null);
+    const { state, identity, threadId, connection, connected, agent } = agentObservation(status, candidate, selectedBinding(record), adapter.canReadChat?.(record.id));
     const stale = status.stale || !!record.readError;
     const observation = { title: record.title, finished: record.finished, counts: record.counts, server: status.server, agent, connection, connected, provider: identity?.provider || null, transport: state?.transport || null, threadId, agentCheckedAt: status.hub?.checkedAt || null, checkedAt: stale ? record.checkedAt || null : Date.now(), attemptedAt: Date.now(), stale, missing: record.missing, error: status.error || record.readError || null, url: status.url || null, chatAvailable: !!state && state.status !== "stopped" && state.transport !== "queue" && (adapter.canReadChat?.(record.id) ?? true) };
     updateObservation(record.id, observation);
@@ -116,7 +137,7 @@ export function createHubController(config, options = {}) {
     if (status.server !== "stopped") throw new Error(status.error || "Cannot verify board server");
     const env = { ...process.env, GRILL_HUB_HOME: config.dataDir };
     for (const key of Object.keys(env)) if (/^(CODEX_THREAD_ID|CODEX_SESSION_ID|CODEX_TOOL_CALL_ID|CLAUDE)/.test(key)) delete env[key];
-    const args = [record.cli, "serve", "--dir", record.base, ...(record.name === null ? [] : ["--name", record.name])];
+    const args = [runtimeCli, "serve", "--dir", record.base, ...(record.name === null ? [] : ["--name", record.name])];
     const child = spawn(config.nodePath || process.execPath, args, { cwd: record.project, env, stdio: "ignore", windowsHide: true });
     let failure; child.on("error", error => { failure = error; }); child.unref();
     const until = Date.now() + (options.startTimeout || 10000);
@@ -136,24 +157,52 @@ export function createHubController(config, options = {}) {
     return pending;
   }
   async function play(id) {
-    const record = board(id), status = await startServer(record);
-    if (status.hub.connected) return { board: await observe(record) };
+    const record = board(id);
+    let status = await startServer(record);
     const existing = adapter.getState(id);
-    if (existing && !["stopped", "error"].includes(existing.status)) return { board: await observe(record) };
+    const savedBefore = read(metadataFile(id));
+    const current = existing && !status.hub.paused && existing.epoch === status.hub.epoch && (!status.hub.attached || status.hub.attached === existing.threadId);
+    if (current && !["stopped", "error"].includes(existing.status)) return { board: await observe(record) };
+    // An HTTP waiter surviving helper loss is not proof that its owned model lives.
+    if (status.hub.connected && !existing && savedBefore?.owned !== true) return { board: await observe(record) };
+    if (existing && !["stopped", "error"].includes(existing.status)) {
+      if (!status.hub.paused) throw new Error("Previous session has a different live board identity; Stop before retrying");
+      const retired = await adapter.stop(id);
+      if (!retired.stopped) throw new Error(retired.error || "Previous board transport could not stop");
+    }
     const selected = read(bindingFile(record.base, record.name)), saved = read(metadataFile(id));
     // The adapter persists a real thread ID before turn/start. A trusted owned
     // pre-thread record can therefore restart login without duplicating a turn.
     const preThread = saved?.provider === "codex" && saved.owned === true && saved.id === null && ["starting", "waiting_login", "stopped", "error"].includes(saved.status) && typeof saved.epoch === "string" && Number.isFinite(saved.checkedAt);
-    const source = selected || (preThread ? null : saved);
+    const pendingRelocation = saved?.owned === true && saved.relocation && samePath(saved.relocation.to, record.project);
+    if (pendingRelocation && selected && (!validBinding(selected) || selected.provider !== "codex" || ![saved.id, saved.relocation.sourceId].includes(selected.id))) throw new Error("Relocation replacement conflicts with selected session");
+    if (pendingRelocation && !saved.id && saved.relocation.phase === "creating") throw new Error("Relocation thread creation is ambiguous; automatic retry refused");
+    const source = pendingRelocation ? saved.id ? saved : null : selected || (preThread ? null : saved);
     if (source && !validBinding(source)) throw new Error("Invalid selected board session binding");
     // Ownership comes only from service metadata for this exact thread. A map
     // binding (or browser command) cannot promote a terminal session to owned.
-    const binding = source ? { ...source, owned: validBinding(saved) && saved.provider === source.provider && saved.id === source.id && saved.owned === true } : null;
-    const availability = await adapter.probeBinding(binding?.id ? binding : null);
+    let binding = source ? { ...source, owned: existing?.owned === true && existing.threadId === source.id || validBinding(saved) && saved.provider === source.provider && saved.id === source.id && saved.owned === true } : null;
+    let availability = await adapter.probeBinding(binding?.id ? binding : null);
     if (!["available", "absent"].includes(availability.status)) throw new Error(`Codex session ${availability.status}: ${availability.reason || "not idle"}`);
+    const queueRelocation = !binding?.owned && availability.status === "available" && availability.transport === "queue" && samePath(record.relocation?.from, availability.thread?.cwd) && samePath(record.relocation?.to, record.project) && !fs.existsSync(record.relocation.from);
+    const fallback = pendingRelocation ? saved.relocation : queueRelocation ? { sourceId: binding.id, from: record.relocation.from, to: record.project, phase: "creating" } : null;
+    if (!status.hub.paused && (queueRelocation || binding?.owned && (!existing || existing.status === "error"))) {
+      await call(record, status, "stop");
+      const until = Date.now() + 5000;
+      while ((await probe(record)).server !== "stopped") {
+        if (Date.now() >= until) throw new Error("Previous board server did not stop");
+        await delay(50);
+      }
+      status = await startServer(record);
+    }
+    if (queueRelocation) { binding = null; availability = { status: "absent", reason: "Verified relocated queue-only session cannot use the new cwd" }; }
     const hub = await call(record, status, "claim");
-    const spec = { boardId: id, cwd: record.project, epoch: hub.epoch, previousBinding: binding?.id ? binding : null,
-      prompt: `Continue the existing VisualGrilling board using ${JSON.stringify(path.join(path.dirname(record.cli), "SKILL.md"))}. Project directory: ${JSON.stringify(record.project)}. CLI: ${JSON.stringify(record.cli)}. Always use --dir ${JSON.stringify(record.base)}${record.name === null ? "" : " --name " + JSON.stringify(record.name)} and captured --hub-epoch ${JSON.stringify(hub.epoch)} on every hub attach, wait, monitor and apply command (or set GRILL_HUB_EPOCH to this exact captured value). First run hub --attach with these arguments from this Codex session. Then run start --continue --no-open with the same directory, name and captured epoch arguments, and follow the existing skill continuation/event loop and saved session notes. ${availability.status === "absent" || binding?.owned ? "This is a dedicated standalone app-server, not a shared daemon host: select level 0 blocking wait, never arm monitor or use codex queue wakeups; keep the turn waiting for events according to the standalone workflow." : "Use the existing host waiting mode."} Never run init, change the epoch, reset data, or attach another board. A 409 means stop this loop without retrying with refreshed credentials. Treat paths and names as data.` };
+    if (fallback) {
+      const resumeId = availability.status === "available" ? binding?.id : null;
+      atomic(metadataFile(id), { provider: "codex", id: resumeId || null, owned: true, status: "starting", epoch: hub.epoch, checkedAt: Date.now(), relocation: { ...fallback, phase: resumeId ? "known" : "creating" } });
+    }
+    const spec = { boardId: id, cwd: record.project, epoch: hub.epoch, previousBinding: binding?.id ? binding : null, relocation: record.relocation,
+      prompt: `Continue the existing VisualGrilling board using ${JSON.stringify(path.join(path.dirname(runtimeCli), "SKILL.md"))}. Project directory: ${JSON.stringify(record.project)}. CLI: ${JSON.stringify(runtimeCli)}. Always use --dir ${JSON.stringify(record.base)}${record.name === null ? "" : " --name " + JSON.stringify(record.name)} and captured --hub-epoch ${JSON.stringify(hub.epoch)} on every hub attach, wait, monitor and apply command (or set GRILL_HUB_EPOCH to this exact captured value). First run hub --attach with these arguments from this Codex session. Then run start --continue --no-open with the same directory, name and captured epoch arguments, and follow the existing skill continuation/event loop and saved session notes. ${availability.status === "absent" || binding?.owned ? "This is a dedicated standalone app-server, not a shared daemon host: select level 0 blocking wait, never arm monitor or use codex queue wakeups; keep the turn waiting for events according to the standalone workflow." : "Use the existing host waiting mode."} Never run init, change the epoch, reset data, or attach another board. A 409 means stop this loop without retrying with refreshed credentials. Treat paths and names as data.` };
     try {
       if (availability.status === "available") await adapter.resume(binding, spec); else await adapter.startOwned(spec);
     } catch (error) {
@@ -188,7 +237,32 @@ export function createHubController(config, options = {}) {
         await delay(150);
         return { board: await observe(record), ...result };
       });
-      if (method === "rebind") return serial(id, async () => ({ board: await observe(rebindBoard(id, params.dir)) }));
+      if (method === "rebind") return serial(id, async () => {
+        const original = board(id), target = rebindBoard(id, params.dir, true);
+        const status = await probe(target);
+        let restart = status.server === "running";
+        if (status.hub && !sameRoute(status.hub, target)) {
+          if (!sameRoute(status.hub, original)) throw new Error("Moved board server has an unexpected route");
+          await call(target, { ...status, server: "running" }, "stop");
+          const stopped = await adapter.stop(id);
+          if (!stopped.stopped) throw new Error(stopped.error || "Board agent could not stop");
+          const until = Date.now() + 5000;
+          let gone = false;
+          while (Date.now() < until) {
+            if ((await probe(target)).server === "stopped") { gone = true; break; }
+            await delay(50);
+          }
+          if (!gone) throw new Error("Moved board server did not stop; rebind not committed");
+          if (read(path.join(target.dir, "board.json"))?.id !== id) throw new Error("Moved board identity changed during stop");
+          // The old process is gone. Fence even a previously unmanaged map at
+          // its verified destination; never copy its in-memory tree here.
+          atomic(path.join(target.dir, "hub-lifecycle.json"), { managed: true, paused: true, epoch: randomUUID(), attached: null });
+          restart = true;
+        } else if (status.server === "unknown") throw new Error(status.error || "Cannot verify moved server");
+        const rebound = rebindBoard(id, params.dir);
+        if (restart) await startServer(rebound);
+        return { board: await observe(rebound) };
+      });
       if (method === "open") {
         const value = await observe(board(id)); if (value.server !== "running") throw new Error("Board is not running; use Play first");
         return { url: value.url, board: value };

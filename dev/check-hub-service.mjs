@@ -6,7 +6,7 @@ import http from "node:http";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { registerBoard } from "../skills/grill/hub/registry.mjs";
+import { registerBoard, getBoard } from "../skills/grill/hub/registry.mjs";
 import { startHubService } from "../skills/grill/hub/service.mjs";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "grill-hub-service-"));
@@ -23,7 +23,7 @@ const adapter = {
   getState: () => state,
   probeBinding: async binding => ({ status: binding ? "available" : "absent" }),
   async startOwned(spec) { launches++; if (launchGate) await launchGate; await new Promise(r => setTimeout(r, 100)); if (fail) throw new Error("Intentional launch failure"); state = { status: "working", owned: true, epoch: spec.epoch, threadId: randomUUID(), provider: "codex", lastCheckedAt: Date.now() }; assert.match(spec.prompt, /standalone/); return state; },
-  async resume() { launches++; state = { status: "working", owned: false }; return state; },
+  async resume(binding, spec) { launches++; state = { status: "working", owned: false, provider: binding.provider, threadId: binding.id, epoch: spec.epoch }; return state; },
   async stop() { const owned = state?.owned; state = { ...state, status: "stopped" }; return { stopped: true, preserved: !owned }; },
   async close() {},
   async readChat() { return { data: [], state }; }
@@ -47,7 +47,8 @@ try {
   const params = { boardId: record.id };
   const terminalThreadBeforePlay = randomUUID();
   fs.writeFileSync(path.join(dir, "agent-connection.json"), JSON.stringify({ provider: "codex", id: terminalThreadBeforePlay }));
-  const terminalServer = spawn(process.execPath, [cli, "serve", "--dir", base, "--name", "test"], { cwd: project, env: { ...process.env, GRILL_HUB_HOME: dataDir }, windowsHide: true, stdio: "ignore" });
+  const aliasBase = path.join(tmp, "maps-alias"); fs.symlinkSync(base, aliasBase, "junction");
+  const terminalServer = spawn(process.execPath, [cli, "serve", "--dir", aliasBase, "--name", "test"], { cwd: project, env: { ...process.env, GRILL_HUB_HOME: dataDir }, windowsHide: true, stdio: "ignore" });
   try {
     let terminalUrl;
     for (let i = 0; i < 100; i++) {
@@ -179,6 +180,59 @@ try {
   assert.equal((await request("chat", params)).data[0].id, "turn-1");
   const secondChild = service.controller.adapter.sessions.get(record.id).rpc.child;
   assert.notEqual(secondChild.pid, firstChild.pid);
+  for (const phase of ["working", "idle"]) {
+    const session = service.controller.adapter.sessions.get(record.id);
+    session.state.status = phase;
+    const before = session.state.epoch, oldChild = session.rpc.child;
+    // Kill only this disposable, identity-verified map server, leaving its adapter alive.
+    const info = JSON.parse(fs.readFileSync(path.join(dir, "server.json")));
+    const live = await fetch(info.url + "api/hub", { headers: { "x-grill": "1" } }).then(r => r.json());
+    assert.equal(live.id, record.id);
+    process.kill(info.pid, "SIGKILL");
+    await new Promise(r => setTimeout(r, 200));
+    const recovered = await request("play", params);
+    assert.equal(recovered.board.threadId, ownedThread);
+    assert.notEqual(service.controller.adapter.getState(record.id).epoch, before);
+    assert.equal(oldChild.killed, true);
+    assert.equal((await fetch(recovered.board.url + "api/hub", { headers: { "x-grill": "1" } }).then(r => r.json())).paused, false);
+    const replacement = service.controller.adapter.sessions.get(record.id).rpc.child;
+    await request("play", params);
+    assert.equal(service.controller.adapter.sessions.get(record.id).rpc.child, replacement);
+  }
+  const beforeHelperRestart = (await request("open", params)).url;
+  const helperEpoch = service.controller.adapter.getState(record.id).epoch;
+  const attachResponse = await fetch(beforeHelperRestart + "api/hub/attach", { method: "POST", headers: { "x-grill": "1", "x-grill-owner": ownedThread, "x-grill-epoch": helperEpoch }, body: "{}" });
+  assert.equal(attachResponse.status, 200);
+  const lingering = fetch(beforeHelperRestart + "api/wait?timeout=20", { headers: { "x-grill": "1", "x-grill-owner": ownedThread, "x-grill-epoch": helperEpoch } });
+  await new Promise(r => setTimeout(r, 100));
+  await service.close(); service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  assert.equal((await request("list")).boards[0].connected, false, "Persisted owned metadata and a stale waiter do not prove a live model");
+  await request("play", params);
+  assert.equal((await lingering).status, 409);
+  assert.notEqual(service.controller.adapter.getState(record.id).epoch, helperEpoch);
+  assert.equal(service.controller.adapter.getState(record.id).threadId, ownedThread);
+  const oldPid = JSON.parse(fs.readFileSync(path.join(dir, "server.json"))).pid;
+  const oldEpoch = service.controller.adapter.getState(record.id).epoch;
+  const renamedDir = path.join(base, "renamed");
+  fs.renameSync(dir, renamedDir);
+  const reboundLive = await request("rebind", { ...params, dir: renamedDir });
+  assert.equal(reboundLive.board.server, "running"); assert.equal(reboundLive.board.name, "renamed");
+  assert.notEqual(JSON.parse(fs.readFileSync(path.join(renamedDir, "server.json"))).pid, oldPid);
+  assert.throws(() => process.kill(oldPid, 0), /ESRCH/);
+  const newRoute = reboundLive.board.url;
+  const freshHub = await fetch(newRoute + "api/hub", { headers: { "x-grill": "1" } }).then(r => r.json());
+  assert.equal(freshHub.dir, renamedDir); assert.notEqual(freshHub.epoch, oldEpoch);
+  const postMoved = (route, body) => fetch(newRoute + "api/" + route, { method: "POST", headers: { "x-grill": "1", "content-type": "application/json" }, body: JSON.stringify(body) });
+  for (const [route, body] of [["answer", { id: "q0", answer: "Moved durable answer" }], ["discuss", { id: "q1", message: "Moved durable discussion" }]]) {
+    const response = await postMoved(route, body); assert.equal(response.status, 200, await response.text());
+  }
+  const durable = fs.readFileSync(path.join(renamedDir, "state.json"), "utf8");
+  assert.match(durable, /Moved durable answer/); assert.match(durable, /Moved durable discussion/); assert.match(durable, /Preserved/);
+  assert.equal((await postMoved("apply", { type: "notes", notes: "late", hubEpoch: oldEpoch })).status, 409);
+  assert.equal(fs.existsSync(dir), false);
+  await request("stop", params);
+  fs.renameSync(renamedDir, dir); await request("rebind", { ...params, dir });
+  await request("play", params);
   assert.equal((await request("stop", params)).preserved, false);
   assert.equal(secondChild.killed, true);
   await service.close();
@@ -187,13 +241,55 @@ try {
   assert.equal(service.controller.adapter.getState(record.id).owned, true);
   const thirdChild = service.controller.adapter.sessions.get(record.id).rpc.child;
   assert.equal((await request("stop", params)).preserved, false); assert.equal(thirdChild.killed, true);
+  const movedProject = path.join(tmp, "project-moved"), movedDir = path.join(movedProject, ".grill", "test");
+  registerBoard({ dir, base, name: "test", project, cli: path.join(project, "removed-grill.mjs") });
+  fs.renameSync(project, movedProject);
+  const reboundProject = await request("rebind", { ...params, dir: movedDir });
+  assert.equal(reboundProject.board.project, movedProject);
+  assert.equal((await request("play", params)).board.threadId, ownedThread);
+  assert.equal(service.controller.adapter.getState(record.id).owned, true);
+  await request("stop", params);
   await service.close();
+  fs.unlinkSync(sessionFile);
+  const creationLog = path.join(tmp, "relocation-starts.txt");
+  config.codexArgs = [fileURLToPath(new URL("./check-hub-codex.mjs", import.meta.url)), "--fake", "queue-relocation", project, movedProject, creationLog];
+  fs.writeFileSync(configFile, JSON.stringify(config));
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  const replacementThread = "22222222-2222-4222-8222-222222222222";
+  assert.equal((await request("play", params)).board.threadId, replacementThread);
+  assert.equal(service.controller.adapter.getState(record.id).owned, true);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(movedDir, "agent-connection.json"))).id, ownedThread, "Fixture must remain before replacement attach");
+  assert.equal(JSON.parse(fs.readFileSync(sessionFile)).relocation.phase, "known");
+  await service.close();
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  assert.equal((await request("play", params)).board.threadId, replacementThread);
+  assert.equal(fs.readFileSync(creationLog, "utf8"), "start\n", "Helper restart before attach must resume, never create a second replacement");
+  await request("stop", params); await service.close();
+  const knownReplacement = fs.readFileSync(sessionFile, "utf8"), unknownCreation = JSON.parse(knownReplacement);
+  unknownCreation.id = null; unknownCreation.relocation.phase = "creating";
+  fs.writeFileSync(sessionFile, JSON.stringify(unknownCreation));
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  assert.match((await request("play", params, {}, 400)).error, /creation is ambiguous/);
+  assert.equal(fs.readFileSync(creationLog, "utf8"), "start\n");
+  await request("stop", params); await service.close();
+  fs.writeFileSync(sessionFile, knownReplacement);
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  fs.renameSync(movedProject, project); await request("rebind", { ...params, dir });
+  await service.close();
+  fs.unlinkSync(sessionFile);
   state = null; service = await startHubService(configFile, { adapter }); url = `http://127.0.0.1:${service.endpoint.port}`;
   const terminalThread = randomUUID();
   fs.writeFileSync(path.join(dir, "agent-connection.json"), JSON.stringify({ provider: "codex", id: terminalThread, owned: true }));
   const identity = (await request("list")).boards[0];
   assert.equal(identity.provider, "codex"); assert.equal(identity.threadId, terminalThread); assert.equal(identity.connected, false); assert.equal(identity.chatAvailable, false);
   await request("play", { ...params, owned: true }); assert.equal(state.owned, false);
+  const terminalEpoch = state.epoch, beforeTerminalRecovery = launches;
+  const terminalInfo = JSON.parse(fs.readFileSync(path.join(dir, "server.json")));
+  assert.equal((await fetch(terminalInfo.url + "api/hub", { headers: { "x-grill": "1" } }).then(r => r.json())).id, record.id);
+  process.kill(terminalInfo.pid, "SIGKILL"); await new Promise(r => setTimeout(r, 200));
+  await request("play", params);
+  assert.equal(launches, beforeTerminalRecovery + 1); assert.equal(state.owned, false);
+  assert.equal(state.threadId, terminalThread); assert.notEqual(state.epoch, terminalEpoch);
   assert.equal((await request("stop", params)).preserved, true);
   state = null;
   for (const malformed of [{ provider: "unknown", id: terminalThread }, { provider: "codex", id: "bad" }]) {
@@ -208,6 +304,6 @@ try {
 } finally {
   if (service) await service.close();
   // Terminate only a verified board through its protected API if a check failed.
-  try { const info = JSON.parse(fs.readFileSync(path.join(dir, "server.json"))); const check = await fetch(`http://127.0.0.1:${info.port}/api/hub`, { headers: { "x-grill": "1" } }); if ((await check.json()).id === record.id) await fetch(`http://127.0.0.1:${info.port}/api/hub/stop`, { method: "POST", headers: { "x-grill": "1" }, body: "{}" }); } catch {}
+  try { const info = JSON.parse(fs.readFileSync(path.join(getBoard(record.id).dir, "server.json"))); const check = await fetch(`http://127.0.0.1:${info.port}/api/hub`, { headers: { "x-grill": "1" } }); if ((await check.json()).id === record.id) await fetch(`http://127.0.0.1:${info.port}/api/hub/stop`, { method: "POST", headers: { "x-grill": "1" }, body: "{}" }); } catch {}
   await new Promise(r => setTimeout(r, 200)); fs.rmSync(tmp, { recursive: true, force: true });
 }

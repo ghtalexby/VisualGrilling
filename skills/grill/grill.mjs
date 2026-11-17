@@ -2025,7 +2025,15 @@ ${S.notes || "—"}
         return send(res, 200, hubStatus());
       }
       if (p === "/api/hub/stop") {
-        fence(true); send(res, 200, hubStatus());
+        // A renamed directory has already carried the durable journal away.
+        // Shut down without recreating the old path or copying stale memory over it.
+        if (!fs.existsSync(DIR)) {
+          stopping = true;
+          lifecycle = { managed: true, paused: true, epoch: randomUUID(), attached: null };
+          monitor = null; lastActivity = 0;
+          for (const w of waiters.splice(0)) { clearTimeout(w.timer); send(w.res, 409, { error: "Обработка карты остановлена" }); }
+        } else fence(true);
+        send(res, 200, hubStatus());
         setTimeout(() => { try { fs.unlinkSync(INFO); } catch {} process.exit(0); }, 100); return;
       }
       if (p === "/api/transfer") {

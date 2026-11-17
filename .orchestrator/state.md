@@ -3,7 +3,7 @@
 Project: VisualGrilling. Source: docs/vgril/specs/grill-boards-hub.md (2026-11-17).
 Source SHA256: 53c93b3d215ac16bad568ddac615fb5031cedf11bd1aa620f30cfa812ac04fc5.
 Base: 61b462f36d6db0499a830b72fe83d7679e4c0978. Initial working tree clean.
-Iteration 1, phase 2 (review pass 3 fixes). Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
+Iteration 1, phase 2 (review pass 5 pending). Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
 User approved archival of completed ContextBudget; previous state saved as context-budget-completed.md. This is the canonical boards-hub state. Independent preparation record remains as history.
 
 ## Requirements
@@ -109,5 +109,15 @@ Distinct fix_service_3 owns service/adapter/UI status consumers/tests, architect
 
 Review3 fixes complete: Stop/rebind invalidate pending Play sharing at admission, with cross-HTTP-client ordering regression; connection tri-state matches current attachment/thread/epoch, uses live RPC for ongoing board work and prioritizes known owned failure; UI displays unconfirmed distinctly. Architecture names hub-lifecycle.json. Root integration inspection additionally found stale predecessor binding hiding new pending login/approval and pre-thread login metadata blocking restart; both corrected with current-epoch pending attachment precedence and narrowly validated pre-thread recovery. Ambiguous string IDs still fail closed. Codex/service/extension/browser/native/runtime checks PASS; wide/narrow status captures inspected; owned service mirror synced. Preparing third fix commit, then fresh review pass4. Version unchanged1.0.22.
 
+## Full integration review pass 4 — changes requested
+Frozen0394c4e full scope independently reviewed. Six Hub suites, workers/monitor/maps/transfer/connection/usage/worker-cost, simulator PASS; installed links, mirrors,1.0.22 manifests and visual captures consistent. Two concrete recovery defects:
+- F1 P1 map-only crash then Play restarts server paused/new epoch but reuses existing old-epoch adapter forever without claim/resume.
+- F2 P1 moving live map then rebind accepts new routing while same-ID server still uses old DIR; new discussion fails500 ENOENT and is not saved.
+Fresh fix_recovery_4 owns service/runtime/registry/adapter as needed and tests/docs/mirrors. Required fixes include exact lifecycle reconciliation and safe verified-path stop/restart (no PID-only kill or overwriting moved state). Root requested coverage of whole default-project move as part relocation, preserving wrong-project thread guards. Current phase2/pass4 fixes; no version bump. Real acceptance of earlier ordinary/repeated owned lifecycle remains recorded, crash/move acceptance pending new checks.
+
+Terminal acceptance attempted through hidden PTY but host rejected both launches before process creation with CreateProcessW Access denied (os error5); alternative shell selection was ignored. No TUI/model task/thread/config/daemon change. Evidence hub-terminal-acceptance.json. Treat real terminal-preservation/resume acceptance as externally blocked, not proven by fixtures. Existing real owned acceptance remains valid.
+
 ## Checks
 Targeted new registry/lifecycle/adapter/native/extension checks; node dev/check-actions-simulator.mjs; worker/monitor/maps/connection/session-transfer/actions checks and affected consumers. Actual reboot, clean Windows install and model session tests cannot be replaced by fixtures.
+
+Review4 fixes complete: reconcile exact live epoch after map crash; retire scoped transport and resume same thread; validate canonical route as well as board ID before rebind; stop moved server without writing stale memory; preserve relocated journal. Verified whole-project relocation updates owned thread cwd, uses bundled runtime, and gives unavailable queue-only old-cwd sessions one durable owned replacement while preserving terminal. Creation marker and known replacement ID prevent duplicate startup across helper restart. Service/codex/workers final checks PASS; runtime/maps/monitor/transfer/simulator earlier PASS. Mirrors synchronized; version remains1.0.22. Real map-only crash acceptance and fresh full review5 pending.

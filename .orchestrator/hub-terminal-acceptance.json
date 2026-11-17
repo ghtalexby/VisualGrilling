@@ -1,0 +1,36 @@
+{
+  "at": "2026-11-17T11:28:40.496Z",
+  "platform": "win32",
+  "outcome": "BLOCKED",
+  "scope": "Real normally launched disposable Codex TUI, Hub Stop preserves terminal, Play resumes same terminal session",
+  "attempts": [
+    {
+      "operation": "Read installed Codex --help through hidden noninteractive process",
+      "result": "PASS: installed executable supports default interactive shared-daemon TUI, --no-alt-screen and optional --no-daemon; no runtime flags were changed."
+    },
+    {
+      "operation": "exec_command tty:true, default shell, benign node TTY detection only",
+      "result": "FAILED before process creation: CreateProcessW WindowsApps/pwsh.exe returned Access denied (os error 5)."
+    },
+    {
+      "operation": "exec_command tty:true with explicit System32 WindowsPowerShell shell and login:false, same benign detection",
+      "result": "FAILED before process creation: tool still attempted WindowsApps/pwsh.exe and returned Access denied (os error 5)."
+    }
+  ],
+  "blocker": "Execution host cannot create a hidden PTY: CreateProcessW Access denied (os error 5). No real TUI was launched; a visible terminal or custom PTY infrastructure would exceed the bounded safe acceptance setup.",
+  "safety": {
+    "newModelTasks": 0,
+    "newThreads": 0,
+    "newFixtureDirectories": 0,
+    "globalConfigChanged": false,
+    "daemonRestarted": false,
+    "existingTasksTargeted": false,
+    "cleanupRetried": false
+  },
+  "remaining": [
+    "Real terminal Stop preservation",
+    "Hub Play queue continuation to same disposable terminal session",
+    "Actual event listening after terminal resume"
+  ],
+  "priorOwnedAcceptance": "Unchanged: initial owned Play/grade/Stop and restarted-controller same-owned-thread resume acceptance passed."
+}

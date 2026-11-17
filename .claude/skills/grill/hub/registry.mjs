@@ -91,7 +91,7 @@ export function listBoards() {
   if (!fs.existsSync(dir)) return [];
   return fs.readdirSync(dir).filter(file => uuid.test(file.slice(0, -5)) && file.endsWith(".json")).map(file => { try { return inspect(read(path.join(dir, file))); } catch (e) { return { id: file.slice(0, -5), unavailable: true, readError: e.message }; } }).filter(Boolean);
 }
-export function rebindBoard(id, dir) {
+export function rebindBoard(id, dir, validateOnly = false) {
   return locked(() => {
     const record = read(recordFile(id)); if (!record) throw new Error("Board not registered");
     dir = canonical(dir);
@@ -100,7 +100,10 @@ export function rebindBoard(id, dir) {
     const name = record.name === null ? null : path.basename(dir);
     if (name !== null && !namePattern.test(name)) throw new Error("Invalid named board directory");
     const base = name === null ? dir : path.dirname(dir);
-    atomic(recordFile(id), { ...record, dir, base, name, project: same(record.project, path.dirname(record.base)) ? path.dirname(base) : record.project, updatedAt: Date.now() });
+    const rebound = { ...record, dir, base, name, project: same(record.project, path.dirname(record.base)) ? path.dirname(base) : record.project, updatedAt: Date.now() };
+    if (!same(rebound.project, record.project)) rebound.relocation = { from: record.relocation?.from || record.project, to: rebound.project };
+    if (validateOnly) return inspect(rebound);
+    atomic(recordFile(id), rebound);
     return getBoard(id);
   });
 }

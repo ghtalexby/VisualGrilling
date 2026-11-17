@@ -19,6 +19,8 @@ When the local boards hub launches or resumes this map, it supplies a captured e
 
 `G hub --status` reads lifecycle status. `G hub --claim` is the local controller's idempotent lease preparation; it does not prove agent attachment. `G hub --stop` fences results immediately and stops the map server while preserving accepted results and pending events. Stop is separate from `finish`; it creates no summary. A late-result or stopped-epoch 409 ends the current map loop without rearming. Play resumes the same state and replays unfinished work: do not use `init`, reset answers, create a replacement map or duplicate the consumer. The controller owns background process cleanup; preserve a user's terminal session.
 
+For a moved live board, the Hub validates the destination and original endpoint, stops it without writing stale in-memory state, confirms shutdown, then fences and restarts from the moved journal. Play supplies the new captured epoch after recovery; never refresh an old agent's epoch or relocate files yourself to bypass rejection.
+
 ## Map storage: choose before the first command
 
 The project working directory and the maps root are different paths. For new maps, use `<project>/.grill` unless the user explicitly requests another storage location. `--dir` is the maps root itself: the CLI does not append `.grill`. Passing `--dir <project>` puts named maps and root-level runtime files directly in the project root; do not do this merely to identify the project.
