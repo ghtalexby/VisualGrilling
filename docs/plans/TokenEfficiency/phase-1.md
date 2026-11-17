@@ -1,6 +1,6 @@
 # Worker context and session-tree cost
 
-Status: implemented; deterministic validation and independent review in progress. See TASK.md.
+Status: complete. Deterministic validation passed; the final independent review is clean after three passes. See TASK.md. Real-session cost/quality comparison remains a separate program milestone.
 
 ## Objective
 

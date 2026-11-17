@@ -27,3 +27,9 @@ Read ../ContextBudget/session-cost.md and context-budget.md. Their optimizations
 ## Priority
 
 Implement phase 1, measure all actors, then select remaining changes using the overall SPEC.md protocol. Preserve evidence quality over an arbitrary token ceiling.
+
+## Implemented phase 1 observations
+
+The implemented compact projection of the saved 75-document index is 17652 serialized characters versus 78708 for the full minified index: 78% smaller. It includes required versions/policy fields, so it is larger than the earlier path+headings illustration. Neither result measures whole-session savings.
+
+Session-tree adapter smoke check after implementation observed three workers with complete telemetry (260 ms initial, 2 ms cached read). Full historical archive scanning caused unacceptable latency; the supported adapter scans the standard parent creation date and later, bounds metadata-line reads, and runs discovery in the background. Explicitly moved/backdated files are outside that storage contract. A regression fixture ensures long instructions and arbitrary JSON field order cannot hide the parent ID. See TASK.md for commits/checks and the next real-session experiment.
