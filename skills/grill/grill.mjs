@@ -2005,7 +2005,7 @@ ${S.notes || "—"}
       // Only a discussion message carries images: base64 of the allowed files plus its text.
       const b = await readBody(req, p === "/api/discuss" ? Math.ceil(IMG_COUNT * IMG_MAX * 4 / 3) + 1e6 : 1e6);
       checkOwner();
-      if (["/api/apply", "/api/wait", "/api/monitor", "/api/init"].includes(p)) checkEpoch(req, b);
+      if (["/api/apply", "/api/wait", "/api/monitor", "/api/init", "/api/stop"].includes(p)) checkEpoch(req, b);
       if (stopping) throw [409, "Сервер останавливается"];
       if (p === "/api/hub/claim") {
         if (!lifecycle.managed && (currentWork || waiters.length || monitor)) throw [409, "Сначала остановите существующего обработчика"];

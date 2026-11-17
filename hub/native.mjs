@@ -5,6 +5,7 @@ import { timingSafeEqual, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 
 export const MAX_FRAME = 512 * 1024;
+export const MAX_PENDING = 16;
 const methods = new Set(["list", "open", "play", "stop", "rebind", "chat", "sendChat", "login", "approval"]);
 const fail = (message, code = "INVALID_REQUEST") => Object.assign(new Error(message), { code });
 const same = (a, b) => typeof a === "string" && typeof b === "string" && a.length <= 256 && b.length <= 256 && timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
@@ -109,15 +110,60 @@ export async function dispatch(message, configPath, origin, proxy = async (c, m)
   }
 }
 
+export async function runNative(input, output, configPath, origin) {
+  const active = new Set();
+  const plays = new Map();
+  let commands = Promise.resolve();
+  let writes = Promise.resolve();
+  let outputError;
+  const proxy = (config, message) => {
+    // Keep command order, but let concurrent Play envelopes share the pending
+    // command (including its failure). Stop/rebind delimit a new Play lifetime.
+    const key = JSON.stringify([config.installationId, config.epoch, config.secret, message.params?.boardId]);
+    if (message.method === "play" && plays.has(key)) return plays.get(key);
+    if (message.method === "stop" || message.method === "rebind") plays.delete(key);
+    const command = commands.then(async () => request(config, await ensureService(config, configPath), "/api/command", { method: message.method, params: message.params ?? {} }));
+    commands = command.catch(() => {});
+    if (message.method === "play") {
+      plays.set(key, command);
+      const clear = () => { if (plays.get(key) === command) plays.delete(key); };
+      command.then(clear, clear);
+    }
+    return command;
+  };
+  const onError = error => { outputError ||= error; };
+  output.on("error", onError);
+  try {
+    for await (const message of messages(input)) {
+      if (outputError) throw outputError;
+      const task = dispatch(message, configPath, origin, proxy).then(result => {
+        const write = writes.then(() => {
+          if (outputError) throw outputError;
+          // One complete frame per write; its callback bounds buffered output
+          // even when Chrome stops reading. Responses correlate by request ID.
+          return new Promise((resolve, reject) => output.write(frame(result), error => error ? reject(error) : resolve()));
+        });
+        writes = write.catch(onError);
+        return write;
+      }).catch(onError);
+      active.add(task);
+      task.then(() => active.delete(task));
+      if (active.size >= MAX_PENDING) await Promise.race(active);
+    }
+  } finally {
+    // EOF or a malformed later frame must not abandon already admitted work.
+    await Promise.all(active);
+    output.removeListener("error", onError);
+  }
+  if (outputError) throw outputError;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const configPath = args[args.indexOf("--config") + 1];
   const origin = args[args.indexOf("--origin") + 1];
   const config = readConfig(configPath);
   if (origin !== `chrome-extension://${config.extensionId}/`) throw fail("Untrusted native caller");
-  for await (const message of messages(process.stdin)) {
-    const output = frame(await dispatch(message, configPath, origin));
-    if (!process.stdout.write(output)) await new Promise(resolve => process.stdout.once("drain", resolve));
-  }
+  await runNative(process.stdin, process.stdout, configPath, origin);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(error => { process.stderr.write(`Hub: ${error.message}\n`); process.exitCode = 1; });

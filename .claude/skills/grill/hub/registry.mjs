@@ -4,6 +4,8 @@ import os from "node:os";
 import { randomUUID } from "node:crypto";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Keep routing names aligned with grill.mjs, including Windows device names.
+const namePattern = /^(?!(con|prn|aux|nul|com\d|lpt\d)$)[a-z0-9][a-z0-9-]{0,39}$/;
 export const hubHome = () => path.resolve(process.env.GRILL_HUB_HOME || path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "VisualGrilling", "Hub"));
 const read = file => { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
 const same = (a, b) => process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
@@ -95,9 +97,10 @@ export function rebindBoard(id, dir) {
     dir = canonical(dir);
     if (read(path.join(dir, "board.json"))?.id !== id) throw new Error("Board identity mismatch");
     if (!same(record.dir, dir) && fs.existsSync(record.dir)) throw new Error("Original board directory still exists");
-    if (record.name !== null && path.basename(dir) !== record.name) throw new Error("Named board directory must retain its map name");
-    const base = record.name === null ? dir : path.dirname(dir);
-    atomic(recordFile(id), { ...record, dir, base, project: same(record.project, path.dirname(record.base)) ? path.dirname(base) : record.project, updatedAt: Date.now() });
+    const name = record.name === null ? null : path.basename(dir);
+    if (name !== null && !namePattern.test(name)) throw new Error("Invalid named board directory");
+    const base = name === null ? dir : path.dirname(dir);
+    atomic(recordFile(id), { ...record, dir, base, name, project: same(record.project, path.dirname(record.base)) ? path.dirname(base) : record.project, updatedAt: Date.now() });
     return getBoard(id);
   });
 }

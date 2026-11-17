@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { registerBoard } from "../skills/grill/hub/registry.mjs";
@@ -44,6 +45,34 @@ try {
     assert.equal(status, 403);
   }
   const params = { boardId: record.id };
+  const terminalThreadBeforePlay = randomUUID();
+  fs.writeFileSync(path.join(dir, "agent-connection.json"), JSON.stringify({ provider: "codex", id: terminalThreadBeforePlay }));
+  const terminalServer = spawn(process.execPath, [cli, "serve", "--dir", base, "--name", "test"], { cwd: project, env: { ...process.env, GRILL_HUB_HOME: dataDir }, windowsHide: true, stdio: "ignore" });
+  try {
+    let terminalUrl;
+    for (let i = 0; i < 100; i++) {
+      const current = (await request("list")).boards[0];
+      if (current.server === "running") { terminalUrl = current.url; break; }
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.ok(terminalUrl);
+    const abort = new AbortController();
+    let waitResult;
+    const waiter = fetch(terminalUrl + "api/wait?timeout=20", { headers: { "x-grill": "1" }, signal: abort.signal }).then(async response => { waitResult = await response.json(); }).catch(() => {});
+    try {
+      // Let the wait admission save finish before registry polling opens state.json on Windows.
+      await new Promise(resolve => setTimeout(resolve, 150));
+      let live;
+      for (let i = 0; i < 50; i++) {
+        live = (await request("list")).boards[0]; if (live.connected) break;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.equal(live.connected, true, JSON.stringify({ live, waitResult })); assert.equal(live.provider, "codex"); assert.equal(live.threadId, terminalThreadBeforePlay); assert.equal(live.chatAvailable, false);
+    } finally { abort.abort(); await waiter; }
+    await fetch(terminalUrl + "api/hub/stop", { method: "POST", headers: { "x-grill": "1" }, body: "{}" });
+    await new Promise(resolve => terminalServer.exitCode !== null ? resolve() : terminalServer.once("exit", resolve));
+  } finally { if (terminalServer.exitCode === null) terminalServer.kill(); fs.unlinkSync(path.join(dir, "agent-connection.json")); }
+
   const [first, second] = await Promise.all([request("play", params), request("play", params)]);
   assert.equal(launches, 1); assert.deepEqual(first, second); assert.equal(first.board.connected, false); assert.equal(first.board.server, "running");
   const opened = await request("open", params); assert.equal(opened.url, (await request("open", params)).url); assert.equal(launches, 1);
@@ -86,6 +115,53 @@ try {
   assert.equal((await request("stop", params)).preserved, true);
   await service.close(); service = await startHubService(configFile, { adapter }); url = `http://127.0.0.1:${service.endpoint.port}`;
   assert.equal((await request("list")).boards.length, 1);
+  await service.close();
+  // Exercise the real adapter/controller persistence path with a fake JSON-RPC
+  // child. Its proxy intentionally fails: owned resume must use standalone stdio.
+  fs.unlinkSync(path.join(dir, "agent-connection.json"));
+  config.codexCommand = process.execPath;
+  config.codexArgs = [fileURLToPath(new URL("./check-hub-codex.mjs", import.meta.url)), "--fake", "owned", project];
+  fs.writeFileSync(configFile, JSON.stringify(config));
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  const ownedPlay = await request("play", params);
+  const ownedThread = ownedPlay.board.threadId;
+  assert.equal(ownedPlay.board.chatAvailable, true);
+  const persistedBinding = { provider: "codex", id: ownedThread, owned: false };
+  fs.writeFileSync(path.join(dir, "agent-connection.json"), JSON.stringify(persistedBinding));
+  const firstChild = service.controller.adapter.sessions.get(record.id).rpc.child;
+  assert.equal((await request("stop", params)).preserved, false);
+  assert.equal(firstChild.killed, true);
+  const resumed = await request("play", { ...params, owned: false });
+  assert.equal(resumed.board.threadId, ownedThread);
+  assert.equal(service.controller.adapter.getState(record.id).owned, true);
+  assert.equal((await request("chat", params)).data[0].id, "turn-1");
+  const secondChild = service.controller.adapter.sessions.get(record.id).rpc.child;
+  assert.notEqual(secondChild.pid, firstChild.pid);
+  assert.equal((await request("stop", params)).preserved, false);
+  assert.equal(secondChild.killed, true);
+  await service.close();
+  service = await startHubService(configFile); url = `http://127.0.0.1:${service.endpoint.port}`;
+  assert.equal((await request("play", params)).board.threadId, ownedThread);
+  assert.equal(service.controller.adapter.getState(record.id).owned, true);
+  const thirdChild = service.controller.adapter.sessions.get(record.id).rpc.child;
+  assert.equal((await request("stop", params)).preserved, false); assert.equal(thirdChild.killed, true);
+  await service.close();
+  state = null; service = await startHubService(configFile, { adapter }); url = `http://127.0.0.1:${service.endpoint.port}`;
+  const terminalThread = randomUUID();
+  fs.writeFileSync(path.join(dir, "agent-connection.json"), JSON.stringify({ provider: "codex", id: terminalThread, owned: true }));
+  const identity = (await request("list")).boards[0];
+  assert.equal(identity.provider, "codex"); assert.equal(identity.threadId, terminalThread); assert.equal(identity.connected, false); assert.equal(identity.chatAvailable, false);
+  await request("play", { ...params, owned: true }); assert.equal(state.owned, false);
+  assert.equal((await request("stop", params)).preserved, true);
+  state = null;
+  for (const malformed of [{ provider: "unknown", id: terminalThread }, { provider: "codex", id: "bad" }]) {
+    fs.writeFileSync(path.join(dir, "agent-connection.json"), JSON.stringify(malformed));
+    assert.equal((await request("list")).boards[0].threadId, null);
+    await request("play", params, {}, 400);
+  }
+  fs.unlinkSync(path.join(dir, "agent-connection.json"));
+  fs.writeFileSync(path.join(base, "agent-connection.json"), JSON.stringify({ provider: "codex", id: terminalThread }));
+  assert.equal((await request("list")).boards[0].provider, null);
   console.log("Hub service checks passed: auth/rotation, singleton, real saved server Play/Stop, shared success/error, independent status/counts, missing/restart retention (fake Codex adapter; no model turns).");
 } finally {
   if (service) await service.close();

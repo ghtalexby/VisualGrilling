@@ -1,0 +1,130 @@
+{
+  "startedAt": "2026-11-17T11:08:59.817Z",
+  "platform": "win32",
+  "temporaryRoot": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5",
+  "boardId": "43824657-1c96-42aa-9471-0fb402fd25a0",
+  "expectedThread": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+  "events": [
+    {
+      "at": "2026-11-17T11:08:59.818Z",
+      "event": "play_requested_after_controller_restart"
+    },
+    {
+      "at": "2026-11-17T11:09:02.553Z",
+      "event": "play_returned",
+      "board": {
+        "id": "43824657-1c96-42aa-9471-0fb402fd25a0",
+        "project": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project",
+        "dir": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill\\acceptance",
+        "base": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill",
+        "name": "acceptance",
+        "title": "Disposable Hub acceptance",
+        "finished": false,
+        "counts": {
+          "open": 1,
+          "closed": 1
+        },
+        "server": "running",
+        "agent": "working",
+        "connected": false,
+        "provider": "codex",
+        "transport": null,
+        "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+        "agentCheckedAt": 1794913742548,
+        "checkedAt": 1794913742549,
+        "attemptedAt": 1794913742549,
+        "stale": false,
+        "missing": false,
+        "error": null,
+        "url": "http://127.0.0.1:4781/",
+        "chatAvailable": true
+      }
+    },
+    {
+      "at": "2026-11-17T11:09:02.557Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": null,
+      "connected": false,
+      "waiting": false,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:09:12.595Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "connected": false,
+      "waiting": false,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:09:26.673Z",
+      "event": "observed",
+      "adapterStatus": "working",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "owned": true,
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "connected": true,
+      "waiting": true,
+      "workActive": false,
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:09:26.879Z",
+      "event": "stop_returned",
+      "board": {
+        "id": "43824657-1c96-42aa-9471-0fb402fd25a0",
+        "project": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project",
+        "dir": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill\\acceptance",
+        "base": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill",
+        "name": "acceptance",
+        "title": "Disposable Hub acceptance",
+        "finished": false,
+        "counts": {
+          "open": 1,
+          "closed": 1
+        },
+        "server": "stopped",
+        "agent": "disconnected",
+        "connected": false,
+        "provider": "codex",
+        "transport": null,
+        "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+        "agentCheckedAt": null,
+        "checkedAt": 1794913766864,
+        "attemptedAt": 1794913766864,
+        "stale": false,
+        "missing": false,
+        "error": null,
+        "url": null,
+        "chatAvailable": false
+      },
+      "stopped": true,
+      "preserved": false
+    }
+  ],
+  "checks": {
+    "sameSavedThread": true,
+    "owned": true,
+    "notQueued": true,
+    "newOwnedProcess": true,
+    "actualAttachAndWait": true,
+    "serverStopped": true,
+    "ownedProcessEnded": true,
+    "answerRetainedExactlyOnce": true,
+    "receiptsUnchanged": true,
+    "queueUnchanged": true,
+    "unfinished": true
+  },
+  "temporaryStateRetained": true,
+  "ownedPid": 42084,
+  "outcome": "PASS",
+  "finishedAt": "2026-11-17T11:09:27.388Z"
+}

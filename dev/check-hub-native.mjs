@@ -3,10 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Readable } from "node:stream";
-import { spawnSync } from "node:child_process";
+import { Readable, Writable } from "node:stream";
+import { spawn, spawnSync } from "node:child_process";
+import http from "node:http";
 import { randomBytes, randomUUID } from "node:crypto";
-import { frame, messages, dispatch, MAX_FRAME } from "../hub/native.mjs";
+import { frame, messages, dispatch, runNative, MAX_FRAME, MAX_PENDING } from "../hub/native.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "grill-native-"));
@@ -54,6 +55,88 @@ try {
   assert.notEqual(badOrigin.status, 0); assert.equal(badOrigin.stdout.length, 0);
   const truncated = spawnSync(process.execPath, [native, "--config", configPath, "--origin", origin], { input: Buffer.from([2, 0, 0]), windowsHide: true });
   assert.notEqual(truncated.status, 0); assert.equal(truncated.stdout.length, 0);
+
+  // Exercise the real native entry point and HTTP proxy, with EOF immediately
+  // after simultaneous frames. A failed launch must be shared, not retried.
+  let launches = 0;
+  let pendingPlay;
+  let failLaunch = false;
+  const seen = [];
+  const server = http.createServer(async (req, res) => {
+    assert.equal(req.headers.authorization, `Bearer ${config.secret}`);
+    assert.equal(req.headers["x-grill-epoch"], config.epoch);
+    assert.equal(req.headers["x-grill"], "1");
+    if (req.url === "/api/health") { res.end(JSON.stringify({ installationId: config.installationId, epoch: config.epoch })); return; }
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    const command = JSON.parse(Buffer.concat(chunks));
+    seen.push(command.method);
+    let result = { stopped: true };
+    if (command.method === "play") {
+      if (!pendingPlay) {
+        const launch = ++launches;
+        pendingPlay = new Promise(resolve => setTimeout(() => resolve(failLaunch ? { error: { code: "LAUNCH_FAILED", message: `launch failure ${launch}` } } : { launch }), 80));
+        pendingPlay.then(() => { pendingPlay = null; });
+      }
+      result = await pendingPlay;
+    }
+    res.statusCode = result.error ? 500 : 200;
+    res.end(JSON.stringify(result));
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  fs.writeFileSync(path.join(temporary, "endpoint.json"), JSON.stringify({ port: server.address().port, installationId: config.installationId, epoch: config.epoch }));
+  const nativeBatch = async (values, suffix = Buffer.alloc(0)) => {
+    const processChild = spawn(process.execPath, [native, "--config", configPath, "--origin", origin], { windowsHide: true });
+    const stdout = [], stderr = [];
+    processChild.stdout.on("data", data => stdout.push(data));
+    processChild.stderr.on("data", data => stderr.push(data));
+    const finished = new Promise((resolve, reject) => { processChild.once("error", reject); processChild.once("close", code => resolve(code)); });
+    const timer = setTimeout(() => processChild.kill(), 15000);
+    processChild.stdin.end(Buffer.concat([...values.map(frame), suffix]));
+    try { return { code: await finished, replies: await collect(stdout), stderr: Buffer.concat(stderr).toString() }; }
+    finally { clearTimeout(timer); }
+  };
+  const play = id => ({ ...request("play"), id, params: { boardId: "board" } });
+  try {
+    for (const failing of [false, true]) {
+      launches = 0; failLaunch = failing;
+      const batch = await nativeBatch([play("first"), play("second")]);
+      assert.equal(batch.code, 0, batch.stderr);
+      assert.equal(launches, 1);
+      assert.deepEqual(batch.replies.map(reply => reply.id).sort(), ["first", "second"]);
+      assert.equal(batch.replies[0].ok, !failing);
+      assert.deepEqual(batch.replies[0].result, batch.replies[1].result);
+      assert.deepEqual(batch.replies[0].error, batch.replies[1].error);
+    }
+    launches = 0; failLaunch = false; seen.length = 0;
+    const ordered = await nativeBatch([play("before"), { ...play("stop"), method: "stop" }, play("after")]);
+    assert.equal(ordered.code, 0, ordered.stderr);
+    assert.equal(launches, 2);
+    assert.deepEqual(seen, ["play", "stop", "play"]);
+    assert.equal(ordered.replies.length, 3);
+    const malformed = await nativeBatch([play("admitted")], Buffer.from([1, 0, 0, 0, 123]));
+    assert.notEqual(malformed.code, 0);
+    assert.equal(malformed.replies[0].id, "admitted");
+    assert.equal(malformed.replies[0].ok, true);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+
+  // A blocked stdout must stop admission without dropping frames at EOF.
+  let produced = 0;
+  let releaseWrite;
+  const written = [];
+  const blockedOutput = new Writable({ highWaterMark: 1, write(chunk, encoding, callback) { written.push(Buffer.from(chunk)); releaseWrite = callback; } });
+  const input = { async *[Symbol.asyncIterator]() { for (let i = 0; i < MAX_PENDING * 3; i++) { produced++; yield frame({ v: 1, id: `bound-${i}`, method: "bind" }); } } };
+  const running = runNative(input, blockedOutput, configPath, origin);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(produced, MAX_PENDING);
+  assert.equal(written.length, 1);
+  for (let i = 0; i < MAX_PENDING * 3; i++) {
+    assert.equal(typeof releaseWrite, "function");
+    const release = releaseWrite; releaseWrite = undefined; release();
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  await running;
+  assert.equal((await collect(written)).length, MAX_PENDING * 3);
+  console.log("Native concurrent Play success/failure, control ordering, EOF and output backpressure checks passed.");
 
   if (process.platform === "win32") {
     const fixture = path.join(temporary, "package");

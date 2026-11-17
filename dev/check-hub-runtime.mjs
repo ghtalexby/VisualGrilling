@@ -18,17 +18,17 @@ function child(args) {
   p.done = new Promise(resolve => p.once("exit", code => { children.delete(p); resolve({ code, error }); }));
   return p;
 }
-async function start() {
-  const p = child([cli, "serve", "--dir", base, "--name", "a", "--port", "0", "--lang", "en"]);
+async function start(board = { dir, base, name: "a" }) {
+  const p = child([cli, "serve", "--dir", board.base, ...(board.name === null ? [] : ["--name", board.name]), "--port", "0", "--lang", "en"]);
   for (let i = 0; i < 100; i++) {
-    try { const info = JSON.parse(fs.readFileSync(path.join(dir, "server.json"))); if (info.pid === p.pid) return { p, url: info.url }; } catch {}
+    try { const info = JSON.parse(fs.readFileSync(path.join(board.dir, "server.json"))); if (info.pid === p.pid) return { p, url: info.url }; } catch {}
     if (p.exitCode !== null) throw new Error((await p.done).error);
     await sleep(50);
   }
   throw new Error("Server readiness timeout");
 }
 async function request(server, route, body, epoch, status = 200) {
-  const r = await fetch(server.url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json", ...(epoch ? { "x-grill-epoch": epoch } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
+  const r = await fetch(server.url + "api/" + route, { method: body === undefined ? "GET" : "POST", headers: { "x-grill": "1", "content-type": "application/json", ...(server.owner ? { "x-grill-owner": server.owner } : {}), ...(epoch ? { "x-grill-epoch": epoch } : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(10000) });
   assert.equal(r.status, status, await r.clone().text()); return r.json();
 }
 try {
@@ -39,10 +39,16 @@ try {
   assert.equal(registerBoard({ dir, base, name: "a", project: tmp, cli }).id, record.id);
   const copy = path.join(tmp, "copy"); fs.cpSync(dir, copy, { recursive: true });
   assert.throws(() => registerBoard({ dir: copy, base: copy, cli }), /elsewhere/);
+  assert.throws(() => rebindBoard(record.id, copy), /still exists/);
   const moved = path.join(tmp, "moved", "a"); fs.mkdirSync(path.dirname(moved)); fs.renameSync(dir, moved);
   assert.equal(getBoard(record.id).missing, true);
   assert.throws(() => rebindBoard(record.id, base), /mismatch/);
   assert.equal(rebindBoard(record.id, moved).missing, false);
+  assert.equal(getBoard(record.id).project, tmp, "Custom project path must survive rebind");
+  const badName = path.join(tmp, "moved", "Invalid-name"); fs.renameSync(moved, badName);
+  assert.throws(() => rebindBoard(record.id, badName), /Invalid named/);
+  assert.equal(getBoard(record.id).dir, moved, "Invalid rebind must not update the record");
+  fs.renameSync(badName, moved);
   fs.renameSync(moved, dir); rebindBoard(record.id, dir);
   const module = new URL("../skills/grill/hub/registry.mjs", import.meta.url).href;
   const code = `import {registerBoard} from ${JSON.stringify(module)}; registerBoard(${JSON.stringify({ dir, base, name: "a", project: tmp, cli })});`;
@@ -95,8 +101,34 @@ try {
   server = await start();
   assert.equal((await request(server, "state")).nodes.find(n => n.id === id).answer, "Policy accepted");
   await request(server, "apply", result, undefined, 409);
+  const activeLease = await request(server, "hub/claim", {});
+  server.owner = one;
+  await request(server, "hub/attach", {}, activeLease.epoch);
   await request(server, "hub/stop", {}); await server.p.done;
-  console.log("Hub runtime: identity, counts, missing/rebind, concurrency, empty-lock recovery, epoch fence, replay, accepted result, restart and 403 passed");
+  server = await start(); server.owner = one;
+  const replacementLease = await request(server, "hub/claim", {});
+  await request(server, "hub/attach", {}, replacementLease.epoch);
+  await request(server, "stop", {}, activeLease.epoch, 409);
+  await request(server, "stop", {}, undefined, 409);
+  assert.equal((await request(server, "hub")).epoch, replacementLease.epoch);
+  await request(server, "stop", {}, replacementLease.epoch); await server.p.done;
+  const renamed = path.join(base, "renamed"); fs.renameSync(dir, renamed);
+  const rebound = rebindBoard(record.id, renamed);
+  assert.equal(rebound.id, record.id); assert.equal(rebound.name, "renamed"); assert.equal(rebound.base, base);
+  server = await start(rebound);
+  assert.equal((await request(server, "hub")).id, record.id);
+  assert.equal((await request(server, "state")).name, "renamed");
+  assert.equal((await request(server, "state")).nodes.find(n => n.id === id).answer, "Policy accepted");
+  await request(server, "hub/stop", {}); await server.p.done;
+  const legacyDir = path.join(tmp, "legacy"); fs.mkdirSync(legacyDir);
+  const legacy = registerBoard({ dir: legacyDir, base: legacyDir, cli });
+  const legacyMoved = path.join(tmp, "new-project", "legacy-renamed"); fs.mkdirSync(path.dirname(legacyMoved)); fs.renameSync(legacyDir, legacyMoved);
+  const legacyRebound = rebindBoard(legacy.id, legacyMoved);
+  assert.equal(legacyRebound.name, null); assert.equal(legacyRebound.base, legacyMoved);
+  assert.equal(legacyRebound.project, path.dirname(legacyMoved));
+  server = await start(legacyRebound);
+  await request(server, "stop", {}); await server.p.done;
+  console.log("Hub runtime: identity, renamed/legacy rebind, counts, conflicts, concurrency, empty-lock recovery, same-owner stop epoch fence, replay, accepted result, restart and 403 passed");
 } finally {
   for (const p of children) p.kill();
   await Promise.all([...children].map(p => p.done));

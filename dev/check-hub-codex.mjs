@@ -5,7 +5,9 @@ import { createCodexAdapter, CodexRpc } from "../skills/grill/hub/codex.mjs";
 
 const self = fileURLToPath(import.meta.url);
 if (process.argv[2] === "--fake") {
-  const mode = process.argv[3]; let authenticated = mode !== "login";
+  const mode = process.argv[3];
+  if (mode === "owned" && process.argv.includes("proxy")) process.exit(2);
+  let authenticated = mode !== "login";
   const send = value => process.stdout.write(JSON.stringify(value) + "\n");
   readline.createInterface({ input: process.stdin }).on("line", line => {
     const { id, method, params } = JSON.parse(line);
@@ -13,7 +15,7 @@ if (process.argv[2] === "--fake") {
     if (mode === "timeout" && method !== "initialize") return;
     if (method === "thread/read" && mode === "absent") return send({ id, error: { code: -32600, message: "no rollout found for thread id absent" } });
     if (method === "thread/read" && mode === "unknown") return send({ id, error: { code: -32603, message: "Storage inaccessible" } });
-    const thread = { id: "thread-1", cwd: process.cwd(), status: { type: mode === "busy" ? "active" : "idle" } };
+    const thread = { id: "11111111-1111-4111-8111-111111111111", cwd: mode === "owned" && process.argv[4] !== "app-server" ? process.argv[4] : process.cwd(), status: { type: mode === "busy" ? "active" : "idle" } };
     let result = {};
     if (method === "thread/read" || method === "thread/start" || method === "thread/resume") result = { thread };
     if (method === "account/read") result = { account: authenticated ? { type: "chatgpt" } : null, requiresOpenaiAuth: true };
@@ -21,17 +23,36 @@ if (process.argv[2] === "--fake") {
     if (method === "turn/start") result = { turn: { id: "turn-1", status: "inProgress" } };
     if (method === "thread/turns/list") result = { data: [{ id: "turn-1", items: [{ type: "userMessage", content: [{ type: "text", text: "hello" }] }] }], nextCursor: null };
     send({ id, result });
-    if (method === "turn/start" && mode === "approval") send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: "thread-1", turnId: "turn-1", command: "example" } });
+    if (method === "turn/start" && mode === "approval") send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: "11111111-1111-4111-8111-111111111111", turnId: "turn-1", command: "example" } });
   });
 } else {
   const adapter = mode => createCodexAdapter({ command: process.execPath, args: [self, "--fake", mode], timeoutMs: 2000 });
-  const binding = { provider: "codex", id: "thread-1" };
+  const binding = { provider: "codex", id: "11111111-1111-4111-8111-111111111111" };
   const spec = { boardId: "board-1", epoch: 4, cwd: process.cwd(), prompt: "Continue the existing map; preserve its data." };
   for (const [mode, expected] of [["normal", "available"], ["busy", "busy"], ["absent", "absent"], ["unknown", "unknown"]]) {
     const a = adapter(mode); assert.equal((await a.probeBinding(binding)).status, expected); await a.close();
   }
   for (const mode of ["normal", "busy", "unknown"]) {
     const a = adapter(mode); await assert.rejects(a.startOwned({ ...spec, previousBinding: binding }), /fallback refused/); await a.close();
+  }
+  const owned = adapter("owned");
+  const started = await owned.startOwned(spec);
+  const firstChild = owned.sessions.get(spec.boardId).rpc.child;
+  assert.equal((await owned.stop(spec.boardId)).preserved, false);
+  await new Promise(resolve => firstChild.exitCode !== null ? resolve() : firstChild.once("exit", resolve));
+  const resumed = await owned.resume({ provider: "codex", id: started.threadId, owned: true }, spec);
+  assert.equal(resumed.owned, true); assert.equal(resumed.threadId, started.threadId);
+  assert.equal(owned.canReadChat(spec.boardId), true);
+  assert.equal((await owned.readChat(spec.boardId)).data[0].id, "turn-1");
+  const secondChild = owned.sessions.get(spec.boardId).rpc.child;
+  assert.notEqual(firstChild.pid, secondChild.pid);
+  assert.equal((await owned.stop(spec.boardId)).preserved, false);
+  await new Promise(resolve => secondChild.exitCode !== null ? resolve() : secondChild.once("exit", resolve));
+  assert.equal(owned.canReadChat(spec.boardId), false); await owned.close();
+  for (const mode of ["busy", "unknown"]) {
+    const unsafe = adapter(mode);
+    await assert.rejects(unsafe.resume({ ...binding, owned: true }, spec), /busy|unknown/);
+    assert.equal(unsafe.getState(spec.boardId), null); await unsafe.close();
   }
   const a = adapter("normal");
   const [first, second] = await Promise.all([a.startOwned(spec), a.startOwned(spec)]);
@@ -63,7 +84,7 @@ if (process.argv[2] === "--fake") {
   const connect = fallback.connect.bind(fallback);
   fallback.connect = async (binding, owned, session) => { if (!owned) throw new Error("Unsupported proxy transport"); return connect(binding, owned, session); };
   assert.equal((await fallback.probeBinding(binding)).transport, "queue");
-  const pending = await fallback.resume(binding, spec); assert.equal(pending.status, "starting"); assert.equal(pending.owned, false); assert.equal(queued, 1);
+  const pending = await fallback.resume(binding, spec); assert.equal(pending.status, "starting"); assert.equal(pending.owned, false); assert.equal(queued, 1); assert.equal(fallback.canReadChat(spec.boardId), false);
   assert.equal((await fallback.stop(spec.boardId)).preserved, true);
   warning = true; await assert.rejects(fallback.resume(binding, spec), /warning/);
   assert.equal(fallback.getState(spec.boardId).status, "error"); assert.equal(queued, 2);

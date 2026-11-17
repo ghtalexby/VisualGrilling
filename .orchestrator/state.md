@@ -1,6 +1,7 @@
 # Boards hub implementation preparation
 
 Project: VisualGrilling. Source: docs/vgril/specs/grill-boards-hub.md (2026-11-17).
+Source SHA256: 53c93b3d215ac16bad568ddac615fb5031cedf11bd1aa620f30cfa812ac04fc5.
 Base: 61b462f36d6db0499a830b72fe83d7679e4c0978. Initial working tree clean.
 Iteration 1, phase 0. Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
 User approved archival of completed ContextBudget; previous state saved as context-budget-completed.md. This is the canonical boards-hub state. Independent preparation record remains as history.
@@ -83,6 +84,21 @@ live_acceptance assigned one bounded real owned background Play/Stop test on dis
 - Native compiled launcher/staging and extension real-native-dispatch credential tests PASS on integrated release. Root preview/knowledge/context/actions/followups/simulator checks PASS.
 - Real owned Codex acceptance PASS: attached, live wait, one answer graded ok, protected chat read, Stop terminated owned process/server, accepted result/receipt preserved exactly once, restart old epoch409. Evidence hub-live-acceptance.json. No login/approval arose; those flows have deterministic UI/protocol checks. Temporary fixture cleanup was rejected by automatic approval policy; directory retained, all processes stopped.
 - review_integrated_2 has read full spec/docs and viewed captures, no visual blocker; code pass will begin on review1 commit. Extension/native/Store install and actual reboot not yet accepted; terminal fallback has safe identity probe but no real continuation message acceptance.
+
+## Full integration review pass 2 — changes requested
+Reviewed frozen a74c87f. Independent runtime/codex/service/native/extension/browser/workers/monitor/maps/transfer/connection/simulator PASS; all39 mirrored source files and1.0.22 release manifests agree. Fresh visual review found no additional blocker.
+- F1 P1 previous owned background thread resumes as external on second Play; second Stop preserves it incorrectly. fix_service_2 owns service+adapter/tests/mirrors: trusted persisted ownership, same-thread owned resume and repeated/service-restart coverage.
+- F2 P1 sequential native port serializes simultaneous Play into two launches on failure. fix_native_2 owns native/tests/readme: bounded concurrent dispatch/coalescing and actual framed-process regression.
+- F3 P1 same-session stale epoch can call /api/stop and stop replacement lifecycle. fix_runtime_2 owns runtime/registry/tests/mirrors and contract: epoch gate on worker stop, separate Hub user control unchanged.
+- F4 P2 correct-ID folder rename rejected by old basename check. fix_runtime_2: validate new supported name and update routing atomically.
+- F5 P2 live ordinary terminal waiter loses provider/thread identity in Hub list. fix_service_2: validated map binding fallback without assuming connectivity; also avoid unavailable queue-transport chat links.
+Three disjoint fixers active. Version stays1.0.22. Root will commit review2 fixes after relevant checks then request another fresh integrated review. Production Store publication, actual clean-machine Chrome install and reboot acceptance remain external unverified dependencies, not claimed complete.
+
+Review2 fix evidence: fix_runtime_2 completed stale/current epoch Stop and same-ID renamed routing with custom-project/legacy/copy/invalid-name regressions; runtime/maps/monitor/transfer PASS, owned mirrors synced. fix_native_2 completed native16-envelope bound, pending Play shared success/error, serialized control order, output backpressure and EOF/malformed-input drain; actual native child/HTTP coalescing + compiled staging checks PASS. Service ownership/provider fixer finishing focused checks before actual repeated owned lifecycle test and review2 commit.
+
+Review2 complete: fix_service_2 preserves trusted same-thread ownership across Stop/Play/service restart, validates per-map provider identity separately from connectivity, and advertises chat only with live RPC; codex/service checks PASS. Windows read/rename timing made initial fixture polling transiently fail; settling admission before polling produced two passing final runs, no product error hidden. consumer_docs synchronized architecture/development/contract;30 local links and whitespace PASS.
+Real repeated acceptance PASS after recreating controller: same saved thread, new owned standalone process (no queue), attach+live wait in24seconds, Stop terminates owned process/server, original answer exactly once and receipts/queue unchanged. Evidence hub-live-resume.json; no additional answer, login or approval. Retained disposable directory was not deleted again.
+Preparing review2 fix commit, then fresh integrated review pass3. Version remains1.0.22; no second release bump.
 
 ## Checks
 Targeted new registry/lifecycle/adapter/native/extension checks; node dev/check-actions-simulator.mjs; worker/monitor/maps/connection/session-transfer/actions checks and affected consumers. Actual reboot, clean Windows install and model session tests cannot be replaced by fixtures.

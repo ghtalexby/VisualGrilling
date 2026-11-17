@@ -113,7 +113,7 @@ export class CodexAdapter {
     if (binding.provider !== "codex" || typeof (binding.id || binding.threadId) !== "string") return { status: "unknown", reason: "Invalid binding" };
     let rpc;
     try {
-      rpc = await this.connect(binding, false);
+      rpc = await this.connect(binding, binding.owned === true);
       const { thread } = await rpc.request("thread/read", { threadId: binding.id || binding.threadId, includeTurns: false });
       if (!thread || thread.id !== (binding.id || binding.threadId)) return { status: "unknown", reason: "Thread identity mismatch" };
       const type = thread.status?.type;
@@ -122,6 +122,7 @@ export class CodexAdapter {
       // Only the protocol's explicit missing-thread response permits fallback.
       const missing = error instanceof CodexRpcError && error.code === -32600 && /^no rollout found for thread id /i.test(error.message);
       if (missing) return { status: "absent", reason: error.message };
+      if (binding.owned === true) return { status: "unknown", reason: error.message };
       // Some desktop versions expose a control proxy with a different transport.
       // A dedicated read-only app-server can verify persisted thread identity;
       // only the queue command may then ask its original host to resume it.
@@ -130,7 +131,8 @@ export class CodexAdapter {
         reader = await this.connect(binding, true);
         const { thread } = await reader.request("thread/read", { threadId: binding.id || binding.threadId, includeTurns: false });
         if (thread?.id !== (binding.id || binding.threadId)) throw new Error("Thread identity mismatch");
-        return { status: "available", transport: "queue", thread };
+        const type = thread.status?.type;
+        return { status: type === "active" ? "busy" : ["idle", "notLoaded"].includes(type) ? "available" : "unknown", transport: "queue", thread };
       } catch (failure) {
         const absent = failure instanceof CodexRpcError && failure.code === -32600 && /^no rollout found for thread id /i.test(failure.message);
         return { status: absent ? "absent" : "unknown", reason: failure.message };
@@ -148,7 +150,7 @@ export class CodexAdapter {
       if (typeof probe.thread.cwd !== "string" || path.resolve(probe.thread.cwd).toLowerCase() !== path.resolve(spec.cwd).toLowerCase()) throw new Error("Codex session belongs to a different or unknown project");
       for (const session of this.sessions.values()) if (session.state.boardId !== spec.boardId && session.state.threadId === probe.thread.id && session.state.status !== "stopped") throw new Error("Codex session already serves another board");
       if (probe.transport === "queue") return this.launchQueued(binding, spec);
-      return this.launch(binding, spec, false);
+      return this.launch(binding, spec, binding.owned === true);
     });
   }
   async launchQueued(binding, spec) {
@@ -199,7 +201,9 @@ export class CodexAdapter {
     const result = state.threadId
       ? await rpc.request("thread/resume", { threadId: state.threadId, excludeTurns: true })
       : await rpc.request("thread/start", { cwd: spec.cwd });
+    if (state.threadId && result.thread?.id !== state.threadId) throw new Error("Codex resumed thread identity mismatch");
     if (result.thread?.status?.type === "active") throw new Error("Codex session became busy; no input sent");
+    if (state.threadId && !["idle", "notLoaded"].includes(result.thread?.status?.type)) throw new Error("Codex resumed session state is unknown; no input sent");
     this.emit(session, { id: result.thread.id, threadId: result.thread.id, status: "idle" });
     await this.sendChat(state.boardId, spec.prompt);
     return this.getState(state.boardId);
@@ -222,6 +226,7 @@ export class CodexAdapter {
   }
   session(boardId) { const value = this.sessions.get(boardId); if (!value || !value.rpc || value.rpc.closed) throw new Error("Codex session unavailable"); return value; }
   getState(boardId) { const session = this.sessions.get(boardId); return session ? copy(session.state) : null; }
+  canReadChat(boardId) { const session = this.sessions.get(boardId); return !!session?.rpc && !session.rpc.closed; }
   async readChat(boardId, cursor = null) {
     const session = this.session(boardId);
     if (!session.state.threadId) return { data: [], nextCursor: null, state: this.getState(boardId) };
