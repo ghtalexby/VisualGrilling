@@ -120,3 +120,5 @@ The Notifications button immediately before the agent status shows the number of
 
 
 Every weak/gap/verify question receives a gap review across the map. Existing questions are reused; checked answers from other branches appear as sourced supplements beside the original answer and in exports. All necessary missing clarifications appear as ordinary children at any depth. If a grading result omits this check, a separate durable follow-up task repairs it without another user submission. Closed children alone never prove the original answer; ordinary reserve issuance still uses its existing batch size.
+
+Codex delegates via event/result file receipts to avoid accumulating evidence in the parent history. Agents use the compact knowledge index; the full inventory remains available. Usage includes discovered descendant sessions and labels missing worker telemetry. See [token-efficiency task](plans/TokenEfficiency/TASK.md).

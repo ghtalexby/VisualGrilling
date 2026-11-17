@@ -279,3 +279,8 @@ The Notifications button immediately before the agent status shows the number of
 
 
 Mandatory clarification coverage is implemented in `followups.mjs`, called by every question grading reducer. A missing check saves its grade with a node-owned durable followup job; save synchronizes queued jobs with the existing internal queue. These tasks are dependencies of the originating action, recover on restart/redelivery and keep spec/finish behind unresolved work. Workers make semantic judgments; the server validates explicit gap-to-question coverage, provenance and atomic tree bounds. Frozen jobs operate only on gradingNodes with token-scoped reads. Supplements preserve original user text and are included in evidence, exports and snapshots. See [contract.md](contract.md#mandatory-clarification-coverage).
+
+
+## Worker context and session-tree cost
+
+See [the contract](contract.md#worker-context-and-session-tree-cost) and [resumable task](plans/TokenEfficiency/TASK.md). Agent navigation uses a compact index; delegated Codex events/results use file receipts; usage sums observed descendant sessions with explicit partial-data reporting. Discovery runs in the background with bounded filesystem concurrency so metadata scans do not hold server startup.

@@ -164,6 +164,13 @@ try {
   assert.equal(await js('document.querySelector("#usageDetails").textContent.startsWith("Input across all requests: 100\\nUncached: 20\\nCached: 80\\nOutput: 20\\nIncluding reasoning: 5")'), true);
   assert.equal(await js('/[А-Яа-я]/.test(document.querySelector("#usageDetails").textContent)'), false);
   assert.equal(await js('document.querySelector("#usageDetails").hidden'), true);
+  await js('S.sessionUsage.tree={complete:false,workers:2,available:1,parent:{input_tokens:40},workerUsage:{input_tokens:60}};renderUsage()');
+  assert.equal(await js('document.querySelector("#usageDetails").textContent.includes("Worker telemetry is incomplete")'), true);
+  assert.equal(await js('document.querySelector("#usageDetails").textContent.includes("Worker agents: 1/2")'), true);
+  await js('S.sessionUsage.tree.complete=true;renderUsage()');
+  assert.equal(await js('document.querySelector("#usageDetails").textContent.includes("Includes the main session and worker agents.")'), true);
+  assert.equal(await js('/[А-Яа-я]/.test(document.querySelector("#usageDetails").textContent)'), false);
+  await js('poll()');
   const headerHeight=await js('document.querySelector("header").getBoundingClientRect().height');
   const counter=await js('(()=>{const r=document.querySelector("#usageTotal").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()');
   await cdp("Input.dispatchMouseEvent",{type:"mouseMoved",...counter});

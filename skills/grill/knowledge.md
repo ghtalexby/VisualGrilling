@@ -52,3 +52,5 @@ For an existing managed document, use `{path,expected,body,meta?,sourcesAdd?}` i
 User-selected file exclusions are stored in the shared knowledge index's `ignored` list. Never read, analyze, cite as new evidence, or rewrite these files while processing a map, including manual filesystem reads. Use `documents` for usable indexed context; `files` is the UI inventory and can contain failed reads. Exclusions do not erase historical answers or embedded source snapshots. After changing exclusions, refresh the index and retry failed knowledge work explicitly; do not bypass revision errors.
 
 Exclusion entries ending in `/` cover the whole directory subtree, including future files. Other entries match exact files. Apply this rule to manual reads as well as indexed context.
+
+Use the compact navigation index for selection; retrieve `knowledge.fullIndex` only when source/link inventories are needed. Read selected authoritative files in full and preserve every exclusion/warning.

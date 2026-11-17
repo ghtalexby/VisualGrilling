@@ -544,5 +544,10 @@
   "Нужна проверка пробелов": "A gap review is required",
   "Сначала завершите проверку пробелов": "Complete the gap review first",
   "Слишком много уточнений; ничего не применено": "Too many follow-ups; nothing was applied",
-  "Некорректная оценка карточки": "Invalid card assessment"
+  "Некорректная оценка карточки": "Invalid card assessment",
+  "Учтены основная сессия и рабочие агенты.": "Includes the main session and worker agents.",
+  "Неполные данные рабочих агентов; показан известный расход.": "Worker telemetry is incomplete; showing known usage.",
+  "Рабочие агенты:": "Worker agents:",
+  "Вход основной сессии:": "Main session input:",
+  "Вход рабочих агентов:": "Worker input:"
 }

@@ -298,3 +298,10 @@ The action browser check also verifies immediate queued answer/chat display, edi
 Run `node dev/check-followups.mjs` for missing-coverage recovery, restart/redelivery, five required children at depth five, cross-branch reuse and supplementation, atomic limits, every grading path and HTTP/Host protection. Run completeness, discussion, reread, spec, actions, workers, monitor, maps and locale checks plus the disposable simulator harness. The shared test fixture supplies explicit transport-only coverage; it does not establish semantic quality. A real agent session must separately verify all gaps are identified, unrelated answers do not close them, and verified evidence can close the original without rewriting the user's answer.
 
 `node dev/check-followups-browser.mjs` verifies sourced supplements beside the original answer, escaping, queue visibility and Markdown export in EN/RU. `check-actions-browser.mjs` currently has an unrelated baseline failure at its preview-admission fixture (line 138: branch checkbox queried on the default chat tab); this reproduces on commit `4446d86`.
+
+
+## Worker context and session-tree cost
+
+See [the contract](contract.md#worker-context-and-session-tree-cost) and [resumable task](plans/TokenEfficiency/TASK.md). Agent navigation uses a compact index; delegated Codex events/results use file receipts; usage sums observed descendant sessions with explicit partial-data reporting. Discovery runs in the background with bounded filesystem concurrency so metadata scans do not hold server startup.
+
+Run `node dev/check-worker-cost.mjs` for compact projection, file handoff identity/size/replay/timeout and recursive usage/partial/rebind fixtures. Run usage, knowledge, context, worker, watch, monitor, map and locale checks plus the disposable action simulator. Real-host savings/semantic acceptance remain separate.

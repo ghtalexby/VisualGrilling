@@ -51,7 +51,7 @@ When opening a map, name it in a short localized message, for example: Map “ar
 
 ## Shared project knowledge
 
-Use the [shared context-selection rules](worker.md#context-selection). After start, run `G knowledge`, read its index and select relevant documents and primary sources for the launch topic. Read [knowledge.md](knowledge.md) only for knowledge extraction or explicit import/migration. Every event refreshes this navigation. Grilling also authorizes managed knowledge writes through `apply knowledge`; it does not authorize implementation or Git publication. Handle knowledge when queued after rereads (default threshold: five changed answered cards) and always before finish. Do not stop serving a blocked knowledge job: users can answer its clarification cards, retry or explicitly skip saving during finish. Historical import is explicit via `G knowledge-import`; generated spec migration uses `G spec-migrate`.
+Use the [shared context-selection rules](worker.md#context-selection). After start, run `G knowledge --compact`, read its index and select relevant documents and primary sources for the launch topic. Read [knowledge.md](knowledge.md) only for knowledge extraction or explicit import/migration. Every event refreshes this navigation. Grilling also authorizes managed knowledge writes through `apply knowledge`; it does not authorize implementation or Git publication. Handle knowledge when queued after rereads (default threshold: five changed answered cards) and always before finish. Do not stop serving a blocked knowledge job: users can answer its clarification cards, retry or explicitly skip saving during finish. Historical import is explicit via `G knowledge-import`; generated spec migration uses `G spec-migrate`.
 
 ## 2. Gather context and initial questions
 
@@ -106,7 +106,7 @@ Host behavior varies by version: verify automatic completion wake-up and the hos
 
 ### Codex hybrid: default waiting mode
 
-Read [hybrid.md](hybrid.md). After each completed round use `G wait --timeout 15`; process an arriving event and repeat, or arm monitor on timeout and end the turn. Use plain apply, including for monitored events, then stop the completed subscription before waiting again. Never wait after a new finish.
+Read [hybrid.md](hybrid.md). After each completed round use `G wait --timeout 15 --inbox`; process an arriving event and repeat, or arm monitor on timeout and end the turn. Use plain apply, including for monitored events, then stop the completed subscription before waiting again. Never wait after a new finish.
 
 ### Codex monitor: event-driven wake-up
 
@@ -182,3 +182,5 @@ User mutations are accepted into a durable FIFO journal, including during reread
 Preview preparation includes the optional user `request` from the setup Chat tab (up to 3000 characters). Use it with the captured branch context to suggest relevant options; preparation still waits for an explicit build request.
 
 Mandatory clarification coverage follows [worker.md](worker.md) and [coverage.md](coverage.md) for every weak/gap/verify grading path, including ancestor and reread assessments. Handle `followup` events through [events/followup.md](events/followup.md). Cover all gaps at every depth without quotas; preserve original answers, provenance and frozen snapshots.
+
+Delegated Codex events and results use [file handoff](handoff.md); the parent keeps only receipts. The compact knowledge index preserves exclusions and warnings; full inventory remains available on demand. Session usage includes discovered child workers when supported, and labels incomplete telemetry.

@@ -17,3 +17,5 @@ Visual explanations: [preview.md](preview.md) documents the project format, API,
 Project memory: [knowledge.md](knowledge.md) documents shared knowledge, provenance, safe writes and the finish stage.
 
 Durable action admission, cancellation, archive and finish boundaries: [contract.md](contract.md#durable-user-actions).
+
+Token efficiency across sessions: [task, specifications and research](plans/TokenEfficiency/README.md).

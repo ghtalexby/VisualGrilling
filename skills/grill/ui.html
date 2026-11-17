@@ -284,7 +284,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.19">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.20">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -810,6 +810,7 @@ function renderUsage(){
   const number=n=>new Intl.NumberFormat(document.documentElement.lang).format(n);
   $("#usageTotal").textContent=u?"Токены сессии:"+" "+number(u.total_tokens):"Токены сессии: нет данных";
   $("#usageDetails").textContent=u?["Вход за все запросы:"+" "+number(u.input_tokens),"Без кэша:"+" "+number(u.input_tokens-u.cached_input_tokens),"Из кэша:"+" "+number(u.cached_input_tokens),"Выход:"+" "+number(u.output_tokens),"В том числе рассуждения:"+" "+number(u.reasoning_output_tokens),"Вся сессия, включая работу вне карты. Повторная передача контекста учитывается в каждом запросе. Это расход токенов, а не размер текущего контекста. Кэш входит во входные токены, рассуждения — в выходные."].join("\n"):"Статистика сессии недоступна.";
+  if(u?.tree) $("#usageDetails").textContent += "\n" + (u.tree.complete?"Учтены основная сессия и рабочие агенты.":"Неполные данные рабочих агентов; показан известный расход.") + "\n" + "Рабочие агенты:" + " " + u.tree.available + "/" + u.tree.workers + "\n" + "Вход основной сессии:" + " " + number(u.tree.parent.input_tokens) + "\n" + "Вход рабочих агентов:" + " " + number(u.tree.workerUsage.input_tokens);
 }
 
 function showUsage(){

@@ -70,3 +70,5 @@ In single-session modes (Codex monitor and levels 0/1), each extra tool round tr
 
 
 Action admission must preserve the input before acknowledgement. Never prune journal IDs/receipts or archived evidence automatically. Keep actions.mjs, the admission UI, locale dictionary, worker ownership and check-actions.mjs synchronized. Perform image pruning only after the archive and result transaction is committed. Do not count paused post-finish actions as executable drain work.
+
+Delegated Codex events use inbox file receipts at every size; results use `apply --file --token`. Keep handoff.md, worker/mode instructions and CLI validation synchronized. Preserve both full and compact knowledge indexes, including warnings/exclusions. Usage changes must include parent/descendant fixtures and explicit partial telemetry; never infer thread ownership by cwd.

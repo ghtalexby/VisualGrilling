@@ -6,6 +6,9 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 export const digest = text => createHash("sha256").update(text).digest("hex");
+export const agentIndex = index => ({ schema: 1, revision: index.revision, documentsRevision: index.documentsRevision,
+  warnings: index.warnings, ignored: index.ignored,
+  documents: index.documents.map(({ path, version, headings, id, type, scope, status, error }) => ({ path, version, headings, ...(id ? { id, type, scope, status } : {}), ...(error ? { error } : {}) })) });
 const limit = 200000;
 const excludedDirectories = new Set([".git", ".grill", "node_modules", "examples"]);
 const generatedDirectories = new Set(["target", "build", "dist", "out", "coverage", ".next", ".nuxt", ".cache", ".venv", "venv", "__pycache__"]);
@@ -126,7 +129,7 @@ export function knowledge(project, maps) {
     parse(text);
     return { path: file.path, expected: file.expected, text };
   }
-  function scan() {
+  function scan(includePending = false) {
     const documents = [], warnings = [], mapList = [], files = [], directories = [], ignored = ignoredPaths();
     let visited = 0;
     function walk(relative, depth = 0) {
@@ -190,9 +193,11 @@ export function knowledge(project, maps) {
         mapList.push({ name: dir === maps ? null : path.basename(dir), title: s.title, version: s.version, source: path.relative(project, file).replaceAll("\\", "/"), finished: !!s.finished });
       } catch {}
     }
+    if (includePending && fs.existsSync(path.join(runtime, "pending.json"))) warnings.push("Незавершённая запись знаний: повторите сохранение в исходной карте");
     const content = { schema: 1, documents, maps: mapList, warnings, ignored, files, directories };
     const result = { ...content, revision: digest(JSON.stringify(content)), documentsRevision: digest(JSON.stringify({ documents, ignored })) };
     atomic(safe(project, ".grill/knowledge-index.json", true), JSON.stringify(result, null, 2));
+    atomic(safe(project, ".grill/knowledge-agent-index.json", true), JSON.stringify(agentIndex(result)));
     return result;
   }
   // Never overwrite an editor's target. A journal and original backups survive interruption.
@@ -222,8 +227,7 @@ export function knowledge(project, maps) {
   }
   function index() { return locked(() => {
     safe(project, "docs/vgril/placeholder", true);
-    const result = scan();
-    if (fs.existsSync(path.join(runtime, "pending.json"))) result.warnings.push("Незавершённая запись знаний: повторите сохранение в исходной карте");
+    const result = scan(true);
     return result;
   }); }
   function setIgnored(relative, ignored) {

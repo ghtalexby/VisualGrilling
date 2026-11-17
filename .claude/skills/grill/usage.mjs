@@ -1,4 +1,4 @@
-// Read only aggregate usage from the bound Codex session's local rollout.
+// Read metadata and aggregate usage for the bound Codex session and its descendants.
 // Rollout format is internal: unsupported/missing records mean unavailable.
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -23,13 +23,13 @@ async function locate(root, id, depth = 0) {
   return null;
 }
 
-export function sessionUsage(base) {
+function threadUsage(resolveBinding) {
   let key, file, searched = 0, checked = 0, cached = null, pending;
   let offset = 0, remainder = "", seen = new Set(), totals = null, lastInput, fileIdentity;
   const reset = () => { offset = 0; remainder = ""; seen = new Set(); totals = null; lastInput = undefined; fileIdentity = undefined; };
   async function update() {
     try {
-      const binding = JSON.parse(await fs.readFile(path.join(base, "agent-connection.json"), "utf8"));
+      const binding = await resolveBinding();
       if (binding.provider !== "codex" || !UUID.test(binding.id || "")) return cached = null;
       const home = binding.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
       const nextKey = JSON.stringify([home, binding.id]);
@@ -105,5 +105,101 @@ export function sessionUsage(base) {
     return pending;
   };
   read.identity = () => key;
+  read.file = () => file;
+  return read;
+}
+
+// Discover relationships from metadata only. Never infer ownership from cwd/time.
+export function sessionUsage(base) {
+  const binding = async () => JSON.parse(await fs.readFile(path.join(base, "agent-connection.json"), "utf8"));
+  const parent = threadUsage(binding), readers = new Map(), metadata = new Map();
+  let identity, discovered = 0, descendants = [], discoveryComplete = false, discovery, pending;
+  async function discover(home, rootId, parentFile) {
+    const sessions = path.join(home, "sessions");
+    const firstDay = parentFile ? path.relative(sessions, path.dirname(parentFile)).split(path.sep).join("/") : "";
+    const lower = /^\d{4}\/\d{2}\/\d{2}$/.test(firstDay) ? firstDay : "";
+    const links = new Map(); let complete = true;
+    async function walk(directory, depth = 0) {
+      let entries;
+      try { entries = await fs.readdir(directory, { withFileTypes: true }); }
+      catch { complete = false; return; }
+      async function inspect(entry) {
+        const file = path.join(directory, entry.name);
+        if (!entry.isFile() || !entry.name.startsWith("rollout-") || !entry.name.endsWith(".jsonl")) return;
+        try {
+          const stat = await fs.stat(file), stamp = `${stat.ino}:${stat.birthtimeMs}`;
+          let meta = metadata.get(file);
+          if (!meta || meta.stamp !== stamp) {
+            const handle = await fs.open(file, "r"); let first;
+            try {
+              // Instructions can make the first line huge; relationship fields precede them.
+              const buffer = Buffer.alloc(8192), { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+              first = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
+              const marker = first.search(/,\s*"base_instructions"\s*:/);
+              if (marker >= 0) first = first.slice(0, marker) + "}}";
+              else if (!buffer.subarray(0, bytesRead).includes(10) && bytesRead === buffer.length) {
+                const larger = Buffer.alloc(256 * 1024), read = await handle.read(larger, 0, larger.length, 0);
+                first = larger.toString("utf8", 0, read.bytesRead).split("\n")[0];
+              }
+            } finally { await handle.close(); }
+            const record = JSON.parse(first);
+            if (record.type !== "session_meta") return;
+            const id = record.payload?.id;
+            const parentId = record.payload?.parent_thread_id || record.payload?.source?.subagent?.thread_spawn?.parent_thread_id;
+            if (!UUID.test(id || "") || !entry.name.endsWith(`-${id}.jsonl`)) return;
+            meta = { stamp, id, parentId }; metadata.set(file, meta);
+          }
+          if (UUID.test(meta.parentId || "")) links.set(meta.id, meta.parentId);
+        } catch { complete = false; }
+      }
+      // Traverse directories sequentially so nested batches cannot multiply IO concurrency.
+      for (const entry of entries) if (entry.isDirectory() && depth < 3 && /^\d{2,4}$/.test(entry.name)) {
+        const child = path.join(directory, entry.name), day = path.relative(sessions, child).split(path.sep).join("/");
+        // Codex stores newly created descendants on or after their parent creation day.
+        if (lower && day < lower.slice(0, day.length)) continue;
+        await walk(child, depth + 1);
+      }
+      const files = entries.filter(entry => entry.isFile());
+      for (let i = 0; i < files.length; i += 16) await Promise.all(files.slice(i, i + 16).map(inspect));
+    }
+    await walk(path.join(home, "sessions"));
+    const ids = new Set([rootId]);
+    for (let size = -1; size !== ids.size;) { size = ids.size; for (const [id, parentId] of links) if (ids.has(parentId)) ids.add(id); }
+    return { ids: [...ids].filter(id => id !== rootId), complete };
+  }
+  async function update() {
+    const main = await parent(); if (!main) return null;
+    let current; try { current = await binding(); } catch { return null; }
+    const home = current.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+    const key = JSON.stringify([home, current.id]);
+    if (key !== identity) { identity = key; readers.clear(); metadata.clear(); descendants = []; discovered = 0; discovery = null; discoveryComplete = false; }
+    // Avoid mixing a parent read with a newly rebound child tree.
+    if (parent.identity() !== key) return null;
+    if (!discovery && Date.now() - discovered >= 10000) {
+      const job = discover(home, current.id, parent.file()).then(result => {
+        if (identity !== key) return;
+        descendants = [...new Set([...descendants, ...result.ids])]; discoveryComplete = result.complete; discovered = Date.now();
+      }).catch(() => { if (identity === key) { discoveryComplete = false; discovered = Date.now(); } })
+        .finally(() => { if (discovery === job) discovery = null; });
+      discovery = job;
+    }
+    // Telemetry must not hold server startup or API requests behind an archive scan.
+    if (discovery) await Promise.race([discovery, new Promise(resolve => setTimeout(resolve, 100))]);
+    if (identity !== key) return null;
+    if (!descendants.length && discoveryComplete) return main;
+    const workerUsage = Object.fromEntries(fields.map(k => [k, 0])); let available = 0;
+    for (const id of descendants) {
+      if (!readers.has(id)) readers.set(id, threadUsage(async () => ({ provider: "codex", id, codexHome: home })));
+      const usage = await readers.get(id)(); if (!usage) continue;
+      available++;
+      for (const k of fields) workerUsage[k] += usage[k];
+    }
+    const combined = Object.fromEntries(fields.map(k => [k, main[k] + workerUsage[k]]));
+    if (!valid(combined)) return null;
+    return { ...main, ...combined, scope: "session-tree", tree: { workers: descendants.length, available,
+      complete: discoveryComplete && available === descendants.length, parent: Object.fromEntries(fields.map(k => [k, main[k]])), workerUsage } };
+  }
+  const read = () => pending || (pending = update().finally(() => { pending = null; }));
+  read.identity = () => parent.identity();
   return read;
 }

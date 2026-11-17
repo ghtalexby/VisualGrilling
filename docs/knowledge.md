@@ -41,3 +41,5 @@ CLI commands: `knowledge`, `knowledge-import`, `knowledge-retry`, `knowledge-ski
 ## Verification
 
 Run `node dev/check-knowledge.mjs`, `node dev/check-knowledge-browser.mjs`, existing API checks, workers/maps, locale and the simulator. Existing suites use `knowledge-fixture.mjs` to acknowledge no-op extraction explicitly; the knowledge suite covers the new stage directly. Real-agent acceptance remains separate: cross-session term reuse with provenance, rejected unaccepted suggestions, incompatible definitions and focused resolution, topical document selection after manual edits, and unknown historical authors. Deterministic file/API checks do not establish semantic quality.
+
+Agent navigation uses `.grill/knowledge-agent-index.json`, a compact projection with paths, versions, headings, managed identities/status, errors, warnings and exclusions. Full provenance/inventory remains in `knowledge-index.json`. `knowledge --compact` selects the projection; event metadata provides both index paths.

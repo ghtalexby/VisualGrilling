@@ -4,7 +4,7 @@
 //
 //   node grill.mjs start [--port 4777] [--no-open] [--lang en|ru] [--locale file.json] [--continue]   start server, set language, open browser; --continue releases a finish boundary
 //   node grill.mjs init   < {"title","brief","arch","questions":[...]}   load the first questions
-//   node grill.mjs wait   [--timeout 280] [--inline]                 block until the user does something
+//   node grill.mjs wait   [--timeout 280] [--inbox] [--inline]       block until the user does something
 //   node grill.mjs watch  [--timeout 280] [--max-wait 1800] [--inbox] [--inline] wait across timeouts for one event
 //   node grill.mjs monitor [--status | --stop | --event <delivery>] [--inline]  Codex event-driven wake-up
 //   node grill.mjs reread                 request a whole-map review
@@ -12,7 +12,8 @@
 //   node grill.mjs node <id>... | branch <id> | index [--questions] | search <text> | search --topic <topic> | related <id> [--token <readToken>]
 //   node grill.mjs state                  inspect cards to identify a chat-command target
 //   node grill.mjs apply [--rearm] < {"type":"answer"|"discuss"|"question"|"idea"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
-//   node grill.mjs knowledge | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate
+//   node grill.mjs apply --file result.json --token expected [--rearm]   apply a delegated result without printing it
+//   node grill.mjs knowledge [--compact] | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate
 //   node grill.mjs config                                       print merged griller model config
 //   node grill.mjs spec                                         request an implementation plan
 //   node grill.mjs status | report | stop
@@ -37,7 +38,7 @@ import { previews } from "./preview.mjs";
 import { sessionUsage } from "./usage.mjs";
 import { bindSession, requestResume, codexConnection, requestWake, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
-import { knowledge, digest } from "./knowledge.mjs";
+import { knowledge, digest, agentIndex } from "./knowledge.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -350,7 +351,7 @@ ${S.notes || "—"}
   function knowledgeContext() {
     try {
       const index = memory.index();
-      return { index: path.join(process.cwd(), ".grill/knowledge-index.json"), revision: index.revision, documents: index.documents.length, maps: index.maps.length, warnings: index.warnings };
+      return { index: path.join(process.cwd(), ".grill/knowledge-agent-index.json"), fullIndex: path.join(process.cwd(), ".grill/knowledge-index.json"), revision: index.revision, documents: index.documents.length, maps: index.maps.length, warnings: index.warnings };
     } catch (e) { return { error: e.message }; }
   }
   function applyKnowledge(b) {
@@ -2121,6 +2122,20 @@ const stdinJSON = () => new Promise((ok) => {
   process.stdin.on("data", d => s += d);
   process.stdin.on("end", () => { try { ok(JSON.parse(s)); } catch (e) { console.error("На вход нужен JSON: " + e.message); process.exit(1); } });
 });
+async function applyInput() {
+  if (!has("file")) return stdinJSON();
+  const file = opt("file", ""), expected = opt("token", "");
+  if (!file || !expected) throw new Error("apply --file требует путь и --token текущего события");
+  if (fs.statSync(file).size > 4000000) throw new Error("Файл результата слишком большой");
+  const text = fs.readFileSync(file, "utf8");
+  if (text.length > 1000000) throw new Error("Файл результата слишком большой");
+  const result = JSON.parse(text.replace(/^\uFEFF/, "")), inbox = readJSON(path.join(DIR, "inbox.json"));
+  if (!result || Array.isArray(result) || !inbox || result.token !== expected || inbox.token !== expected ||
+      (result.type !== "failure" && (result.type !== inbox.type || result.id !== inbox.id))) {
+    throw new Error("Результат не соответствует событию inbox или ожидаемому токену");
+  }
+  return result;
+}
 async function alive(dir = DIR) {
   const info = readJSON(path.join(dir, "server.json")); if (!info) return null;
   try { const r = await fetch(`http://127.0.0.1:${info.port}/api/ping`, { headers: { "x-grill": "1" }, signal: AbortSignal.timeout(1500) }); if (r.ok) { const j = await r.json(); if (j.pid !== undefined ? j.pid === info.pid : samePath(j.dir, dir)) return info; } } catch {}
@@ -2228,9 +2243,10 @@ const readArgs = () => {
   return values;
 };
 const readRoute = async (route, params = []) => JSON.parse(await api("GET", "/api/" + route + "?" + new URLSearchParams([...params, ...(has("token") ? [["token", opt("token", "")]] : [])])));
+// --inbox also applies to wait/monitor; apply --file validates the matching receipt.
 function printEvent(body, inboxMode = false) {
   const event = JSON.parse(body);
-  if (!has("inline") && (inboxMode || body.length > 20000)) {
+  if (event.type !== "timeout" && !has("inline") && (inboxMode || has("inbox") || body.length > 20000)) {
     const inbox = path.join(DIR, "inbox.json");
     // Arrays of cards use one JSON object per line; top-level sections remain pageable.
     const format = value => Array.isArray(value) ? "[\n" + value.map(v => JSON.stringify(v)).join(",\n") + "\n]" : value && typeof value === "object" ? "{\n" + Object.entries(value).map(([k, v]) => JSON.stringify(k) + ":" + format(v)).join(",\n") + "\n}" : JSON.stringify(value);
@@ -2248,12 +2264,12 @@ const commands = {
   serve,
   start,
   init: async () => console.log(await api("POST", "/api/init", await stdinJSON())),
-  apply: async () => console.log(await api("POST", "/api/apply", { ...await stdinJSON(), ...(has("rearm") ? { rearm: true, owner: process.env.CODEX_THREAD_ID } : {}) })),
+  apply: async () => console.log(await api("POST", "/api/apply", { ...await applyInput(), ...(has("rearm") ? { rearm: true, owner: process.env.CODEX_THREAD_ID } : {}) })),
   spec: async () => console.log(await api("POST", "/api/spec", {})),
   reread: async () => console.log(await api("POST", "/api/reread", {})),
   discuss: async () => console.log(await api("POST", "/api/discuss", await stdinJSON())),
   "spec-migrate": async () => console.log(await api("POST", "/api/spec-migrate", {})),
-  knowledge: async () => console.log(await api("GET", "/api/knowledge")),
+  knowledge: async () => { const body = await api("GET", "/api/knowledge"); console.log(has("compact") ? JSON.stringify(agentIndex(JSON.parse(body))) : body); },
   "knowledge-import": async () => console.log(await api("POST", "/api/knowledge-import", {})),
   "knowledge-retry": async () => console.log(await api("POST", "/api/knowledge-retry", {})),
   "knowledge-skip": async () => console.log(await api("POST", "/api/knowledge-skip", {})),
