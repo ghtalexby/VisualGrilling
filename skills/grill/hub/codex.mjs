@@ -97,6 +97,7 @@ export function createCodexAdapter(options = {}) { return new CodexAdapter(optio
 export class CodexAdapter {
   constructor(options = {}) { this.options = options; this.sessions = new Map(); this.launches = new Map(); }
   emit(session, patch) {
+    if (session.state.status === "stopped") return;
     Object.assign(session.state, patch, { lastCheckedAt: Date.now() });
     this.options.onState?.(session.state.boardId, copy(session.state));
   }
@@ -200,7 +201,7 @@ export class CodexAdapter {
     return session.beginning;
   }
   async beginSession(session) {
-    if (session.state.status === "stopped") throw new Error("Codex launch stopped");
+    if (session.stopping || session.state.status === "stopped") throw new Error("Codex launch stopped");
     const { state, rpc, spec } = session;
     const result = state.threadId
       ? await rpc.request("thread/resume", { threadId: state.threadId, excludeTurns: true, ...(spec.relocation ? { cwd: spec.cwd } : {}) })
@@ -222,8 +223,10 @@ export class CodexAdapter {
       const request = { id, method, params }; session.pending.set(String(id), request);
       const status = /AuthTokens|login/i.test(method) ? "waiting_login" : /Approval/.test(method) ? "waiting_permission" : "waiting_input";
       this.emit(session, { status, requests: [...session.pending.values()] }); this.options.onRequest?.(session.state.boardId, copy(request));
-    } else if (method === "turn/started") this.emit(session, { status: "working", turnId: params.turn?.id });
-    else if (method === "turn/completed") this.emit(session, { status: params.turn?.status === "failed" ? "error" : "idle", turnId: null, error: params.turn?.error?.message || null });
+    } else if (method === "turn/started" || method === "turn/completed") {
+      session.turnNotifications = (session.turnNotifications || 0) + 1;
+      this.emit(session, method === "turn/started" ? { status: "working", turnId: params.turn?.id } : { status: params.turn?.status === "failed" ? "error" : "idle", turnId: null, error: params.turn?.error?.message || null });
+    }
     else if (method === "account/login/completed") {
       this.emit(session, { status: params.success ? "starting" : "waiting_login", login: null, error: params.error || null });
       if (params.success) this.begin(session).catch(error => this.emit(session, { status: "error", error: error.message }));
@@ -241,20 +244,27 @@ export class CodexAdapter {
   async sendChat(boardId, text) {
     if (typeof text !== "string" || !text.trim() || text.length > 100000) throw new Error("Invalid chat message");
     const session = this.session(boardId);
-    if (session.sending || session.state.status !== "idle") throw new Error("Codex session is not idle");
-    session.sending = true;
+    if (session.stopping || session.sending || session.state.status !== "idle") throw new Error("Codex session is not idle");
+    session.sending = this.sendTurn(session, text);
+    try { return await session.sending; } finally { session.sending = null; }
+  }
+  async sendTurn(session, text) {
+    const notifications = session.turnNotifications || 0;
     try {
       const result = await session.rpc.request("turn/start", { threadId: session.state.threadId, input: [{ type: "text", text, text_elements: [] }] });
       session.ownedTurnId = result.turn.id;
-      if (!["waiting_permission", "waiting_input", "waiting_login"].includes(session.state.status)) this.emit(session, { status: "working", turnId: result.turn.id });
+      // Preserve notifications that arrived before the response: the admitted
+      // turn may already be complete, or the terminal may be doing other work.
+      if (notifications === (session.turnNotifications || 0)) this.emit(session, { turnId: result.turn.id, ...(!["waiting_permission", "waiting_input", "waiting_login"].includes(session.state.status) ? { status: "working" } : {}) });
       return result;
     } catch (error) {
       session.ambiguousTurn = true;
       this.emit(session, { status: "error", error: error.message }); throw error;
-    } finally { session.sending = false; }
+    }
   }
   resolveRequest(boardId, requestId, result) {
     const session = this.session(boardId), request = session.pending.get(String(requestId));
+    if (session.stopping) throw new Error("Codex session is stopping");
     if (!request) throw new Error("Codex request expired");
     if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("Invalid Codex response");
     session.rpc.send({ id: request.id, result }); session.pending.delete(String(requestId));
@@ -263,6 +273,7 @@ export class CodexAdapter {
   }
   async login(boardId) {
     const session = this.session(boardId);
+    if (session.stopping) throw new Error("Codex session is stopping");
     if (!["waiting_login", "starting"].includes(session.state.status)) throw new Error("Codex session is not waiting for login");
     const account = await session.rpc.request("account/read", { refreshToken: false });
     if (account.account || !account.requiresOpenaiAuth) return this.begin(session);
@@ -279,7 +290,17 @@ export class CodexAdapter {
     if (this.launches.has(boardId)) { try { await this.launches.get(boardId); } catch {} }
     const session = this.sessions.get(boardId);
     if (!session) return { stopped: true, preserved: true };
+    if (!session.stopPromise) session.stopPromise = this.stopSession(session);
+    return session.stopPromise;
+  }
+  async stopSession(session) {
+    session.stopping = true;
+    // A notification alone cannot establish ownership. Settle the admitted
+    // request before deciding which exact turn may safely be interrupted.
+    if (session.beginning) { try { await session.beginning; } catch {} }
+    if (session.sending) { try { await session.sending; } catch {} }
     let error = !session.state.owned && session.ambiguousTurn ? "Codex turn start was ambiguous; map must remain fenced" : null;
+    if (!session.state.owned && session.ownedTurnId && session.state.turnId === session.ownedTurnId && session.rpc?.closed) error = "Codex transport closed before turn interruption; map must remain fenced";
     if (!session.state.owned && session.ownedTurnId && session.state.turnId === session.ownedTurnId && !session.rpc?.closed) {
       try { await session.rpc.request("turn/interrupt", { threadId: session.state.threadId, turnId: session.ownedTurnId }); } catch (failure) { error = failure.message; }
     }

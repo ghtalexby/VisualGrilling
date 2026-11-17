@@ -1,0 +1,164 @@
+{
+  "startedAt": "2026-11-17T11:43:40.509Z",
+  "boardId": "43824657-1c96-42aa-9471-0fb402fd25a0",
+  "expectedThread": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+  "temporaryRoot": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5",
+  "events": [
+    {
+      "at": "2026-11-17T11:43:40.841Z",
+      "event": "map_child_spawned",
+      "pid": 55700
+    },
+    {
+      "at": "2026-11-17T11:43:43.667Z",
+      "event": "initial_play",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "ownedPid": 31692
+    },
+    {
+      "at": "2026-11-17T11:43:43.673Z",
+      "event": "observed",
+      "phase": "before_crash",
+      "status": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": null,
+      "waiting": false,
+      "connected": false,
+      "epoch": "ab97b659-78ed-476c-bf53-68937335ace2",
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:43:51.732Z",
+      "event": "observed",
+      "phase": "before_crash",
+      "status": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": false,
+      "connected": false,
+      "epoch": "ab97b659-78ed-476c-bf53-68937335ace2",
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:44:07.833Z",
+      "event": "observed",
+      "phase": "before_crash",
+      "status": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": true,
+      "connected": true,
+      "epoch": "ab97b659-78ed-476c-bf53-68937335ace2",
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:44:07.839Z",
+      "event": "map_only_crash",
+      "ownedMapChildEnded": true,
+      "agentStillAlive": true
+    },
+    {
+      "at": "2026-11-17T11:44:11.020Z",
+      "event": "recovery_play",
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "ownedPid": 40336
+    },
+    {
+      "at": "2026-11-17T11:44:11.023Z",
+      "event": "observed",
+      "phase": "after_crash",
+      "status": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": null,
+      "waiting": false,
+      "connected": false,
+      "epoch": "045648ae-6b84-471b-a230-02947be1a6cd",
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:44:21.081Z",
+      "event": "observed",
+      "phase": "after_crash",
+      "status": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": false,
+      "connected": false,
+      "epoch": "045648ae-6b84-471b-a230-02947be1a6cd",
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:44:39.182Z",
+      "event": "observed",
+      "phase": "after_crash",
+      "status": "working",
+      "owned": true,
+      "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "attached": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+      "waiting": true,
+      "connected": true,
+      "epoch": "045648ae-6b84-471b-a230-02947be1a6cd",
+      "requests": []
+    },
+    {
+      "at": "2026-11-17T11:44:39.412Z",
+      "event": "stop_returned",
+      "board": {
+        "id": "43824657-1c96-42aa-9471-0fb402fd25a0",
+        "project": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project",
+        "dir": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill\\acceptance",
+        "base": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-hub-live-RkYGt5\\project\\.grill",
+        "name": "acceptance",
+        "title": "Disposable Hub acceptance",
+        "finished": false,
+        "counts": {
+          "open": 1,
+          "closed": 1
+        },
+        "server": "stopped",
+        "agent": "disconnected",
+        "connection": "disconnected",
+        "connected": false,
+        "provider": "codex",
+        "transport": null,
+        "threadId": "01a1e925-fb21-7951-99bb-fb660103c2ad",
+        "agentCheckedAt": null,
+        "checkedAt": 1794915879397,
+        "attemptedAt": 1794915879397,
+        "stale": false,
+        "missing": false,
+        "error": null,
+        "url": null,
+        "chatAvailable": false
+      },
+      "stopped": true,
+      "preserved": false
+    }
+  ],
+  "checks": {
+    "initialActualWait": true,
+    "agentSurvivedMapCrash": true,
+    "recoveryActualWait": true,
+    "sameThread": true,
+    "owned": true,
+    "notQueued": true,
+    "epochRotated": true,
+    "staleOwnedProcessEnded": true,
+    "newOwnedProcess": true,
+    "serverStopped": true,
+    "recoveredOwnedProcessEnded": true,
+    "answerRetainedExactlyOnce": true,
+    "receiptsUnchanged": true,
+    "queueUnchanged": true,
+    "unfinished": true
+  },
+  "temporaryStateRetained": true,
+  "mapChildPid": 55700,
+  "outcome": "PASS",
+  "finishedAt": "2026-11-17T11:44:39.934Z"
+}

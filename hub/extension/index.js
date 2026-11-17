@@ -52,7 +52,8 @@ async function act(board, method, params = {}) {
       await chrome.tabs.create({ url });
     }
     if (method === "rebind") { expanded.delete(board.id); drafts.delete(board.id); }
-    feedback.set(board.id, method === "open" ? "Доска открыта в новой вкладке." : method === "stop" ? "Остановка выполнена. Обновляем состояние." : method === "rebind" ? "Папка привязана после проверки ID." : "Запуск обработан. Подключение агента проверяется отдельно.");
+    const stopMessage = result?.stopped === true && !result.error ? "Остановка выполнена. Обновляем состояние." : `${result?.fenced === true ? "Запись в доску заблокирована." : "Остановка сервера не подтверждена."} Остановка агента не подтверждена: ${result?.error || "компонент не подтвердил остановку"}`;
+    feedback.set(board.id, method === "open" ? "Доска открыта в новой вкладке." : method === "stop" ? stopMessage : method === "rebind" ? "Папка привязана после проверки ID." : "Запуск обработан. Подключение агента проверяется отдельно.");
     await refresh();
   } catch (error) { feedback.set(board.id, error.message); }
   finally { busy.delete(board.id); render(); }

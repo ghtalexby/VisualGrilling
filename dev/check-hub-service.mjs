@@ -18,13 +18,14 @@ const cli = fileURLToPath(new URL("../skills/grill/grill.mjs", import.meta.url))
 fs.mkdirSync(dir, { recursive: true });
 fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify({ title: "Preserved", finished: true, nodes: ["open", "weak", "gap", "verify", "ok"].map((status, i) => ({ id: "q" + i, kind: "q", status })).concat([{ kind: "q", status: "ok", obsolete: true }, { kind: "idea", status: "ok" }]) }));
 const record = registerBoard({ dir, base, name: "test", project, cli });
-let launches = 0, fail = false, state = null, service, launchGate = null;
+let launches = 0, fail = false, state = null, service, launchGate = null, chatGate = null, chatEntered, stops = 0, stopFailure = false;
 const adapter = {
   getState: () => state,
   probeBinding: async binding => ({ status: binding ? "available" : "absent" }),
   async startOwned(spec) { launches++; if (launchGate) await launchGate; await new Promise(r => setTimeout(r, 100)); if (fail) throw new Error("Intentional launch failure"); state = { status: "working", owned: true, epoch: spec.epoch, threadId: randomUUID(), provider: "codex", lastCheckedAt: Date.now() }; assert.match(spec.prompt, /standalone/); return state; },
   async resume(binding, spec) { launches++; state = { status: "working", owned: false, provider: binding.provider, threadId: binding.id, epoch: spec.epoch }; return state; },
-  async stop() { const owned = state?.owned; state = { ...state, status: "stopped" }; return { stopped: true, preserved: !owned }; },
+  async stop() { stops++; const owned = state?.owned; state = { ...state, status: "stopped" }; return { stopped: !stopFailure, preserved: !owned, ...(stopFailure ? { error: "interrupt rejected" } : {}) }; },
+  async sendChat() { if (state?.status === "stopped") throw new Error("Codex session unavailable"); chatEntered?.(); await chatGate; return { turn: { id: "chat-turn" } }; },
   async close() {},
   async readChat() { return { data: [], state }; }
 };
@@ -104,7 +105,24 @@ try {
   assert.deepEqual(ordered.map(result => result.board.server), ["running", "stopped", "running"]);
   assert.equal(launches - beforeOrdered, 2);
   assert.equal((await request("list")).boards[0].server, "running");
-  await request("stop", params);
+  let releaseChat;
+  chatGate = new Promise(resolve => { releaseChat = resolve; });
+  const admittedChat = new Promise(resolve => { chatEntered = resolve; });
+  const chatting = request("sendChat", { ...params, text: "continue" });
+  await admittedChat;
+  const stopsBeforeChat = stops;
+  const chatStop = request("stop", params);
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(stops, stopsBeforeChat, "Independent clients serialize Stop after admitted chat settlement");
+  releaseChat(); await chatting;
+  const chatStopped = await chatStop;
+  assert.equal(chatStopped.stopped, true); assert.equal(chatStopped.fenced, true);
+  await request("sendChat", { ...params, text: "too late" }, {}, 400);
+  stopFailure = true;
+  const failedStop = await request("stop", params);
+  assert.equal(failedStop.stopped, false); assert.equal(failedStop.fenced, true);
+  assert.equal(failedStop.board.server, "stopped"); assert.equal(failedStop.error, "interrupt rejected");
+  stopFailure = false;
   await new Promise(r => setTimeout(r, 200));
   const prior = (await request("list")).boards[0]; fs.renameSync(dir, dir + "-moved");
   const missing = (await request("list")).boards[0]; assert.equal(missing.missing, true); assert.equal(missing.stale, true); assert.equal(missing.checkedAt, prior.checkedAt); assert.deepEqual(missing.counts, prior.counts);

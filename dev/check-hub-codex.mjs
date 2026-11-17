@@ -38,6 +38,51 @@ if (process.argv[2] === "--fake") {
   const adapter = mode => createCodexAdapter({ command: process.execPath, args: [self, "--fake", mode], timeoutMs: 2000 });
   const binding = { provider: "codex", id: "11111111-1111-4111-8111-111111111111" };
   const spec = { boardId: "board-1", epoch: 4, cwd: process.cwd(), prompt: "Continue the existing map; preserve its data." };
+  // Exercise Stop while a terminal-backed turn/start has not answered yet.
+  // A started notification is observable but does not prove turn ownership.
+  for (const outcome of ["success", "close", "interrupt-failure", "completed", "unrelated"]) {
+    const race = createCodexAdapter();
+    let settle, interrupts = 0, closes = 0;
+    const deferred = new Promise((resolve, reject) => { settle = { resolve, reject }; });
+    const session = { state: { boardId: spec.boardId, threadId: binding.id, owned: false, status: "idle" }, pending: new Map(), rpc: {
+      closed: false,
+      async request(method, params) {
+        if (method === "turn/start") return deferred;
+        assert.equal(method, "turn/interrupt"); assert.equal(params.turnId, "admitted-turn"); interrupts++;
+        if (outcome === "interrupt-failure") throw new Error("interrupt rejected");
+        return {};
+      },
+      close() { closes++; this.closed = true; }
+    } };
+    race.sessions.set(spec.boardId, session);
+    const sending = race.sendChat(spec.boardId, "hello");
+    const rejected = outcome === "close" ? assert.rejects(sending, /transport closed/) : sending;
+    race.message(session, { method: "turn/started", params: { threadId: binding.id, turn: { id: "admitted-turn" } } });
+    let stopped = false;
+    const stopping = race.stop(spec.boardId).then(result => { stopped = true; return result; });
+    await Promise.resolve();
+    assert.equal(stopped, false); assert.equal(closes, 0); assert.equal(interrupts, 0);
+    await assert.rejects(race.sendChat(spec.boardId, "too late"), /not idle/);
+    if (outcome === "close") { session.rpc.closed = true; settle.reject(new Error("transport closed")); }
+    else {
+      if (["completed", "unrelated"].includes(outcome)) race.message(session, { method: "turn/completed", params: { threadId: binding.id, turn: { id: "admitted-turn", status: "completed" } } });
+      if (outcome === "unrelated") race.message(session, { method: "turn/started", params: { threadId: binding.id, turn: { id: "other-task" } } });
+      settle.resolve({ turn: { id: "admitted-turn" } });
+    }
+    await rejected;
+    const result = await stopping;
+    assert.equal(result.stopped, ["success", "completed", "unrelated"].includes(outcome));
+    assert.equal(result.preserved, true); assert.equal(interrupts, ["close", "completed", "unrelated"].includes(outcome) ? 0 : 1);
+    if (!result.stopped) assert.match(result.error, /ambiguous|interrupt rejected/);
+    race.message(session, { method: "turn/started", params: { turn: { id: "late" } } });
+    race.emit(session, { status: "error", error: "late callback" });
+    assert.equal(race.getState(spec.boardId).status, "stopped");
+    assert.deepEqual(await race.stop(spec.boardId), result, "Retry cannot turn an unconfirmed shutdown into success");
+  }
+  const exitTimeout = createCodexAdapter();
+  exitTimeout.sessions.set(spec.boardId, { state: { boardId: spec.boardId, owned: true, status: "working" }, pending: new Map(), rpc: { exited: new Promise(() => {}), close() {} } });
+  const failedExit = await exitTimeout.stop(spec.boardId);
+  assert.equal(failedExit.stopped, false); assert.equal(failedExit.preserved, false); assert.match(failedExit.error, /did not exit/);
   for (const [mode, expected] of [["normal", "available"], ["busy", "busy"], ["absent", "absent"], ["unknown", "unknown"]]) {
     const a = adapter(mode); assert.equal((await a.probeBinding(binding)).status, expected); await a.close();
   }

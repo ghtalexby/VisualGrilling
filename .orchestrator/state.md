@@ -3,7 +3,7 @@
 Project: VisualGrilling. Source: docs/vgril/specs/grill-boards-hub.md (2026-11-17).
 Source SHA256: 53c93b3d215ac16bad568ddac615fb5031cedf11bd1aa620f30cfa812ac04fc5.
 Base: 61b462f36d6db0499a830b72fe83d7679e4c0978. Initial working tree clean.
-Iteration 1, phase 2 (review pass 5 pending). Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
+Iteration 1, phase 2 (review pass 5 fixes). Limits: 5 iterations; mandatory review-until-clean takes precedence over review round cap.
 User approved archival of completed ContextBudget; previous state saved as context-budget-completed.md. This is the canonical boards-hub state. Independent preparation record remains as history.
 
 ## Requirements
@@ -121,3 +121,10 @@ Terminal acceptance attempted through hidden PTY but host rejected both launches
 Targeted new registry/lifecycle/adapter/native/extension checks; node dev/check-actions-simulator.mjs; worker/monitor/maps/connection/session-transfer/actions checks and affected consumers. Actual reboot, clean Windows install and model session tests cannot be replaced by fixtures.
 
 Review4 fixes complete: reconcile exact live epoch after map crash; retire scoped transport and resume same thread; validate canonical route as well as board ID before rebind; stop moved server without writing stale memory; preserve relocated journal. Verified whole-project relocation updates owned thread cwd, uses bundled runtime, and gives unavailable queue-only old-cwd sessions one durable owned replacement while preserving terminal. Creation marker and known replacement ID prevent duplicate startup across helper restart. Service/codex/workers final checks PASS; runtime/maps/monitor/transfer/simulator earlier PASS. Mirrors synchronized; version remains1.0.22. Real map-only crash acceptance and fresh full review5 pending.
+
+Real map-only crash acceptance PASS on1ac3d0f: killed only captured disposable server child while owned Codex survived; Play rotated epoch, ended old owned process, resumed same thread in new owned process and restored actual wait within28seconds. Final Stop ended both, original answer exactly once, receipts/queue unchanged, unfinished. Evidence hub-crash-acceptance.json. No new answer or cleanup retry.
+
+## Full integration review pass 5 — changes requested
+Frozen1ac3d0f independently reviewed full task. Six Hub suites + workers/monitor/maps/connection/transfer/usage/worker-cost/simulator PASS; mirrors/version/install links/visuals consistent. F1 P2 Stop races sendChat turn/start: terminal turn accepted before response lacks ownedTurnId, stop skips interruption and returns success; serialize admission/settlement and report ambiguity. F2 P2 extension ignores stopped:false/error and always reports success. Distinct fix_stop_5 assigned adapter/service/UI regressions/docs/mirrors. No version bump. Real owned crash acceptance remains PASS; terminal PTY/Chrome install/reboot external limits unchanged.
+
+Review5 fixes complete: adapter awaits admitted starts, prevents new starts while stopping, preserves failed stop result and ignores late callbacks; service serializes chat/login/approval with lifecycle and returns independent fenced flag. UI shows failed agent shutdown honestly. Deferred started/completed/unrelated-turn/closed-transport/interrupt-failure/exit-timeout/repeated-stop/cross-client/UI regressions PASS. Hub codex/service/extension/browser/runtime checks PASS, docs/mirrors synced. Preparing fix commit and fresh full review6; version remains1.0.22.

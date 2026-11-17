@@ -235,7 +235,7 @@ export function createHubController(config, options = {}) {
         const record = board(id), status = await startServer(record);
         await call(record, status, "stop"); const result = await adapter.stop(id);
         await delay(150);
-        return { board: await observe(record), ...result };
+        return { board: await observe(record), fenced: true, ...result };
       });
       if (method === "rebind") return serial(id, async () => {
         const original = board(id), target = rebindBoard(id, params.dir, true);
@@ -268,9 +268,9 @@ export function createHubController(config, options = {}) {
         return { url: value.url, board: value };
       }
       if (method === "chat") return adapter.readChat(id, params.cursor || null);
-      if (method === "sendChat") return adapter.sendChat(id, params.text);
-      if (method === "login") return adapter.login(id);
-      if (method === "approval") return adapter.resolveRequest(id, params.requestId, params.response);
+      if (method === "sendChat") return serial(id, () => adapter.sendChat(id, params.text));
+      if (method === "login") return serial(id, () => adapter.login(id));
+      if (method === "approval") return serial(id, () => adapter.resolveRequest(id, params.requestId, params.response));
       throw new Error("Unknown hub command");
     },
     async close() { await Promise.allSettled([...operations.values()]); await adapter.close(); }

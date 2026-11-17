@@ -29,7 +29,7 @@ let result={};const board=fixture.boards.find(board=>board.id===message.params.b
 if(message.method==="list")result={boards:fixture.boards,checkedAt:Date.now(),stale:false};
 if(message.method==="open")result={url:"http://127.0.0.1:12345/",board};
 if(message.method==="play"){board.server="running";board.agent="waiting_login";result={board};}
-if(message.method==="stop"){board.server="stopped";board.agent="stopped";board.connected=false;result={board};}
+if(message.method==="stop"){board.server="stopped";board.agent="stopped";board.connected=false;result={board,fenced:true,stopped:!fixture.stopError,...(fixture.stopError?{error:fixture.stopError}:{})};}
 if(message.method==="rebind")return {ok:false,error:{code:"IDENTITY_MISMATCH",message:"ID доски в выбранной папке не совпадает."}};
 if(message.method==="chat")result={data:[{id:"turn1",items:[{type:"userMessage",content:[{type:"text",text:"Проверь проект"}]},{type:"agentMessage",text:"Нужно выполнить проверку. <unsafe>"}]}],nextCursor:null,state:{status:fixture.chatStatus,threadId:"fixture-thread",requests:fixture.pending}};
 if(message.method==="approval"){fixture.pending=[];fixture.chatStatus="idle";}
@@ -94,6 +94,12 @@ try {
   await until(() => js("document.querySelector('[data-board-id^=\"2222\"]').textContent.includes('нужен вход')"));
   await js("[...document.querySelector('[data-board-id^=\"2222\"]').querySelectorAll('button')].find(button=>button.textContent==='Stop').click()");
   await until(() => js("document.querySelector('[data-board-id^=\"2222\"]').textContent.includes('Остановка выполнена')"));
+  await js("fixture.stopError='Owned Codex process did not exit'");
+  await js("[...document.querySelector('[data-board-id^=\"2222\"]').querySelectorAll('button')].find(button=>button.textContent==='Stop').click()");
+  await until(() => js("document.querySelector('[data-board-id^=\"2222\"]').textContent.includes('Остановка агента не подтверждена')"));
+  assert.equal(await js("document.querySelector('[data-board-id^=\"2222\"]').textContent.includes('Запись в доску заблокирована')"), true);
+  assert.equal(await js("document.querySelector('[data-board-id^=\"2222\"]').textContent.includes('Owned Codex process did not exit')"), true);
+  assert.equal(await js("document.querySelector('[data-board-id^=\"2222\"]').textContent.includes('Остановка выполнена')"), false);
   await click(".rebind summary"); await input(".rebind input", "D:\\New\\.grill\\architecture");
   await js("document.querySelector('.rebind form').requestSubmit()");
   await until(() => js("document.querySelector('[data-board-id^=\"4444\"]').textContent.includes('ID доски')"));
