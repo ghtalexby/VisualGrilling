@@ -80,6 +80,8 @@ try {
   const write = (id, parent, input) => fs.writeFileSync(file(id), JSON.stringify({ type: "session_meta", payload: { id, source: parent ? { subagent: { thread_spawn: { parent_thread_id: parent } } } : "cli" } }) + "\n" + (input ? usage(id, "same-response", input).repeat(2) : ""));
   const bind = id => fs.writeFileSync(path.join(base, "agent-connection.json"), JSON.stringify({ provider: "codex", id, codexHome: home }));
   write(ids[0], null, 100); write(ids[1], ids[0], 200); write(ids[2], ids[1], 300); write(ids[3], null, 1000); bind(ids[0]);
+  // A valid parent ID can follow a long instruction field; JSON key order is not a schema.
+  fs.writeFileSync(file(ids[2]), JSON.stringify({ type: "session_meta", payload: { id: ids[2], base_instructions: { text: "x".repeat(20000) }, parent_thread_id: ids[1] } }) + "\n" + usage(ids[2], "same-response", 300));
   const reader = sessionUsage(base); let measured = await reader();
   assert.equal(measured.input_tokens, 600); assert.equal(measured.tree.workers, 2); assert.equal(measured.tree.complete, true);
   assert.equal(measured.tree.parent.input_tokens, 100); assert.equal(measured.tree.workerUsage.input_tokens, 500);

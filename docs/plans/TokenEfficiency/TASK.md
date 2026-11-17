@@ -47,5 +47,10 @@ Phase 1 completion does not close the overall task. Close the program only after
 - Force-added the five requested program documents because docs/plans is ignored by repository defaults.
 - Runtime checks exposed slow startup under large real session archives. Discovery now runs in the background with bounded filesystem concurrency and a 100 ms foreground wait. Initial partial telemetry is explicit.
 - Passed: check-worker-cost, check-usage, check-knowledge, check-monitor, check-watch, check-context, check-maps, check-actions-simulator (gap/ok/verify, chat, more, finish/report, protected API).
-- Locale and browser usage checks passed after the latency fix. Real bound-session smoke read: 158 ms initially, then 1–2 ms; two workers available. Discovery uses standard parent-day-and-later Codex storage and reads metadata prefixes without instruction bodies.
+- Locale and browser usage checks passed after the latency fix. Real bound-session smoke read: 158 ms initially, then 1–2 ms; two workers available. Discovery uses standard parent-day-and-later Codex storage and reads only the bounded first metadata line.
 - Release 1.0.20 stamped; local/global Codex links verified. Next independent review remains pending.
+
+### Additional metadata ordering regression
+
+- The second independent pass was clean. A subsequent self-check identified that a parent_thread_id after base_instructions could be missed by prefix-only parsing. Replaced that optimization with bounded chunked reading of the complete first metadata line and added a long-instructions/key-order fixture.
+- Re-run worker-cost and usage checks, then a fresh independent pass over the final scope. This change does not add another release bump.

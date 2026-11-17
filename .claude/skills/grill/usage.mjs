@@ -132,15 +132,16 @@ export function sessionUsage(base) {
           if (!meta || meta.stamp !== stamp) {
             const handle = await fs.open(file, "r"); let first;
             try {
-              // Instructions can make the first line huge; relationship fields precede them.
-              const buffer = Buffer.alloc(8192), { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-              first = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
-              const marker = first.search(/,\s*"base_instructions"\s*:/);
-              if (marker >= 0) first = first.slice(0, marker) + "}}";
-              else if (!buffer.subarray(0, bytesRead).includes(10) && bytesRead === buffer.length) {
-                const larger = Buffer.alloc(256 * 1024), read = await handle.read(larger, 0, larger.length, 0);
-                first = larger.toString("utf8", 0, read.bytesRead).split("\n")[0];
+              // Read only the first metadata line, preserving arbitrary JSON key order.
+              const buffer = Buffer.alloc(256 * 1024); let length = 0, newline = -1;
+              while (length < buffer.length && newline < 0) {
+                const { bytesRead } = await handle.read(buffer, length, Math.min(8192, buffer.length - length), length);
+                if (!bytesRead) break;
+                newline = buffer.indexOf(10, length); length += bytesRead;
+                if (newline >= length) newline = -1;
               }
+              if (newline < 0) throw new Error("Incomplete session metadata");
+              first = buffer.toString("utf8", 0, newline);
             } finally { await handle.close(); }
             const record = JSON.parse(first);
             if (record.type !== "session_meta") return;
