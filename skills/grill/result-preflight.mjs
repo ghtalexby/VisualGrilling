@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateWorkerContextAck } from "./worker-reuse.mjs";
+import { workerDeclaration } from "./telemetry.mjs";
 
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const bad = field => { throw new Error(`Некорректный результат: ${field}`); };
@@ -54,6 +55,7 @@ export function validateResults(inbox, results, expected) {
   for (const [index, result] of results.entries()) {
     if (!object(result) || result.token !== expected || result.hubEpoch !== inbox.hubEpoch ||
         result.type !== "failure" && (result.type !== inbox.type || result.id !== inbox.id)) bad("identity/type/id/token/hubEpoch");
+    try { workerDeclaration(result.telemetry); } catch { bad("telemetry"); }
     if (["reevaluate", "followup", "idea"].includes(result.type)) {
       for (const value of [inbox, result]) {
         if (Object.hasOwn(value, "capturedForSpec") && typeof value.capturedForSpec !== "boolean") bad("capturedForSpec");
@@ -65,7 +67,7 @@ export function validateResults(inbox, results, expected) {
     if (multipart) {
       if (inbox.type !== "discuss" || result.type !== "discuss" || result.part !== index || result.more !== (index < results.length - 1)) bad("part/more/order");
       if (result.more) for (const key of Object.keys(result)) {
-        if (!["type", "id", "token", "hubEpoch", "part", "more", "questions", "links", "answers"].includes(key)) bad(`part.${key}`);
+        if (!["type", "id", "token", "hubEpoch", "part", "more", "questions", "links", "answers", "telemetry"].includes(key)) bad(`part.${key}`);
       }
     }
     total += JSON.stringify(result).length;

@@ -58,6 +58,23 @@ const parts = [
   { ...discussion, part: 1, more: false, reply: "Done" },
 ];
 check(discussion, parts);
+const telemetry = { workerSessionId: "12345678-1234-1234-1234-123456789abc" };
+const declaredParts = parts.map(part => ({ ...part, telemetry }));
+check(discussion, declaredParts);
+for (const malformed of [null, [], "worker", {}, { workerSessionId: "invalid" }, { ...telemetry, extra: true }]) {
+  for (const index of [0, 1]) {
+    assert.throws(() => check(discussion, declaredParts.map((part, i) => i === index ? { ...part, telemetry: malformed } : part)), /telemetry/);
+  }
+  assert.throws(() => check(event, [{ ...answer, telemetry: malformed }]), /telemetry/);
+}
+const manifest = { event: { token }, manifestRevision: "manifest-revision" };
+const guardedDiscussion = { ...discussion, workerContext: { manifest } };
+const workerContextAck = { deliveryToken: token, manifestRevision: manifest.manifestRevision };
+const guardedParts = [declaredParts[0], { ...declaredParts[1], workerContextAck }];
+check(guardedDiscussion, guardedParts);
+assert.throws(() => check(guardedDiscussion, declaredParts), /workerContextAck/);
+assert.throws(() => check(guardedDiscussion, [guardedParts[0], { ...guardedParts[1], workerContextAck: { ...workerContextAck, deliveryToken: "stale" } }]), /workerContextAck/);
+assert.throws(() => check(guardedDiscussion, [{ ...guardedParts[0], token: "stale" }, guardedParts[1]]), /identity/);
 assert.throws(() => check(discussion, parts.toReversed ? parts.toReversed() : [...parts].reverse()), /order/);
 assert.throws(() => check(discussion, [parts[0]]), /order/);
 assert.throws(() => check(discussion, [{ ...parts[0], reply: "Too early" }, parts[1]]), /part.reply/);

@@ -90,3 +90,6 @@ Optional full-home audit stalled on filesystem reads (also reproduced by indepen
 
 ### Iteration2 fixes/checkpoint
 All confirmed P3 fixes implemented, including current policy/knowledge/lang/instruction guard, requeue with new token and preserved input, monitor refresh, strict numbered discussion intermediate exception, unrelated stale-token isolation and generation-fenced asynchronous telemetry. Final focused core/integration/preflight/monitor/workers and simulator PASS; source mirrors synchronized. Version1.0.26 bumped exactly once. Current continuation review passes: measurement, proxy, trace, reuse (4 scoped passes); next fresh integrated pass required. Preparing one implementation/fix commit, excluding unrelated README.
+
+### Iteration2 integrated review pass 5
+Implementation committed as d14eee0. Fresh full-scope review found one contract mismatch: preflight rejects optional telemetry on intermediate discussion parts although the server accepts it. Fresh fixer assigned shared validation and regression coverage. All integrated checks passed: reuse core/integration, preflight, delivery trace, audit, usage, WebSocket, Hub Codex/runtime, monitor, actions, workers, worker-cost, transfer, discussion, followups, spec, context and disposable simulator. Final clean review and phase3 verification remain pending. README remains unrelated and uncommitted.
