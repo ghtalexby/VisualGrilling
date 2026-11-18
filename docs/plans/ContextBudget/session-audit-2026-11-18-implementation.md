@@ -1,6 +1,6 @@
 # Session audit implementation scope and host-routing gate
 
-Status: P1/narrow-P2 released as 1.0.25; additive diagnostics and corrected proxy transport are in the current follow-up. Direct child routing is blocked by host policy; supported parent-followup P3 is a default-disabled process-local prototype. Matched cost/quality acceptance remains open.
+Status: P1/narrow-P2 released as 1.0.25; additive diagnostics, corrected proxy transport and a default-disabled parent-followup P3 prototype are implemented in 1.0.26. Direct child routing is blocked by host policy. Matched cost/quality acceptance remains open.
 
 This record supplements the [frozen audit](session-audit-2026-11-18.md) and its
 [metrics](session-audit-2026-11-18.metrics.json). It does not revise the baseline:
@@ -218,3 +218,32 @@ acknowledgement rejection, policy redelivery and monitor refresh. API read metri
 exclude filesystem reads. Real matched cost/quality sessions and semantic evidence
 checks remain required before enabling reuse generally. No benchmark claim or
 parent-free loop is implied; direct child input remains blocked by host policy.
+
+## Validation summary for release 1.0.26
+
+Implementation: `d14eee0`; multipart preflight synchronization: `1388b90`.
+The continuation completed six independent review passes (four scoped and two
+integrated); the last integrated pass found no confirmed issues. Preflight now
+accepts and validates optional worker telemetry on intermediate discussion parts
+through the same helper as the server, retaining identity and final-ack guards.
+
+Passed checks include worker reuse core/integration, session audit, delivery
+trace, usage, preflight, WebSocket, Hub adapter/runtime/service, workers, monitor,
+context/restart, worker-cost, maps, knowledge, actions, discussion, followups,
+specification and the disposable simulator. The simulator covered `gap`, `ok`,
+`verify`, discussion, more questions, finish, report and missing-header 403.
+Source/release mirrors and installed Codex junctions resolve to 1.0.26.
+
+Read-only replay of the known baseline's creation-day directory matched all
+19 threads and 373 responses (215 parent, 158 workers), with zero per-thread
+metric mismatches: 17,210,880 input, 16,449,408 cached, 761,472 uncached,
+54,391 output and 3,211 reasoning tokens. This validates known-baseline parsing,
+not independent whole-archive completeness. An optional whole-home scan stalled
+on filesystem reads, also reproduced by a separate synchronous read probe;
+only the owned diagnostic processes were stopped. The exact filesystem cause
+was not established. The frozen audit and metrics were not rewritten.
+
+These results establish protocol behavior and accounting checks, not measured
+savings or equivalent semantic grading. Full P2 revision receipts/coalescing,
+P4 versioned history retrieval, matched cold/warm experiments and the
+host-blocked direct-publication architecture remain open. No push was performed.

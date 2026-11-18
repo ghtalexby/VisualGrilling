@@ -2,7 +2,7 @@
 
 Project: VisualGrilling. Plan: docs/plans/ContextBudget/session-audit-2026-11-18.md.
 Plan SHA256: 81FBE61319AE3AA9E7B954BCF40A1FE36528E552C0016901F911D3A99575A740.
-Base: e8b930f5bb5150b7e4c572c214cea89ac1c1bf17. Iteration 1 complete; phase 3 verified on 5219dc2. Selected scope complete; external acceptance remains blocked. Limit: 5 iterations; mandatory review-until-clean overrides review cap.
+Base: e8b930f5bb5150b7e4c572c214cea89ac1c1bf17. Iteration 2 selected implementation verified on 1388b90; broader audit acceptance remains incomplete. Iteration 1 verified on 5219dc2. External acceptance remains open. Limit: 5 iterations; mandatory review-until-clean overrides review cap.
 User authorized implementation and archival on 2026-11-18. Previous ledger: boards-hub-before-session-audit-2026-11-18.md. Preserve unrelated README.md changes.
 
 ## Requirements
@@ -12,9 +12,9 @@ User authorized implementation and archival on 2026-11-18. Previous ledger: boar
 | R2 | P1 template and local preflight | Pure coverage/intent/identity/multipart validation | DONE | result-preflight.mjs:15-109; preflight tests PASS |
 | R3 | Narrow P2 combined ancestors | Atomic legacy inline ancestors and fallback | DONE | grill.mjs:1126-1145; check-discussion.mjs:160-196 PASS |
 | R4 | P2 correctness boundaries | Preserve required work and atomicity | DONE | grill.mjs:1133-1145; discussion structural/reread regressions; spec/actions/context/restart suites PASS |
-| R5 | Owner prototype host gate | Inspect existing host routing; distinguish verified from unverified child create/resume/complete/restart | BLOCKED | Proxy initialize timed out after 5s; lifecycle acceptance unverified |
-| R6 | Release and synchronization | Docs, mirror and installed version | DONE | 1.0.25 across package/source/mirror/extension/installed junctions; 40 mirrored files match |
-| R7 | Independent review and checks | Fresh clean review and verification | DONE | Two review passes, second clean; independent final plan verification; simulator/API and regression suites PASS |
+| R5 | Owner prototype host gate | Inspect existing host routing; distinguish verified from unverified child create/resume/complete/restart | BLOCKED | Transport now passes; direct child RPC rejected by host policy -32600; full lifecycle/restart unverified |
+| R6 | Release and synchronization | Docs, mirror and installed version | DONE | Independent verification: 44 mirror files byte-identical; package/UI/extension and installed Codex junctions at1.0.26 |
+| R7 | Independent review and checks | Fresh clean review and verification | DONE | Iteration1:2 passes. Iteration2:6 passes, final clean on1388b90; independent full-plan verification PASS for selected scope |
 | R8 | Matched experiment | Equal cold/warm real scenarios; actor-specific tokens/model calls, semantic quality | BLOCKED | Controlled real-session experiment pending; baseline remains frozen |
 | R9 | Later gated P0/P3/P4/full P2 | Record remaining scope honestly | DONE | Implementation record retains full-scope receipts, reuse, retrieval and measurement gates; frozen audit hash unchanged |
 
@@ -61,16 +61,16 @@ User requested continuation after release1.0.25. Preserve R1–R9 history and tw
 
 | ID | Requirement / source | Acceptance | Status | Evidence |
 |---|---|---|---|---|
-| R10 | P0 actor response accounting | Deduplicated parent/worker model-response counts separate from CLI requests; fallback count unknown | IN_PROGRESS | usage.mjs currently deduplicates but discards response counts |
-| R11 | P0 delivery attribution | Link event diagnostics to action IDs and noncredential delivery identity; explicit incomplete closing telemetry | TODO | Existing actionTasks provide action/token relations; bounded diagnostics lack them |
-| R12 | P0 reproducible offline report | Explicit parent metadata, cutoff, repeated-ID dedup, incomplete data, aggregate-only output; frozen baseline untouched | TODO | No reusable audit generator present |
+| R10 | P0 actor response accounting | Deduplicated parent/worker model-response counts separate from CLI requests; fallback count unknown | DONE | usage.mjs:65-78; independent verifier confirms unknown counts; usage/worker-cost tests PASS |
+| R11 | P0 delivery attribution | Link event diagnostics to action IDs and noncredential delivery identity; explicit incomplete closing telemetry | DONE | telemetry.mjs:3-11; grill.mjs:807; independent verifier confirms attribution; delivery-trace PASS |
+| R12 | P0 reproducible offline report | Explicit parent metadata, cutoff, repeated-ID dedup, incomplete data, aggregate-only output; frozen baseline untouched | DONE | dev/session-audit.mjs:56,92,195; independent verification and focused checks; known19-thread baseline parity PASS |
 
 Work units: W6 host root-cause investigation; W7 usage/report implementation after design; W8 attribution implementation after design; W9 independent review, synchronization, release and full requirement verification. Real P3/direct-publication work remains contingent on evidence/host gate; measured savings cannot be inferred from deterministic tests.
 
 ### Iteration2 host diagnosis breakthrough
 The proxy is raw WebSocket forwarding, not JSON-lines stdio. A read-only HTTP Upgrade /rpc + masked initialize probe received101 and a successful Codex0.170.0 initialize using the same executable/environment. Earlier timeout was a client protocol bug, not missing host capability. R5 reopened IN_PROGRESS. W10 fresh implementer fixing proxy transport with bounded WebSocket codec while preserving owned stdio. Real lifecycle/child ownership remains unverified; schema thread/start has no parent identity input.
-| R13 | Existing-host proxy transport | Correct handshake/framing, fail-closed bounds, preserved stdio and deterministic regressions; real initialize passes | IN_PROGRESS | Protocol mismatch reproduced; fix assigned |
-| R14 | Disposable worker lifecycle | Exact identity create/resume/completion/reconnect without separate model process; explicit child/host-restart limits | TODO | Depends on R13 review |
+| R13 | Existing-host proxy transport | Correct handshake/framing, fail-closed bounds, preserved stdio and deterministic regressions; real initialize passes | DONE | Independent review/verification and WebSocket tests PASS; real initialization PASS without inference |
+| R14 | Disposable worker lifecycle | Exact identity create/resume/completion/reconnect without separate model process; explicit child/host-restart limits | BLOCKED | Direct child input denied by host policy; supported parent followup retains marker; restart unverified |
 
 ### Iteration2 routing result
 R13 transport unit independently APPROVED; deterministic websocket/adapter/service tests and real initialize PASS. Real disposable v2 child created through supported collaboration (01a1ee9b-a2b2-71b2-a430-25ef4b4dcd9a), then direct app-server lifecycle attempt rejected with code-32600: direct app-server input is not allowed for multi-agent v2 sub-agents. No turn admission was observed. This is a host policy boundary, not a transport timeout; do not bypass it. R14 direct child lifecycle BLOCKED; supported parent followup smoke underway. P3 parent-dispatched prepare-only reuse core under implementation, default disabled, no model overrides.
@@ -78,7 +78,7 @@ R13 transport unit independently APPROVED; deterministic websocket/adapter/servi
 ### Iteration2 review findings
 Measurement review: invalid/conflicting usage records must not claim exact response counts; incomplete discovery must propagate to aggregate exact counts. Fresh fixer applied changes; usage/worker-cost/audit tests PASS. Runtime trace review: add actual frozen evidenceRevision while retaining live mapRevision; preserve causes on failure retry; attribute generated followups; retain declared workers on accepted failure results. Fresh fixer assigned. No release/commit yet; final integrated review required.
 
-| R15 | P3 bounded parent-dispatched reuse | Disabled-by-default same-card prototype; full current evidence, exact manifest acknowledgement, measured size/read limits and conservative rotation; supported followup only | IN_PROGRESS | Pure core/settings/fixtures implemented; runtime integration ongoing |
+| R15 | P3 bounded parent-dispatched reuse | Disabled-by-default same-card prototype; full current evidence, exact manifest acknowledgement, measured size/read limits and conservative rotation; supported followup only | DONE | worker-reuse.mjs:3,28,67; independent verification and core/integration PASS; real semantic/cost acceptance remains R8 |
 Supported parent followup of the same disposable child returned the remembered marker exactly. This proves supported host context continuation only, not semantic equivalence or savings. Direct-child RPC prohibition is preserved.
 
 ### Actual baseline replay (read-only)
@@ -93,3 +93,12 @@ All confirmed P3 fixes implemented, including current policy/knowledge/lang/inst
 
 ### Iteration2 integrated review pass 5
 Implementation committed as d14eee0. Fresh full-scope review found one contract mismatch: preflight rejects optional telemetry on intermediate discussion parts although the server accepts it. Fresh fixer assigned shared validation and regression coverage. All integrated checks passed: reuse core/integration, preflight, delivery trace, audit, usage, WebSocket, Hub Codex/runtime, monitor, actions, workers, worker-cost, transfer, discussion, followups, spec, context and disposable simulator. Final clean review and phase3 verification remain pending. README remains unrelated and uncommitted.
+
+### Iteration2 integrated review pass 6
+APPROVED on1388b90, no confirmed findings. Independent reuse core/integration, WebSocket, audit, trace, usage, preflight, Hub adapter, workers, monitor, context/restart, worker-cost and simulator PASS. Mirrors and1.0.26 stamps match. Root maps/knowledge PASS. Fresh phase3 verifier assigned entire audit, linked specification and all R1-R15. Review count for this continuation:6 (four scoped, two integrated), final clean; previous iteration:2.
+
+### Iteration2 final independent verification
+12 of15 ledger requirements DONE for the selected implementation. R5/R14 remain BLOCKED by direct-child host policy; full restart lifecycle remains unverified. R8 remains an unperformed matched experiment (verifier: MISSING), not evidence of a host impossibility for supported parent-dispatched reuse. Full audit completion and savings are not claimed.
+Verifier independently passed preflight, workers, disposable simulator,44-file mirror parity,1.0.26 versions/installed junctions,20 documentation links, audit hash and whitespace. Broader runtime suites passed during independent review. Historical metrics byte comparison was unavailable in the checked Git baselines; originals were not edited.
+Implementation commits:d14eee0 and1388b90. Review count:6 this continuation (4 scoped,2 integrated), last clean;2 prior passes retained. No push; unrelated README remains uncommitted.
+Remaining roadmap: matched repeated cold/warm real-session and semantic assessment; full P2 assessed revisions/dependency coalescing/evidence-bookkeeping separation; P4 versioned history retrieval; complete causal-cost attribution; direct-publication lifecycle only through supported host capabilities. These are unresolved broader program work, not completed features. Resume from this record without rerunning the frozen baseline or claiming percentage savings.
