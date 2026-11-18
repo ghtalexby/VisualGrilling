@@ -30,7 +30,7 @@ const state = async () => (await fetch(url + "api/state", { headers: { "x-grill"
 try {
   assert.equal(await sessionUsage(base)(), null);
   binding(); fs.writeFileSync(file, line(total));
-  assert.deepEqual(await sessionUsage(base)(), { provider: "codex", scope: "session", ...total });
+  assert.deepEqual(await sessionUsage(base)(), { provider: "codex", scope: "session", ...total, model_responses: null, model_responses_complete: false });
   fs.appendFileSync(file, line(total) + '{"type":');
   assert.equal((await sessionUsage(base)()).total_tokens, 120);
   fs.writeFileSync(file, line({ ...total, total_tokens: -1 }));
@@ -58,12 +58,17 @@ try {
   fs.writeFileSync(file, usageRecord("a", 110000) + usageRecord("a", 110000));
   const accurate = sessionUsage(base);
   assert.equal((await accurate()).input_tokens, 110000);
+  assert.equal((await accurate()).model_responses, 1);
+  assert.equal((await accurate()).model_responses_complete, true);
   await sleep(1050); assert.equal((await state()).sessionHint, null);
   fs.appendFileSync(file, usageRecord("b", 130000) + usageRecord("b", 130000));
   await sleep(1050);
   assert.equal((await accurate()).input_tokens, 240000);
+  assert.equal((await accurate()).model_responses, 2);
   const large = await state(); assert.equal(large.sessionUsage.last_input_tokens, 130000); assert.equal(large.sessionHint, "rollover");
   assert.equal((await sessionUsage(base)()).input_tokens, 240000, "Restart scans all unique responses");
+  assert.equal((await sessionUsage(base)()).model_responses, 2, "Restart deduplicates responses");
+  assert.ok(!JSON.stringify(large.sessionUsage).includes(id));
   const headers = { "x-grill": "1", "content-type": "application/json" };
   await fetch(url + "api/init", { method: "POST", headers, body: JSON.stringify({ title: "Usage", questions: [{ q: "Q?" }] }) });
   const q = (await state()).nodes.find(n => n.kind === "q");
@@ -76,6 +81,26 @@ try {
   const stats = (await state()).contextStats;
   assert.equal(stats.totals.answer.usage.input_tokens, 140000);
   assert.equal(stats.recent[0].requests, 2);
+  for (const invalid of ["{malformed\n", usageRecord("bad", -1), usageRecord("a", 220000)]) {
+    fs.writeFileSync(file, usageRecord("a", 110000) + invalid);
+    const partial = await sessionUsage(base)();
+    assert.equal(partial.input_tokens, 110000, "Keep observed token aggregates");
+    assert.equal(partial.model_responses, null, "Damaged response telemetry is not an exact count");
+    assert.equal(partial.model_responses_complete, false);
+  }
+  fs.writeFileSync(file, usageRecord("a", 110000));
+  const recovery = sessionUsage(base);
+  assert.equal((await recovery()).model_responses, 1);
+  fs.appendFileSync(file, "{bad\n"); await sleep(1050);
+  assert.equal((await recovery()).model_responses_complete, false);
+  fs.appendFileSync(file, usageRecord("b", 120000)); await sleep(1050);
+  assert.equal((await recovery()).model_responses, null, "Valid appends cannot erase earlier damage");
+  fs.writeFileSync(file, usageRecord("new", 100)); await sleep(1050);
+  assert.equal((await recovery()).model_responses, 1, "Truncation resets incompleteness");
+  fs.appendFileSync(file, '{"type":'); await sleep(1050);
+  assert.equal((await recovery()).model_responses, null, "An unfinished record is not exact");
+  fs.appendFileSync(file, '"response_item"}\n'); await sleep(1050);
+  assert.equal((await recovery()).model_responses, 1, "Completing a valid partial line recovers exactness");
   fs.unlinkSync(file); await sleep(1050); assert.equal((await state()).sessionUsage, null);
   console.log("Session usage checks passed");
 } finally { await stop(); fs.rmSync(cwd, { recursive: true, force: true }); }

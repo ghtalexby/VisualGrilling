@@ -103,14 +103,14 @@ const init = { title: "Worker check", brief: "Product brief", arch: "Node archit
 try {
   let result = await run(["config"]).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 }, workerReuse: { enabled: false, maxEvents: 3, maxInputTokens: 60000, maxReadAmplification: 2 } });
   fs.mkdirSync(dir, { recursive: true });
   const configFile = path.join(dir, "config.json");
   for (const model of ["sonnet", "opus", "haiku", "inherit"]) {
     fs.writeFileSync(configFile, JSON.stringify({ ignored: true, roles: { ignored: {}, griller: { model, ignored: 1 } } }));
     result = await run(["config"]).done;
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
+    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 }, workerReuse: { enabled: false, maxEvents: 3, maxInputTokens: 60000, maxReadAmplification: 2 } });
   }
   fs.writeFileSync(configFile, JSON.stringify({ roles: { griller: { ignored: 1 } } }));
   assert.equal(JSON.parse((await run(["config"]).done).stdout).roles.griller.model, "inherit");
@@ -165,7 +165,7 @@ try {
   fs.writeFileSync(configFile, '{"roles":{"griller":{"model":"sonnet"}}}');
   result = await run(["config"], copiedCli).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
+  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 }, workerReuse: { enabled: false, maxEvents: 3, maxInputTokens: 60000, maxReadAmplification: 2 } });
   fs.unlinkSync(configFile);
   assert.equal((await watch("--inbox").done).code, 2);
   await start();
@@ -184,7 +184,8 @@ try {
   const line = await event(watch("--inbox"), "answer");
   assert.deepEqual(line, { type: "answer", id, token: line.token, name: "check", language: "en", inbox: path.join(map, "inbox.json"), characters: line.characters, sections: line.sections });
   assert.notEqual(inbox().token, full.token);
-  assert.deepEqual({ ...inbox(), token: full.token, knowledge: full.knowledge }, full);
+  assert.notEqual(inbox().deliveryTraceId, full.deliveryTraceId);
+  assert.deepEqual({ ...inbox(), token: full.token, deliveryTraceId: full.deliveryTraceId, knowledge: full.knowledge }, full);
   await request("answer", { id: secondId, answer: "Queued answer" });
   const before = JSON.parse(read("state.json"));
   assert.deepEqual(await request("apply", { type: "notes", text: "First facts" }), { ok: true });
@@ -217,7 +218,8 @@ try {
   const discussionLine = await event(watch("--inbox"), "discuss");
   assert.deepEqual(discussionLine, { type: "discuss", id: discussionId, token: discussionLine.token, name: "check", language: "en", inbox: path.join(map, "inbox.json"), characters: discussionLine.characters, sections: discussionLine.sections });
   assert.notEqual(inbox().token, fullDiscussion.token);
-  assert.deepEqual({ ...inbox(), token: fullDiscussion.token, knowledge: fullDiscussion.knowledge }, fullDiscussion);
+  assert.notEqual(inbox().deliveryTraceId, fullDiscussion.deliveryTraceId);
+  assert.deepEqual({ ...inbox(), token: fullDiscussion.token, deliveryTraceId: fullDiscussion.deliveryTraceId, knowledge: fullDiscussion.knowledge }, fullDiscussion);
   assert.match(inbox().message, /Explain this option/);
   assert.equal(focusCard(inbox()).q, "First?");
   assert.equal(inbox().history, undefined);

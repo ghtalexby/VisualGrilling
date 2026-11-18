@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateWorkerContextAck } from "./worker-reuse.mjs";
 
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const bad = field => { throw new Error(`Некорректный результат: ${field}`); };
@@ -59,6 +60,8 @@ export function validateResults(inbox, results, expected) {
       }
       if ((result.capturedForSpec === true) !== (inbox.capturedForSpec === true)) bad("capturedForSpec scope");
     }
+    if (inbox.workerContext?.manifest && !(result.type === "discuss" && Number.isInteger(result.part) && result.part >= 0 && result.more === true) &&
+        !validateWorkerContextAck(result.workerContextAck, inbox.workerContext.manifest, { final: true })) bad("workerContextAck");
     if (multipart) {
       if (inbox.type !== "discuss" || result.type !== "discuss" || result.part !== index || result.more !== (index < results.length - 1)) bad("part/more/order");
       if (result.more) for (const key of Object.keys(result)) {

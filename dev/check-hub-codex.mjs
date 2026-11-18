@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import readline from "node:readline";
+import { fakeCodexWire } from "./fixtures/codex-wire.mjs";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createCodexAdapter, CodexRpc } from "../skills/grill/hub/codex.mjs";
@@ -10,14 +10,13 @@ if (process.argv[2] === "--fake") {
   const mode = process.argv[3];
   if (["owned", "queue-relocation"].includes(mode) && process.argv.includes("proxy")) process.exit(2);
   let authenticated = mode !== "login";
-  const send = value => process.stdout.write(JSON.stringify(value) + "\n");
-  readline.createInterface({ input: process.stdin }).on("line", line => {
-    const { id, method, params } = JSON.parse(line);
+  fakeCodexWire(({ id, method, params }, send) => {
     if (!method || id === undefined) return;
+    if (mode === "invalid-wire") return process.stdout.write(Buffer.from([0x81, 0x80]));
     if (mode === "timeout" && method !== "initialize") return;
     if (method === "thread/read" && mode === "absent") return send({ id, error: { code: -32600, message: "no rollout found for thread id absent" } });
     if (method === "thread/read" && mode === "unknown") return send({ id, error: { code: -32603, message: "Storage inaccessible" } });
-    const thread = { id: "11111111-1111-4111-8111-111111111111", cwd: ["owned", "relocated"].includes(mode) && process.argv[4] !== "app-server" ? process.argv[4] : process.cwd(), status: { type: mode === "busy" ? "active" : "idle" } };
+    const thread = { id: "11111111-1111-4111-8111-111111111111", cwd: ["owned", "relocated"].includes(mode) && !["app-server", "--no-daemon"].includes(process.argv[4]) ? process.argv[4] : process.cwd(), status: { type: mode === "busy" ? "active" : "idle" } };
     if (mode === "queue-relocation") {
       const replacement = "22222222-2222-4222-8222-222222222222";
       thread.id = method === "thread/start" || params?.threadId === replacement ? replacement : thread.id;
@@ -167,6 +166,13 @@ if (process.argv[2] === "--fake") {
   assert.equal((await login.login(spec.boardId)).status, "working"); await login.close();
   const rpc = new CodexRpc({ command: process.execPath, args: [self, "--fake", "timeout"], timeoutMs: 100 });
   await rpc.initialize(); await assert.rejects(rpc.request("account/read"), /timed out/); rpc.close();
+  for (const mode of ["invalid-wire", "timeout"]) {
+    const proxy = new CodexRpc({ command: process.execPath, args: [self, "--fake", mode, "proxy"], transport: "proxy", timeoutMs: 500 });
+    if (mode === "invalid-wire") await assert.rejects(proxy.initialize(), /WebSocket protocol/);
+    else { await proxy.initialize(); await assert.rejects(proxy.request("account/read"), /timed out/); }
+    assert.equal(proxy.closed, true); assert.equal(proxy.pending.size, 0);
+    await proxy.exited; assert.ok(proxy.child.killed, "Protocol failure closes only the spawned proxy child");
+  }
   let queued = 0, warning = false;
   const fallback = createCodexAdapter({ command: process.execPath, args: [self, "--fake", "normal"], timeoutMs: 2000,
     async execFile(command, args) { queued++; assert.ok(args.includes("queue")); assert.ok(args.includes("--resume")); return { stderr: warning ? "warning: resume failed" : "" }; } });

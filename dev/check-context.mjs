@@ -186,8 +186,15 @@ try {
   sparse.nodes.find(n => n.id === "q05").verdictHistory[0].at = 1700000000200;
   fs.writeFileSync(stateFile, JSON.stringify(sparse)); await start();
   const slim = await delivered("reevaluate");
-  // Compare the projection budget without the newly required coverage evidence.
-  assert.ok(JSON.stringify(slim, (key, value) => key === "gapCoverage" ? undefined : value).length <= 6094 / 2);
+  // Keep the historical evidence budget; report additive telemetry separately.
+  const { deliveryTraceId, actionIds, contextScope, mapRevision, evidenceRevision, causes, ...slimEvidence } = slim;
+  assert.match(deliveryTraceId, /^[0-9a-f-]{36}$/);
+  assert.ok(Array.isArray(actionIds) && Array.isArray(causes));
+  assert.equal(contextScope, "live"); assert.match(mapRevision, /^[0-9a-f]{64}$/);
+  const telemetryOverhead = JSON.stringify(slim).length - JSON.stringify(slimEvidence).length;
+  assert.ok(telemetryOverhead > 0 && telemetryOverhead <= 1000, "Fixture delivery telemetry stays bounded");
+  assert.ok(JSON.stringify(slimEvidence, (key, value) => key === "gapCoverage" ? undefined : value).length <= 6094 / 2);
+  console.log(`reevaluate telemetry overhead\t${telemetryOverhead}\t(total diagnostics include telemetry)`);
   assert.ok(!slim.nodes.some(n => n.kind === "root"));
   for (const n of sparse.nodes.filter(n => n.id === "q00" || n.parentId === "q00")) assert.ok(slim.nodes.some(x => x.id === n.id) || slim.index.includes(n.id));
   assert.equal(slim.nodes.find(n => n.id === "q05").chat, undefined);
@@ -519,7 +526,12 @@ try {
   assert.equal(stats.recent.length, 200); assert.equal(stats.totals.more.count, 205);
   assert.equal(stats.totals.more.characters, stats.recent[0].characters * 205);
   await stop(); await start();
-  assert.deepEqual((await api("state")).contextStats, stats);
+  const recoveredStats = (await api("state")).contextStats;
+  assert.equal(recoveredStats.recent.at(-1).usageDeltaStatus, "interrupted");
+  assert.ok(Number.isSafeInteger(recoveredStats.recent.at(-1).closedAt));
+  stats.recent.at(-1).usageDeltaStatus = "interrupted";
+  stats.recent.at(-1).closedAt = recoveredStats.recent.at(-1).closedAt;
+  assert.deepEqual(recoveredStats, stats);
   await delivered("more", false);
   assert.equal((await api("state")).contextStats.totals.more.count, 206);
   await api("init", { questions: [{ q: "Reset?", options: ["Yes", "No"] }] });

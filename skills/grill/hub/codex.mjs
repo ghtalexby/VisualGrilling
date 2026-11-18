@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { ProxyWebSocket } from "./websocket.mjs";
 
 const MAX = 4 * 1024 * 1024;
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -33,41 +34,55 @@ export class CodexRpcError extends Error {
 }
 
 export class CodexRpc {
-  constructor({ command, args = [], cwd, env, timeoutMs = 15000, spawnProcess = spawn, onMessage = () => {}, onClose = () => {} }) {
+  constructor({ command, args = [], cwd, env, timeoutMs = 15000, transport = "stdio", spawnProcess = spawn, onMessage = () => {}, onClose = () => {} }) {
+    if (!["stdio", "proxy"].includes(transport)) throw new Error("Unknown Codex transport");
     this.pending = new Map(); this.sequence = 0; this.buffer = ""; this.closed = false; this.timeoutMs = timeoutMs;
     const childEnv = { ...process.env, ...env };
     for (const key of ["CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_TOOL_CALL_ID", "CODEX_DAEMON_SHUTDOWN_SOCKET", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT"]) delete childEnv[key];
     this.child = spawnProcess(command, args, { cwd, env: childEnv, shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
     this.exited = new Promise(resolve => { this.child.once("exit", resolve); this.child.once("error", resolve); });
-    this.child.stdout.setEncoding("utf8");
-    this.child.stdout.on("data", chunk => {
-      this.buffer += chunk;
-      if (Buffer.byteLength(this.buffer) > MAX) return this.fail(new Error("Codex protocol buffer exceeded"));
-      let index;
-      while ((index = this.buffer.indexOf("\n")) >= 0) {
-        const line = this.buffer.slice(0, index); this.buffer = this.buffer.slice(index + 1);
-        if (!line.trim()) continue;
-        let message;
-        try { message = JSON.parse(line); } catch { this.fail(new Error("Invalid Codex protocol JSON")); return; }
-        if (message.id !== undefined && !message.method) {
-          const pending = this.pending.get(message.id);
-          if (!pending) continue;
-          clearTimeout(pending.timer); this.pending.delete(message.id);
-          if (message.error) pending.reject(new CodexRpcError(message.error.message, message.error.code));
-          else pending.resolve(message.result);
-        } else onMessage(message);
-      }
-    });
+    this.onClose = onClose;
+    const receive = text => {
+      let message;
+      try { message = JSON.parse(text); } catch { this.fail(new Error("Invalid Codex protocol JSON")); return; }
+      if (!message || typeof message !== "object" || Array.isArray(message)) { this.fail(new Error("Invalid Codex protocol message")); return; }
+      if (message.id !== undefined && !message.method) {
+        const pending = this.pending.get(message.id);
+        if (!pending) return;
+        clearTimeout(pending.timer); this.pending.delete(message.id);
+        if (message.error) pending.reject(new CodexRpcError(message.error.message, message.error.code));
+        else pending.resolve(message.result);
+      } else onMessage(message);
+    };
+    if (transport === "proxy") {
+      this.socket = new ProxyWebSocket({ write: bytes => this.child.stdin.write(bytes), onText: receive, onError: error => this.fail(error), timeoutMs });
+      this.ready = this.socket.ready;
+      this.child.stdout.on("data", chunk => this.socket.feed(chunk));
+    } else {
+      this.ready = Promise.resolve();
+      this.child.stdout.setEncoding("utf8");
+      this.child.stdout.on("data", chunk => {
+        this.buffer += chunk;
+        if (Buffer.byteLength(this.buffer) > MAX) return this.fail(new Error("Codex protocol buffer exceeded"));
+        let index;
+        while (!this.closed && (index = this.buffer.indexOf("\n")) >= 0) {
+          const line = this.buffer.slice(0, index); this.buffer = this.buffer.slice(index + 1);
+          if (line.trim()) receive(line);
+        }
+      });
+    }
     // Drain diagnostics without retaining credentials or unlimited output.
     this.child.stderr.on("data", () => {});
     this.child.stdin.on("error", error => this.fail(error));
+    this.child.stdout.on("error", error => this.fail(error));
+    this.child.stdout.on("end", () => this.fail(new Error("Codex transport closed")));
     this.child.on("error", error => this.fail(error));
     this.child.on("exit", () => this.fail(new Error("Codex transport closed")));
-    this.onClose = onClose;
+    this.socket?.start();
   }
   fail(error) {
     if (this.closed) return;
-    this.closed = true;
+    this.closed = true; this.socket?.dispose(error);
     for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
     this.pending.clear(); this.child.kill(); this.onClose?.(error);
   }
@@ -75,13 +90,15 @@ export class CodexRpc {
     if (this.closed) throw new Error("Codex transport closed");
     const line = JSON.stringify(message) + "\n";
     if (Buffer.byteLength(line) > MAX) throw new Error("Codex request too large");
-    this.child.stdin.write(line);
+    if (this.socket) this.socket.send(line.slice(0, -1));
+    else this.child.stdin.write(line);
   }
-  request(method, params = {}) {
+  async request(method, params = {}) {
+    await this.ready;
     if (this.closed) return Promise.reject(new Error("Codex transport closed"));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Codex request timed out: ${method}`)); }, this.timeoutMs);
+      const timer = setTimeout(() => this.fail(new Error(`Codex request timed out: ${method}`)), this.timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       try { this.send({ id, method, params }); } catch (error) { clearTimeout(timer); this.pending.delete(id); reject(error); }
     });
@@ -103,7 +120,7 @@ export class CodexAdapter {
   }
   async connect(binding, owned, session) {
     const executable = resolveCodexCommand(binding?.command || this.options.command, binding?.args || this.options.args || []);
-    const rpc = new CodexRpc({ ...this.options, command: executable.command, args: [...executable.args, "app-server", owned ? "--stdio" : "proxy"],
+    const rpc = new CodexRpc({ ...this.options, command: executable.command, args: [...executable.args, "--no-daemon", "app-server", owned ? "--stdio" : "proxy"], transport: owned ? "stdio" : "proxy",
       env: binding?.codexHome ? { CODEX_HOME: binding.codexHome } : undefined,
       onMessage: message => session && this.message(session, message),
       onClose: error => { if (session && session.state.status !== "stopped") this.emit(session, { status: "error", error: error.message, requests: [] }); }

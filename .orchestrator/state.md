@@ -55,3 +55,38 @@ APPROVED on 5219dc2; no confirmed findings. Independent preflight/discussion/hub
 Seven of nine ledger requirements DONE; R5 and R8 remain BLOCKED. No missing implementation requirement in selected P1/narrow-P2 scope. Conditional apply/next remains measurement-gated. Final verifier independently passed preflight, workers, disposable simulator, syntax, plan links, source/mirror/version and whitespace checks. One verifier worker-check invocation omitted registry isolation; its exact completed fixture registry record was removed and the isolated rerun passed. User maps and unrelated README were preserved.
 
 Review count: 2 passes, final clean. Implementation/fix commit: 5219dc2. No push. Resume at host-proxy prerequisite and matched real-session experiment; full audit program is not complete.
+
+## Iteration 2 — continuation
+User requested continuation after release1.0.25. Preserve R1–R9 history and two completed review passes. Reopen host diagnosis (R5) rather than assuming a timeout proves unsupported. Parallel read-only design for P0 measurements; no nested model process or existing-session messages.
+
+| ID | Requirement / source | Acceptance | Status | Evidence |
+|---|---|---|---|---|
+| R10 | P0 actor response accounting | Deduplicated parent/worker model-response counts separate from CLI requests; fallback count unknown | IN_PROGRESS | usage.mjs currently deduplicates but discards response counts |
+| R11 | P0 delivery attribution | Link event diagnostics to action IDs and noncredential delivery identity; explicit incomplete closing telemetry | TODO | Existing actionTasks provide action/token relations; bounded diagnostics lack them |
+| R12 | P0 reproducible offline report | Explicit parent metadata, cutoff, repeated-ID dedup, incomplete data, aggregate-only output; frozen baseline untouched | TODO | No reusable audit generator present |
+
+Work units: W6 host root-cause investigation; W7 usage/report implementation after design; W8 attribution implementation after design; W9 independent review, synchronization, release and full requirement verification. Real P3/direct-publication work remains contingent on evidence/host gate; measured savings cannot be inferred from deterministic tests.
+
+### Iteration2 host diagnosis breakthrough
+The proxy is raw WebSocket forwarding, not JSON-lines stdio. A read-only HTTP Upgrade /rpc + masked initialize probe received101 and a successful Codex0.170.0 initialize using the same executable/environment. Earlier timeout was a client protocol bug, not missing host capability. R5 reopened IN_PROGRESS. W10 fresh implementer fixing proxy transport with bounded WebSocket codec while preserving owned stdio. Real lifecycle/child ownership remains unverified; schema thread/start has no parent identity input.
+| R13 | Existing-host proxy transport | Correct handshake/framing, fail-closed bounds, preserved stdio and deterministic regressions; real initialize passes | IN_PROGRESS | Protocol mismatch reproduced; fix assigned |
+| R14 | Disposable worker lifecycle | Exact identity create/resume/completion/reconnect without separate model process; explicit child/host-restart limits | TODO | Depends on R13 review |
+
+### Iteration2 routing result
+R13 transport unit independently APPROVED; deterministic websocket/adapter/service tests and real initialize PASS. Real disposable v2 child created through supported collaboration (01a1ee9b-a2b2-71b2-a430-25ef4b4dcd9a), then direct app-server lifecycle attempt rejected with code-32600: direct app-server input is not allowed for multi-agent v2 sub-agents. No turn admission was observed. This is a host policy boundary, not a transport timeout; do not bypass it. R14 direct child lifecycle BLOCKED; supported parent followup smoke underway. P3 parent-dispatched prepare-only reuse core under implementation, default disabled, no model overrides.
+
+### Iteration2 review findings
+Measurement review: invalid/conflicting usage records must not claim exact response counts; incomplete discovery must propagate to aggregate exact counts. Fresh fixer applied changes; usage/worker-cost/audit tests PASS. Runtime trace review: add actual frozen evidenceRevision while retaining live mapRevision; preserve causes on failure retry; attribute generated followups; retain declared workers on accepted failure results. Fresh fixer assigned. No release/commit yet; final integrated review required.
+
+| R15 | P3 bounded parent-dispatched reuse | Disabled-by-default same-card prototype; full current evidence, exact manifest acknowledgement, measured size/read limits and conservative rotation; supported followup only | IN_PROGRESS | Pure core/settings/fixtures implemented; runtime integration ongoing |
+Supported parent followup of the same disposable child returned the remembered marker exactly. This proves supported host context continuation only, not semantic equivalence or savings. Direct-child RPC prohibition is preserved.
+
+### Actual baseline replay (read-only)
+Fresh validation on a disposable Codex home pointing only at the session creation-day directory completed in497ms. All19threads and373responses (parent215/workers158) match frozen per-thread metrics, zero mismatches. Totals input17210880/cached16449408/uncached761472/output54391/reasoning3211. This validates parser/accounting for the frozen known19-thread baseline, not independent completeness of the whole archive. Full-home scan slowness separately investigated. Originals preserved.
+
+### Iteration2 integrated checks and reuse review
+Version bumped once to1.0.26; source mirrors synchronized before tests. PASS workers(10984-byte instruction bundle), delivery trace, worker-reuse core/integration, actions-simulator, followups, spec, actions and Hub service. P3 review found active policy-change freshness, unrelated-stale-token acknowledgement loss, non-discussion more:true bypass, async baseline resurrection, and stale documentation. Fresh fixer assigned, no claim of clean release yet. Final integrated independent review remains after fixes and commit.
+Optional full-home audit stalled on filesystem reads (also reproduced by independent synchronous probe), not proven parser CPU; stopped only the owned test process and shell. Restricted creation-day baseline parity passed as above. No full-archive completeness claim.
+
+### Iteration2 fixes/checkpoint
+All confirmed P3 fixes implemented, including current policy/knowledge/lang/instruction guard, requeue with new token and preserved input, monitor refresh, strict numbered discussion intermediate exception, unrelated stale-token isolation and generation-fenced asynchronous telemetry. Final focused core/integration/preflight/monitor/workers and simulator PASS; source mirrors synchronized. Version1.0.26 bumped exactly once. Current continuation review passes: measurement, proxy, trace, reuse (4 scoped passes); next fresh integrated pass required. Preparing one implementation/fix commit, excluding unrelated README.

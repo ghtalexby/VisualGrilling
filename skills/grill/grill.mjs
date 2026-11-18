@@ -29,6 +29,7 @@ import { discussionResult, discussionParts } from "./discussion.mjs";
 import { actionRoutes, initializeActions, acceptAction, waitingActions, activeActions, executableActions, actionGroup, cancellation, cancelActions, archiveChanges } from "./actions.mjs";
 import http from "node:http";
 import fs from "node:fs";
+import { finishUsage, workerDeclaration, fieldChanges, usageFields } from "./telemetry.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn, execFile } from "node:child_process";
@@ -38,6 +39,8 @@ import { locale, revision, translate, page } from "./i18n.mjs";
 import { previews } from "./preview.mjs";
 import { registerBoard, updateObservation } from "./hub/registry.mjs";
 import { sessionUsage } from "./usage.mjs";
+import { validateWorkerReuseSettings, validateWorkerContextAck } from "./worker-reuse.mjs";
+import { workerRuntime } from "./worker-runtime.mjs";
 import { bindSession, requestResume, codexConnection, requestWake, requestTransfer, transferBinding, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
 import { knowledge, digest, agentIndex } from "./knowledge.mjs";
@@ -107,6 +110,7 @@ async function serve() {
   const readUsage = async () => latestUsage = await usageReader();
   await readUsage();
   const settings = config(false);
+  const reuse = workerRuntime(settings.workerReuse, id => usageReader.worker(id));
   let S = readJSON(STATE) || freshState();
   const lifecycleFile = path.join(DIR, "hub-lifecycle.json");
   let lifecycle = readJSON(lifecycleFile) || { managed: false, paused: false, epoch: null };
@@ -124,6 +128,7 @@ async function serve() {
   };
   const fence = (managed = lifecycle.managed) => {
     stopping = true;
+    reuse.discard();
     if (managed) supersedeTransfer();
     lifecycle = { managed, paused: managed, epoch: randomUUID(), attached: null };
     atomicWrite(lifecycleFile, JSON.stringify(lifecycle));
@@ -140,6 +145,10 @@ async function serve() {
   let persistedNodes = structuredClone(S.nodes);
   let transaction = false;
   S.contextStats ||= { recent: [], totals: {} };
+  for (const entry of S.contextStats.recent) {
+    if (entry.usageDeltaStatus === "open") { entry.usageDeltaStatus = "interrupted"; entry.closedAt = Date.now(); }
+    else entry.usageDeltaStatus ||= "unknown";
+  }
   S.notes = clean(S.notes, 3000);
   S.locale = has("lang") || has("locale") ? requestedLocale() : locale(S.locale, true);
   const t = text => translate(S.locale, text);
@@ -155,7 +164,7 @@ async function serve() {
   S.queue = Array.isArray(S.queue) ? S.queue : [];
   let actionsEnabled = !S.queue.length && !S.actions.some(a => ["queued", "running"].includes(a.status));
   S.reserve ??= null;
-  if (S.reevaluation) S.reevaluation = { ids: [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])] };
+  if (S.reevaluation) S.reevaluation = { causes: S.reevaluation.causes, ids: [...S.reevaluation.ids, ...(S.reevaluation.remaining || [])] };
   S.questionRequests ||= [];
   for (const job of S.questionRequests) {
     job.stage = "queued"; delete job.token;
@@ -164,9 +173,9 @@ async function serve() {
   // answers and discussion messages that were being processed when the server stopped go back to the queue
   for (const n of S.nodes) {
     for (const m of n.chat || []) if (!m.id) { m.id = randomUUID(); if (m.from === "claude") m.readAt = Date.now(); }
-    if (n.followup && n.followup.stage !== "blocked" || n.kind === "q" && !n.obsolete && problemGrade(n.status) && !n.gapCoverage && !n.followup) n.followup = { stage: "queued" };
+    if (n.followup && n.followup.stage !== "blocked" || n.kind === "q" && !n.obsolete && problemGrade(n.status) && !n.gapCoverage && !n.followup) n.followup = { stage: "queued", causes: n.followup?.causes };
     if (n.analysis) {
-      n.analysis = { stage: "queued", reason: n.analysis.reason };
+      n.analysis = { stage: "queued", reason: n.analysis.reason, causes: n.analysis.causes };
       if (!S.queue.some(e => e.type === "idea" && e.id === n.id)) S.queue.push({ type: "idea", id: n.id });
     }
     if (n.pending) {
@@ -188,19 +197,15 @@ async function serve() {
   let monitor = null;
   let applying = false;
   let activeStats = null;
-  const usageFields = ["input_tokens", "cached_input_tokens", "output_tokens"];
   const queueLength = () => executableActions(S).length + S.queue.length + (S.knowledgeJob && !S.queue.some(e => e.type === "knowledge") ? 1 : 0) + (S.reevaluation ? 1 : 0) + (S.specJob?.reviewIds?.length ? 1 : 0);
   const sessionHint = () => latestUsage?.last_input_tokens > settings.session.rolloverTokens ? "rollover" : null;
   function closeStats() {
     if (!activeStats) return;
     const entry = activeStats, total = S.contextStats.totals[entry.type];
-    if (entry.usageStart && latestUsage && entry.usageSession === usageReader.identity()) {
-      entry.usageEnd = Object.fromEntries(usageFields.map(k => [k, latestUsage[k]]));
-      if (usageFields.every(k => entry.usageEnd[k] >= entry.usageStart[k])) {
-        entry.usage = Object.fromEntries(usageFields.map(k => [k, entry.usageEnd[k] - entry.usageStart[k]]));
-        total.usage ||= Object.fromEntries(usageFields.map(k => [k, 0]));
-        for (const k of usageFields) total.usage[k] += entry.usage[k];
-      }
+    finishUsage(entry, latestUsage, usageReader.identity());
+    if (entry.usage) {
+      total.usage ||= Object.fromEntries(usageFields.map(k => [k, 0]));
+      for (const k of usageFields) total.usage[k] += entry.usage[k];
     }
     delete entry.usageSession;
     activeStats = null; save();
@@ -232,7 +237,7 @@ async function serve() {
   const syncFollowups = () => {
     for (const nodes of [S.nodes, S.specJob?.gradingNodes || []]) for (const n of nodes) {
       if (n.obsolete) delete n.followup;
-      else if (problemGrade(n.status) && n.gapCoverage?.gaps.some(g => g.questionIds.some(id => !nodes.some(q => q.id === id && !q.obsolete)))) { delete n.gapCoverage; n.followup = { stage: "queued" }; }
+      else if (problemGrade(n.status) && n.gapCoverage?.gaps.some(g => g.questionIds.some(id => !nodes.some(q => q.id === id && !q.obsolete)))) { delete n.gapCoverage; n.followup = { stage: "queued", causes: [schedulingCause("followup", "clarification-invalidated", [n.id])] }; }
     }
     for (const n of S.nodes) if (n.followup?.stage === "queued" && ![...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || [])].includes(n.id) && !S.queue.some(e => e.type === "followup" && e.id === n.id)) S.queue.push({ type: "followup", id: n.id });
     S.queue = S.queue.filter(e => e.type !== "followup" || S.nodes.some(n => n.id === e.id && n.followup?.stage === "queued"));
@@ -240,6 +245,7 @@ async function serve() {
   const save = () => {
     syncFollowups();
     if (currentWork && !workIsCurrent()) {
+      if (!applying) reuse.discard();
       currentWork = null;
       // Some mutations only save (chat reset, deletion, previews). Recover after
       // their complete transaction, not recursively from the middle of apply.
@@ -278,7 +284,7 @@ ${S.notes || "—"}
     if (!S.specJob) return;
     if (S.specJob.stage !== "refresh") S.specJob.stage = "queued";
     S.specJob.token = null; delete S.specJob.ideaWork; delete S.specJob.reviewWork;
-    for (const n of S.specJob.gradingNodes || []) if (n.followup || n.kind === "q" && !n.obsolete && problemGrade(n.status) && !n.gapCoverage) n.followup = { stage: "queued" };
+    for (const n of S.specJob.gradingNodes || []) if (n.followup || n.kind === "q" && !n.obsolete && problemGrade(n.status) && !n.gapCoverage) n.followup = { stage: "queued", causes: n.followup?.causes || S.specJob.followupCauses?.[n.id] };
     S.specJob.ideaWaiting ||= [];
     if (!S.queue.some(e => e.type === "spec")) S.queue.unshift({ type: "spec" });
   };
@@ -375,8 +381,17 @@ ${S.notes || "—"}
   // The rebuild reads a settled map: submitted work goes first and a running specification finishes.
   const rereadReady = () => !S.specJob && !S.reevaluation && !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss || n.analysis || n.job || n.followup?.stage === "queued" || n.followup?.stage === "thinking");
   const mapRevision = () => createHash("sha256").update(JSON.stringify([S.brief, S.arch, S.nodes.map(contextNode), S.questionRequests.map(j => j.id)])).digest("hex");
+  function schedulingCause(kind, reason, nodeIds = []) {
+    return { kind, reason, nodeIds, actionIds: activeActions(S).map(a => a.id), ...(currentWork ? { deliveryTraceId: (S.actionTasks || []).find(t => t.id === currentWork.token)?.deliveryTraceId } : {}) };
+  }
+  const traceJob = (work, state = S) => {
+    const node = (work?.capturedForSpec ? state.specJob?.gradingNodes : state.nodes)?.find(n => n.id === work?.id);
+    return work?.type === "reevaluate" ? (work.capturedForSpec ? state.specJob?.reviewWork : state.reevaluation) : work?.type === "reread" ? state.rereadJob : work?.type === "knowledge" ? state.knowledgeJob : work?.type === "idea" ? (work.capturedForSpec ? state.specJob?.ideaWork : node?.analysis) : work?.type === "followup" ? node?.followup : null;
+  };
+  const addCause = (job, cause) => { job.causes ||= []; if (!job.causes.some(c => JSON.stringify(c) === JSON.stringify(cause))) job.causes.push(cause); };
   function requestKnowledge(reason) {
     if (!S.knowledgeJob) S.knowledgeJob = { stage: "queued", operation: randomUUID(), reason, requestedAt: Date.now() };
+    addCause(S.knowledgeJob, schedulingCause("knowledge", reason));
     if (reason === "finish") S.knowledgeJob.reason = reason;
     if (S.knowledgeJob.stage === "queued" && !S.queue.some(e => e.type === "knowledge")) S.queue.push({ type: "knowledge" });
   }
@@ -449,6 +464,7 @@ ${S.notes || "—"}
   const requestReread = (manual, edit) => {
     if (!manual && (S.finished || S.finishPending)) return;
     if (S.rereadJob) {
+      addCause(S.rereadJob, schedulingCause("reread", manual ? "manual" : "answer-edit", edit ? [edit] : []));
       if (manual) S.rereadJob.manual = true;
       if (edit && !S.rereadJob.edits.includes(edit)) S.rereadJob.edits.push(edit);
       save(); return;
@@ -456,6 +472,7 @@ ${S.notes || "—"}
     S.rereadResult = null;
     // edits: answer edits not yet graded. A withdrawn edit changed nothing, so it must not cost a run.
     S.rereadJob = { stage: "queued", manual: !!manual, edits: edit ? [edit] : [], settled: false, requestedAt: Date.now() };
+    addCause(S.rereadJob, schedulingCause("reread", manual ? "manual" : "answer-edit", edit ? [edit] : []));
     enqueue({ type: "reread" });
   };
   const dropEdit = id => {
@@ -497,7 +514,7 @@ ${S.notes || "—"}
     const history = n.verdictHistory || (n.verdict ? [{ status: n.status, verdict: n.verdict, at: n.reviewedAt || 0 }] : []);
     if (history.length >= 1000) throw [400, "История вердиктов достигла предела 1000"];
     n.verdictHistory = [...history, { status, verdict, at: Date.now() }];
-    if (n.kind === "q" && (problemGrade(status) || problemGrade(n.status) || n.followup)) { n.followup = { stage: "queued" }; delete n.gapCoverage; }
+    if (n.kind === "q" && (problemGrade(status) || problemGrade(n.status) || n.followup)) { n.followup = { stage: "queued", causes: [schedulingCause("followup", "grade-needs-coverage", [n.id])] }; delete n.gapCoverage; }
     n.status = status; n.verdict = verdict;
   };
   const cover = (nodes, id, input) => coverageResult(nodes, id, input, { mkQ, clean });
@@ -532,8 +549,11 @@ ${S.notes || "—"}
   const queueReview = (nodes, id, captured = false) => {
     const ids = ancestorIds(nodes, id); if (!ids.length) return;
     if (!captured && S.reevaluationError?.ids.every(id => ids.includes(id))) S.reevaluationError = null;
+    const causes = captured ? S.specJob.reviewCauses : S.reevaluation?.causes;
     if (captured) S.specJob.reviewIds = [...new Set([...(S.specJob.reviewIds || []), ...ids])];
-    else S.reevaluation = { ids: [...new Set([...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || []), ...ids])] };
+    else S.reevaluation = { causes, ids: [...new Set([...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || []), ...ids])] };
+    const holder = { causes }; addCause(holder, schedulingCause("reevaluate", "descendant-change", [id]));
+    if (captured) S.specJob.reviewCauses = holder.causes; else S.reevaluation.causes = holder.causes;
   };
   function reviewPayload(captured = false) {
     const nodes = captured ? S.specJob.gradingNodes : S.nodes;
@@ -554,18 +574,18 @@ ${S.notes || "—"}
       } else {
         S.reevaluationError = { ids: batch, error: t(error[1]), at: Date.now() };
         const remaining = ids.filter(id => !batch.includes(id));
-        S.reevaluation = remaining.length ? { ids: remaining } : null;
+        S.reevaluation = remaining.length ? { causes: S.reevaluation.causes, ids: remaining } : null;
       }
       save(); throw error;
     }
-    const job = { ids: batch, remaining: ids.filter(id => !batch.includes(id)), token: randomUUID(), revision: mapRevision() };
+    const job = { causes: captured ? S.specJob.reviewCauses : S.reevaluation.causes, ids: batch, remaining: ids.filter(id => !batch.includes(id)), token: randomUUID(), revision: mapRevision() };
     if (captured) S.specJob.reviewWork = job; else S.reevaluation = job;
     return { type: "reevaluate", token: job.token, capturedForSpec: captured, ids: job.ids, nodes: context.nodes, index: context.index, ...(captured ? { readToken: job.token } : {}), title: captured ? S.specJob.title : S.title, brief: captured ? S.specJob.brief : S.brief, arch: captured ? S.specJob.arch : S.arch };
   }
   function applyReview(b) {
     const captured = b.capturedForSpec === true, job = captured ? S.specJob?.reviewWork : S.reevaluation;
     if (!job?.token || job.token !== b.token) throw [409, "Результат устарел, получите событие через wait"];
-    if (!captured && job.revision !== mapRevision()) { S.reevaluation = { ids: [...job.ids, ...(job.remaining || [])] }; save(); throw [409, "Карта изменилась, получите событие через wait"]; }
+    if (!captured && job.revision !== mapRevision()) { S.reevaluation = { causes: job.causes, ids: [...job.ids, ...(job.remaining || [])] }; save(); throw [409, "Карта изменилась, получите событие через wait"]; }
     if (!Array.isArray(b.assessments) || b.assessments.length !== job.ids.length) throw [400, "Нужна оценка каждого родителя"];
     const nodes = structuredClone(captured ? S.specJob.gradingNodes : S.nodes), seen = new Set();
     for (const a of b.assessments) {
@@ -575,14 +595,14 @@ ${S.notes || "—"}
     }
     validateCoverageTree(captured ? S.specJob.gradingNodes : S.nodes, nodes);
     if (captured) { S.specJob.gradingNodes = nodes; S.specJob.nodes = nodes.map(specNode); S.specJob.reviewIds = job.remaining; delete S.specJob.reviewWork; }
-    else { S.nodes = preview.branchCopies(nodes); S.reevaluation = job.remaining.length ? { ids: job.remaining } : null; }
+    else { S.nodes = preview.branchCopies(nodes); S.reevaluation = job.remaining.length ? { causes: job.causes, ids: job.remaining } : null; }
     save(); return { ok: true };
   }
   function followupPayload(id, captured = false) {
     const nodes = captured ? S.specJob.gradingNodes : S.nodes, n = nodes.find(n => n.id === id);
     if (!n?.followup || n.obsolete) return null;
     const context = focusedContext(nodes, id, n.verdict, { index: true });
-    n.followup = { stage: "thinking", token: randomUUID(), revision: mapRevision() };
+    n.followup = { causes: n.followup.causes, stage: "thinking", token: randomUUID(), revision: mapRevision() };
     return { type: "followup", id, token: n.followup.token, capturedForSpec: captured, context,
       ...(captured ? { readToken: n.followup.token } : {}), title: captured ? S.specJob.title : S.title, brief: captured ? S.specJob.brief : S.brief, arch: captured ? S.specJob.arch : S.arch };
   }
@@ -590,7 +610,7 @@ ${S.notes || "—"}
     const captured = b.capturedForSpec === true, original = captured ? S.specJob?.gradingNodes : S.nodes;
     const n = original?.find(n => n.id === b.id), job = n?.followup;
     if (!job || job.stage !== "thinking" || b.token !== job.token) throw [409, "Результат устарел, получите событие через wait"];
-    if (!captured && job.revision !== mapRevision()) { n.followup = { stage: "queued" }; save(); throw [409, "Карта изменилась, получите событие через wait"]; }
+    if (!captured && job.revision !== mapRevision()) { n.followup = { stage: "queued", causes: n.followup?.causes }; save(); throw [409, "Карта изменилась, получите событие через wait"]; }
     if (b.coverage === undefined || !["ok", "weak", "gap", "verify"].includes(b.status) || !clean(b.verdict, 400)) throw [400, "Нужна проверка пробелов"];
     const nodes = structuredClone(original), target = nodes.find(n => n.id === b.id);
     recordVerdict(target, b.status, clean(b.verdict, 400)); cover(nodes, b.id, b.coverage);
@@ -610,14 +630,16 @@ ${S.notes || "—"}
   const queueIdea = (n, reason = "answers") => {
     if (!n) return;
     n.analysisStarted = true;
-    n.analysis = { stage: "queued", reason: reason === "edit" || n.analysis?.reason === "edit" ? "edit" : reason };
+    const causes = n.analysis?.causes;
+    n.analysis = { causes, stage: "queued", reason: reason === "edit" || n.analysis?.reason === "edit" ? "edit" : reason };
+    addCause(n.analysis, schedulingCause("idea", reason, [n.id]));
     if (!S.queue.some(e => e.type === "idea" && e.id === n.id)) S.queue.push({ type: "idea", id: n.id });
   };
   const settled = () => !S.questionRequests.length && !S.nodes.some(n => n.pending || n.discuss);
   const captureSpec = () => {
     const waiting = qs().filter(n => n.pending).map(n => n.id);
     const ideaWaiting = [...new Set([...S.nodes.filter(n => n.analysis).map(n => n.id), ...waiting.map(id => ideaOf(S.nodes, id)?.id).filter(Boolean)])];
-    return { stage: "queued", token: null, requestedAt: Date.now(), title: S.title, brief: S.brief, arch: S.arch,
+    return { followupCauses: Object.fromEntries(S.nodes.filter(n => n.followup?.causes).map(n => [n.id, n.followup.causes])), reviewCauses: S.reevaluation?.causes, ideaCauses: Object.fromEntries(S.nodes.filter(n => n.analysis?.causes).map(n => [n.id, n.analysis.causes])), stage: "queued", token: null, requestedAt: Date.now(), title: S.title, brief: S.brief, arch: S.arch,
       reviewIds: [...new Set([...(S.reevaluation?.ids || []), ...(S.reevaluation?.remaining || []), ...waiting.flatMap(id => ancestorIds(S.nodes, id))])], nodes: S.nodes.map(specNode), gradingNodes: structuredClone(S.nodes.map(n => n.kind === "preview" ? specNode(n) : contextNode(n))), waiting, ideaWaiting, ideaReasons: Object.fromEntries(S.nodes.filter(n => n.analysis).map(n => [n.id, n.analysis.reason])) };
   };
   const specNodes = nodes => {
@@ -633,7 +655,7 @@ ${S.notes || "—"}
     const nodes = captured ? S.specJob.gradingNodes : S.nodes, n = nodes.find(x => x.id === id);
     if (!n || !captured && !n.analysis) return null;
     const context = focusedContext(nodes, id, n.text, { index: true, ancestors: false });
-    const job = { id, stage: "thinking", token: randomUUID(), revision: mapRevision(), reason: captured ? S.specJob.ideaReasons?.[id] || "snapshot" : n.analysis.reason };
+    const job = { causes: captured ? S.specJob.ideaCauses?.[id] : n.analysis.causes, id, stage: "thinking", token: randomUUID(), revision: mapRevision(), reason: captured ? S.specJob.ideaReasons?.[id] || "snapshot" : n.analysis.reason };
     if (captured) S.specJob.ideaWork = job; else n.analysis = job;
     return { type: "idea", id, token: job.token, capturedForSpec: captured, reason: job.reason, title: captured ? S.specJob.title : S.title,
       brief: captured ? S.specJob.brief : S.brief, arch: captured ? S.specJob.arch : S.arch,
@@ -782,7 +804,7 @@ ${S.notes || "—"}
     // Count serialized field values, including repeated context, without changing the event.
     const size = value => value === undefined ? 0 : JSON.stringify(value).length;
     const sum = keys => keys.reduce((total, key) => total + size(p[key]), 0);
-    const entry = { type: p.type, characters: size(p),
+    const entry = { type: p.type, deliveryTraceId: p.deliveryTraceId, actionIds: p.actionIds, contextScope: p.contextScope, mapRevision: p.mapRevision, evidenceRevision: p.evidenceRevision, causes: p.causes, workerSessionIds: [], workerAttribution: "missing", usageDeltaStatus: "open", usageTreeComplete: latestUsage?.tree?.complete, at: Date.now(), characters: size(p),
       focus: sum(["question", "why", "answer", "previousAnswer", "pendingAnswer", "verdict", "options", "branch", "branchSnapshot", "parent", "idea", "message", "messages", "history", "images", "previews"]) + size(p.context?.focus ?? p.context),
       related: sum(["nodes", "ideas", "projectChat", "sources", "mainQuestions", "problems"]) + size(p.context?.related),
       index: size(p.context?.index) + size(p.context?.relatedIndex) + size(p.context?.relatedIds) + size(p.context?.questionTitles) + size(p.context?.ancestorIndex) + size(p.index), requests: 0,
@@ -795,6 +817,19 @@ ${S.notes || "—"}
     total.count++;
     for (const key of ["characters", "focus", "related", "index"]) total[key] += entry[key];
   }
+  function workerManifestInput() {
+    const knowledgeIndex = memory.index();
+    const instructionFiles = [...fs.readdirSync(HERE).filter(file => file.endsWith(".md")).sort(), ...fs.readdirSync(path.join(HERE, "events")).filter(file => file.endsWith(".md")).sort().map(file => `events/${file}`)];
+    const instructions = instructionFiles.map(file => [file, fs.readFileSync(path.join(HERE, file), "utf8")]);
+    for (let directory = process.cwd();;) {
+      const file = path.join(directory, "AGENTS.md");
+      if (fs.existsSync(file)) instructions.push([file, fs.readFileSync(file, "utf8")]);
+      const parent = path.dirname(directory); if (parent === directory) break; directory = parent;
+    }
+    return { mapKey: DIR, nodes: S.nodes, brief: S.brief || "", arch: S.arch || "", language: S.locale.language,
+      ignoreRevision: digest(JSON.stringify(knowledgeIndex.ignored)), knowledgeRevision: knowledgeIndex.documentsRevision,
+      instructionRevision: digest(JSON.stringify(instructions)) };
+  }
   function takeEvent() {
     if (transferring() || lifecycle.managed && lifecycle.paused) return null;
     if (workIsCurrent()) return null;
@@ -803,10 +838,21 @@ ${S.notes || "—"}
     const context = knowledgeContext();
     const deliver = p => {
       if (!p.token) p.token = randomUUID();
-      (S.actionTasks ||= []).push({ id: p.token, type: p.type, target: p.id, actionIds: activeActions(S).map(a => a.id), status: "running", at: Date.now() });
+      const job = traceJob(p);
+      const { token, readToken, ...evidence } = p;
+      const evidenceRevision = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
+      Object.assign(p, { deliveryTraceId: randomUUID(), actionIds: activeActions(S).map(a => a.id), contextScope: p.capturedForSpec || p.type === "spec" ? "frozen" : "live", mapRevision: mapRevision(), evidenceRevision, causes: structuredClone(job?.causes || [{ kind: "unknown" }]) });
+      (S.actionTasks ||= []).push({ deliveryTraceId: p.deliveryTraceId, contextScope: p.contextScope, mapRevision: p.mapRevision, evidenceRevision: p.evidenceRevision, causes: p.causes, workerSessionIds: [], workerAttribution: "missing", id: p.token, type: p.type, target: p.id, actionIds: activeActions(S).map(a => a.id), status: "running", at: Date.now() });
       currentWork = { type: p.type, id: p.id, token: p.token, capturedForSpec: p.capturedForSpec };
       closeStats();
       const event = { ...p, ...(lifecycle.managed ? { hubEpoch: lifecycle.epoch } : {}), knowledge: context, language: S.locale.language, ...(sessionHint() ? { sessionHint: sessionHint() } : {}) };
+      if (settings.workerReuse.enabled) {
+        try {
+          reuse.deliver(event, workerManifestInput());
+        } catch (error) {
+          reuse.discard(); event.workerContext = { reuse: false, reason: "manifest-unavailable", reuseUnavailable: error.message };
+        }
+      }
       recordContext(event);
       save(); return event;
     };
@@ -831,6 +877,7 @@ ${S.notes || "—"}
     if (!waitingActions(S).length && !activeActions(S).length && !S.finished && !S.finishPending && !S.rereadJob && rereadReady() && !S.queue.length && qs().some(n => !n.obsolete) && !qs().some(n => !n.obsolete && n.status === "open") && S.autoRereadRevision !== mapRevision()) {
       S.autoRereadRevision = mapRevision();
       S.rereadJob = { stage: "queued", manual: false, edits: [], settled: true, requestedAt: Date.now() };
+      addCause(S.rereadJob, schedulingCause("reread", "no-open-questions"));
       S.queue.push({ type: "reread" }); save();
     }
     if (S.specJob?.stage === "refresh" && settled() && !S.nodes.some(n => n.analysis) && !rereadThinking()) S.specJob = captureSpec();
@@ -865,6 +912,28 @@ ${S.notes || "—"}
       }
       if (p) return deliver(p);
     }
+  }
+  function recoverDeliveries() {
+    recoverKnowledge(); save();
+    preview.recover();
+    for (const job of S.questionRequests.filter(j => j.stage === "thinking")) {
+      job.stage = "queued"; delete job.token;
+      if (!S.queue.some(e => e.type === "question" && e.id === job.id)) S.queue.unshift({ type: "question", id: job.id });
+      save();
+    }
+    if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork || S.specJob?.reviewWork) { recoverSpec(); save(); }
+    for (const n of S.nodes.filter(n => n.analysis?.stage === "thinking")) { queueIdea(n, n.analysis.reason); save(); }
+    if (rereadThinking()) { recoverReread(); save(); }
+    // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
+    // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
+    for (const n of S.nodes) if (n.followup?.stage === "thinking") n.followup = { stage: "queued", causes: n.followup?.causes };
+    syncFollowups();
+    const lost = S.nodes.filter(n => n.pending && n.pending.stage === "thinking" || n.discuss === "thinking");
+    for (const n of lost.reverse()) {
+      if (n.pending && n.pending.stage === "thinking") { n.pending.stage = "queued"; if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id }); }
+      if (n.discuss === "thinking") { n.discuss = "queued"; if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id }); }
+    }
+    if (lost.length) save();
   }
   function requeue(ev) {
     if (ev.type === "answer") { const n = get(ev.id); if (n && n.pending) n.pending.stage = "queued"; S.queue.unshift({ type: "answer", id: ev.id }); }
@@ -1354,7 +1423,7 @@ ${S.notes || "—"}
       assessedIds.add(n.id); recordVerdict(n, a.status, clean(a.verdict, 400)); cover(nodes, n.id, a.coverage);
     }
     for (const n of [...nodes]) if (audit.has(n.id) && !n.obsolete && problemGrade(n.status) && !assessedIds.has(n.id)) {
-      n.followup = { stage: "queued" }; cover(nodes, n.id, b.audit.find(a => a.id === n.id)?.coverage);
+      n.followup = { stage: "queued", causes: [schedulingCause("followup", "reread-audit", [n.id])] }; cover(nodes, n.id, b.audit.find(a => a.id === n.id)?.coverage);
     }
     const coverageAdded = nodes.length - byId.size;
     validateCoverageTree(S.nodes, nodes);
@@ -1491,7 +1560,9 @@ ${S.notes || "—"}
         dependencies.push({ type: "discuss", id: node.id, conversationId, messageIds: node.discussMessageIds || chat.slice(at).map(m => m.id) });
       }
     }
+    for (const dependency of dependencies) dependency.causes = structuredClone(traceJob(dependency, failedState)?.causes || [{ kind: "unknown" }]);
     for (const a of activeActions(S)) a.resume = {
+      causes: structuredClone(traceJob(failedWork, failedState)?.causes || [{ kind: "unknown" }]),
       type: failedWork?.type || S.queue[0]?.type, id: failedWork?.id, answer: n?.pending?.answer,
       question: failedState.questionRequests.find(j => j.id === failedWork?.id),
       messageIds: n?.discussMessageIds || messages.slice(start).map(m => m.id), conversationId,
@@ -1631,7 +1702,7 @@ ${S.notes || "—"}
     else if (r.type === "spec") { S.specJob = captureSpec(); S.queue.push({ type: "spec" }); }
     else if (r.type === "followup") {
       if (r.capturedForSpec) { S.specJob = structuredClone(r.specJob); recoverSpec(); }
-      else if (n && !n.obsolete) n.followup = { stage: "queued" };
+      else if (n && !n.obsolete) n.followup = { stage: "queued", causes: n.followup?.causes };
     }
     else if (r.type === "reevaluate") S.reevaluation = { ids: r.ids || [] };
     else if (r.type === "more") { S.morePending = true; S.queue.push({ type: "more" }); }
@@ -1646,6 +1717,11 @@ ${S.notes || "—"}
       } else if (r.type === "idea") queueIdea(n, r.ideaReason || "manual");
       else if (r.type === "preview") actionRoute(action.route, action.body, { capture: (code, result) => { if (code >= 400) throw [code, result.error]; } });
       else throw [409, "Нет ошибки для повтора"];
+    }
+    const resumedJob = traceJob(r);
+    if (resumedJob) {
+      resumedJob.causes = structuredClone(r.causes || [{ kind: "unknown" }]);
+      addCause(resumedJob, { ...schedulingCause(r.type, "retry", r.id ? [r.id] : r.ids || []), retryOf: action.retryOf });
     }
     for (const dependency of r.dependencies || []) resumeAction({ ...action, resume: dependency });
     if (r.finishPending && !S.queue.some(e => e.type === "finish")) S.queue.push({ type: "finish" });
@@ -1899,22 +1975,23 @@ ${S.notes || "—"}
           nodes = S.specJob.gradingNodes;
         }
         const id = clean(url.searchParams.get("id"), 80), ids = url.searchParams.getAll("id").map(id => clean(id, 80));
+        const contextSend = body => { reuse.read(p, ids, body); return send(res, 200, body); };
         if (p === "/api/node") {
           if (!ids.length || ids.length > 20 || new Set(ids).size !== ids.length) throw [400, "Укажите от 1 до 20 уникальных ID"];
           if (ids.some(id => !nodes.some(n => n.id === id))) throw [404, "Карточка не найдена"];
-          return send(res, 200, { nodes: ids.map(id => deliveryNode(nodes.find(n => n.id === id))) });
+          return contextSend({ nodes: ids.map(id => deliveryNode(nodes.find(n => n.id === id))) });
         }
-        if (p === "/api/index") return send(res, 200, { index: indexText(nodes, new Set(), url.searchParams.get("questions") === "1") });
+        if (p === "/api/index") return contextSend({ index: indexText(nodes, new Set(), url.searchParams.get("questions") === "1") });
         if (p === "/api/search") {
           const topic = clean(url.searchParams.get("topic"), 40).toLowerCase(), text = clean(url.searchParams.get("text"), 2000);
           if (!topic && !text) throw [400, "Нужен текст или тема поиска"];
           const matches = topic ? nodes.filter(n => n.topics?.includes(topic)).map(node => ({ node, score: 1 })) : ranking(nodes, text);
-          return send(res, 200, { matches: matches.map(({ node, score }) => ({ id: node.id, score, index: indexText([node]) })) });
+          return contextSend({ matches: matches.map(({ node, score }) => ({ id: node.id, score, index: indexText([node]) })) });
         }
         if (!nodes.some(n => n.id === id)) throw [404, "Карточка не найдена"];
-        if (p === "/api/related") return send(res, 200, { related: neighbours(nodes, [id]) });
+        if (p === "/api/related") return contextSend({ related: neighbours(nodes, [id]) });
         const scope = branchIds(nodes, id);
-        return send(res, 200, { nodes: nodes.filter(n => scope.has(n.id)).map(n => deliveryNode(n)) });
+        return contextSend({ nodes: nodes.filter(n => scope.has(n.id)).map(n => deliveryNode(n)) });
       }
       if (req.method === "GET" && (p === "/api/preview" || p.startsWith("/api/preview/"))) {
         const params = Object.fromEntries(url.searchParams);
@@ -1982,26 +2059,7 @@ ${S.notes || "—"}
         closeStats();
         currentWork = null;
         lastActivity = Date.now();
-        recoverKnowledge(); save();
-        preview.recover();
-        for (const job of S.questionRequests.filter(j => j.stage === "thinking")) {
-          job.stage = "queued"; delete job.token;
-          if (!S.queue.some(e => e.type === "question" && e.id === job.id)) S.queue.unshift({ type: "question", id: job.id });
-          save();
-        }
-        if (S.specJob?.stage === "thinking" || S.specJob?.ideaWork || S.specJob?.reviewWork) { recoverSpec(); save(); }
-        for (const n of S.nodes.filter(n => n.analysis?.stage === "thinking")) { queueIdea(n, n.analysis.reason); save(); }
-        if (rereadThinking()) { recoverReread(); save(); }
-        // Claude works strictly wait → grade → apply → wait, so anything still in "thinking" when a new wait arrives
-        // was taken by a session that died: put it back in front of the queue (assumes one Claude session per map)
-        for (const n of S.nodes) if (n.followup?.stage === "thinking") n.followup = { stage: "queued" };
-        syncFollowups();
-        const lost = S.nodes.filter(n => n.pending && n.pending.stage === "thinking" || n.discuss === "thinking");
-        for (const n of lost.reverse()) {
-          if (n.pending && n.pending.stage === "thinking") { n.pending.stage = "queued"; if (!S.queue.some(e => e.type === "answer" && e.id === n.id)) S.queue.unshift({ type: "answer", id: n.id }); }
-          if (n.discuss === "thinking") { n.discuss = "queued"; if (!S.queue.some(e => e.type === "discuss" && e.id === n.id)) S.queue.unshift({ type: "discuss", id: n.id }); }
-        }
-        if (lost.length) save();
+        recoverDeliveries();
         const ev = takeEvent(); if (ev) return send(res, 200, ev);
         const sec = Math.min(290, Math.max(5, Number(url.searchParams.get("timeout")) || 280));
         const w = { res, timer: null };
@@ -2181,7 +2239,8 @@ ${S.notes || "—"}
         const rearm = b.rearm;
         if (rearm !== undefined && (rearm !== true || !monitor || clean(b.owner, 80) !== monitor.owner || codexConnection(BASE, NAME).id !== monitor.owner)) throw [409, "Для --rearm нужен монитор привязанной сессии"];
         // Transport credentials were checked above; they are not discussion part data.
-        const { rearm: ignored, owner, hubEpoch, ...body } = b;
+        const { rearm: ignored, owner, hubEpoch, telemetry, workerContextAck, ...body } = b;
+        const workerSessionId = workerDeclaration(telemetry);
         let result;
         applying = true;
         const receipt = b.token && S.actionReceipts?.[b.token];
@@ -2189,7 +2248,17 @@ ${S.notes || "—"}
         transaction = true;
         const beforeApply = structuredClone(S), failedWork = currentWork && structuredClone(currentWork);
         try {
+          if (workerSessionId && (!currentWork || currentWork.token !== b.token || !workIsCurrent())) throw [409, "Результат устарел, получите событие через wait"];
+          const traceTask = (S.actionTasks || []).find(task => task.id === b.token && task.status === "running");
+          reuse.validate(b, workerManifestInput);
           result = apply(body);
+          const traceEntry = traceTask && S.contextStats.recent.find(entry => entry.deliveryTraceId === traceTask.deliveryTraceId);
+          if (traceTask && workerSessionId) for (const record of [traceTask, traceEntry].filter(Boolean)) { record.workerSessionIds = [...new Set([...(record.workerSessionIds || []), workerSessionId])]; record.workerAttribution = "declared"; }
+          if (!result.staged && result.ok !== false && traceTask) {
+            const frozen = traceTask.contextScope === "frozen";
+            const changes = fieldChanges(frozen ? beforeApply.specJob?.gradingNodes || [] : beforeApply.nodes, frozen ? S.specJob?.gradingNodes || beforeApply.specJob?.gradingNodes || [] : S.nodes);
+            for (const record of [traceTask, traceEntry].filter(Boolean)) record.committedChanges = changes;
+          }
           if (!result.staged && b.type !== "notes") {
             if (result.ok === false && activeActions(S).length) abandonAction(result.error || "Ошибка обработки", beforeApply, failedWork);
             for (const task of S.actionTasks || []) if (task.id === b.token) { task.status = result.ok === false ? "failed" : "done"; task.completedAt = Date.now(); }
@@ -2200,7 +2269,15 @@ ${S.notes || "—"}
         }
         catch (error) {
           transaction = false;
-          if (error[0] === 409) save();
+          if (error[0] === 409) {
+            if (error.workerContextStale) {
+              reuse.discard();
+              for (const task of S.actionTasks || []) if (task.id === b.token && task.status === "running") { task.status = "stale"; task.completedAt = Date.now(); }
+              currentWork = null;
+              recoverDeliveries();
+            } else reuse.invalidateBaseline();
+            save();
+          }
           else { S = beforeApply; currentWork = failedWork; }
           applying = false;
           if (rearm && error[0] === 409) {
@@ -2210,7 +2287,7 @@ ${S.notes || "—"}
           if (!rearm && monitor) pump();
           throw error;
         }
-        applying = false;
+        try { await reuse.complete(b, result, workerSessionId); } finally { applying = false; }
         const event = monitor?.event;
         if (event && (event.type === b.type && event.id === b.id || b.type === "failure") && event.token === b.token && !workIsCurrent()) monitor.completed = true;
         if (rearm && !result.staged && !workIsCurrent()) result.monitor = rearmMonitor(b.type === "finish");
@@ -2278,6 +2355,8 @@ async function applyInput() {
       (result.type !== "failure" && (result.type !== inbox.type || result.id !== inbox.id))) {
     throw new Error("Результат не соответствует событию inbox или ожидаемому токену");
   }
+  if (inbox.workerContext?.manifest && (result.type === "discuss" && Number.isInteger(result.part) && result.part >= 0 && result.more === true ? result.workerContextAck !== undefined :
+      !validateWorkerContextAck(result.workerContextAck, inbox.workerContext.manifest, { final: true }))) throw new Error("Некорректный workerContextAck");
   return result;
 }
 async function alive(dir = DIR) {
@@ -2344,7 +2423,7 @@ function requestedLocale() {
 }
 
 function config(print = true) {
-  let model, rereadThreshold, rolloverTokens;
+  let model, rereadThreshold, rolloverTokens, workerReuse = validateWorkerReuseSettings();
   for (const [file, optional] of [[path.join(HERE, "config.default.json"), false], [path.join(BASE, "config.json"), true]]) {
     let input;
     try { input = JSON.parse(fs.readFileSync(file, "utf8")); }
@@ -2356,6 +2435,10 @@ function config(print = true) {
     if (!object(input) || (Object.hasOwn(input, "roles") && !object(input.roles)) ||
         (input.roles && Object.hasOwn(input.roles, "griller") && !object(input.roles.griller))) {
       throw new Error(`Некорректная конфигурация ${file}: ожидается объект roles.griller`);
+    }
+    if (Object.hasOwn(input, "workerReuse")) {
+      try { validateWorkerReuseSettings(input.workerReuse); workerReuse = validateWorkerReuseSettings({ ...workerReuse, ...input.workerReuse }); }
+      catch (error) { throw new Error(`Некорректная конфигурация ${file}: ${error.message}`); }
     }
     if (Object.hasOwn(input, "session")) {
       if (!object(input.session)) throw new Error(`Некорректная конфигурация ${file}: session`);
@@ -2380,7 +2463,7 @@ function config(print = true) {
     }
   }
   if (model === undefined) throw new Error(`Модель roles.griller.model не задана после слияния ${path.join(HERE, "config.default.json")} и ${path.join(BASE, "config.json")}`);
-  const result = { roles: { griller: { model } }, knowledge: { rereadThreshold: rereadThreshold ?? 5 }, session: { rolloverTokens: rolloverTokens ?? 120000 } };
+  const result = { roles: { griller: { model } }, knowledge: { rereadThreshold: rereadThreshold ?? 5 }, session: { rolloverTokens: rolloverTokens ?? 120000 }, workerReuse };
   if (print) console.log(JSON.stringify(result));
   return result;
 }
@@ -2399,7 +2482,7 @@ function printEvent(body, inboxMode = false) {
     // Arrays of cards use one JSON object per line; top-level sections remain pageable.
     const format = value => Array.isArray(value) ? "[\n" + value.map(v => JSON.stringify(v)).join(",\n") + "\n]" : value && typeof value === "object" ? "{\n" + Object.entries(value).map(([k, v]) => JSON.stringify(k) + ":" + format(v)).join(",\n") + "\n}" : JSON.stringify(value);
     atomicWrite(inbox, format(event));
-    console.log(JSON.stringify({ type: event.type, ...(event.id === undefined ? {} : { id: event.id }), ...(event.token === undefined ? {} : { token: event.token }), name: NAME, ...(event.hubEpoch ? { hubEpoch: event.hubEpoch } : {}), language: event.language, characters: body.length, inbox, sections: Object.entries(event).map(([key, value]) => ({ key, characters: JSON.stringify(value).length })) }));
+    console.log(JSON.stringify({ type: event.type, ...(event.id === undefined ? {} : { id: event.id }), ...(event.token === undefined ? {} : { token: event.token }), name: NAME, ...(event.hubEpoch ? { hubEpoch: event.hubEpoch } : {}), language: event.language, ...(event.workerContext ? { workerContext: (({ manifest, ...header }) => header)(event.workerContext) } : {}), characters: body.length, inbox, sections: Object.entries(event).map(([key, value]) => ({ key, characters: JSON.stringify(value).length })) }));
   } else console.log(body);
 }
 const commands = {

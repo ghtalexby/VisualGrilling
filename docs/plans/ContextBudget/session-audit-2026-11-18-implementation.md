@@ -1,6 +1,6 @@
 # Session audit implementation scope and host-routing gate
 
-Status: P1/narrow-P2 released as 1.0.25; real card-worker lifecycle and matched cost/quality acceptance remain open.
+Status: P1/narrow-P2 released as 1.0.25; additive diagnostics and corrected proxy transport are in the current follow-up. Direct child routing is blocked by host policy; supported parent-followup P3 is a default-disabled process-local prototype. Matched cost/quality acceptance remains open.
 
 This record supplements the [frozen audit](session-audit-2026-11-18.md) and its
 [metrics](session-audit-2026-11-18.metrics.json). It does not revise the baseline:
@@ -20,9 +20,10 @@ answer propagation, uncovered dependencies and mandatory spec/finish draining.
 Do not infer that all rereads or ancestor checks are unnecessary.
 
 Full P2 still needs assessed revision receipts, dependency coverage, coalescing
-and a distinction between evidence changes and review bookkeeping. P0 causal
-IDs and complete per-response telemetry, P3 bounded worker reuse and P4
-versioned history retrieval remain separate, unresolved work. A local preflight
+and a distinction between evidence changes and review bookkeeping. Additive P0
+traces and response counters now improve observation, but do not establish
+complete causal cost attribution. P3 bounded worker reuse now has a default-disabled process-local prototype, with matched cost/quality acceptance still open. P4 versioned
+history retrieval remains unresolved work. A local preflight
 is structural assistance; the server remains the semantic validator.
 
 The owner proposal for persistent card workers is a separate architecture gate.
@@ -61,28 +62,34 @@ no standalone fallback. Exit zero establishes transport initialization only;
 the JSON always reports `lifecycle: "unverified"`. Failure leaves the same
 lifecycle gate open. This is a real transport probe, not a fake lifecycle test.
 
-Observed result in this checkout on 18 November 2026: syntax and default usage
-checks passed; `--probe` exited 1 after its five-second initialization timeout
-(`Codex request timed out: initialize`). No successful proxy initialization was
-established here. No thread was created/resumed and no turn was submitted.
+Historical result on 18 November 2026: `--probe` timed out at initialize because
+the proxy protocol was treated as newline JSON rather than WebSocket framing.
+After correcting the transport, the safe probe initializes successfully without
+creating/resuming a thread or submitting a turn. This establishes transport only.
+
+A separate probe using an actual child UUID received `-32600`,
+`direct app-server input is not allowed for multi-agent v2 sub-agents`, before
+turn admission. Direct child lifecycle routing is blocked by the host's policy.
+Do not bypass this with a generic thread, nested model process or other input
+route. Reuse via supported parent followup now has a default-disabled process-local P3 prototype. This separate path does not enable direct child routing.
 
 | Gate | Required evidence | Current acceptance |
 |---|---|---|
-| Transport | Existing-host proxy initializes without standalone server | Probe timed out at initialize; prerequisite not established |
+| Transport | Existing-host proxy initializes without standalone server | Passed with corrected WebSocket framing; no inference |
 | Create | Host creates isolated worker identity in disposable project | Unverified |
-| Resume | Later input reaches that exact idle worker and retains context | Unverified |
+| Resume | Later input reaches that exact idle worker and retains context | Direct child input rejected by host policy before admission |
 | Complete | Matching thread and turn completion, with terminal status | Unverified |
 | Restart | Controller restart resumes persisted identity without duplicate turn | Unverified |
 | Child semantics | Host ownership, parent link and cancellation behavior are established | Unverified; generic thread support is insufficient |
 | Direct publication | Token-bound exactly-once board commit without parent model relay | Unimplemented |
 
-No model inference or messages to existing user sessions are needed for the
-probe. Real create/resume/complete acceptance requires a working proxy and an isolated
-disposable lifecycle environment. Those prerequisites were not established;
-this implementation does not perform inference. The timeout leaves support
-unverified, not proven unsupported.
+The safe transport probe performs no inference. Transport success does not
+override the child-input policy rejection. No complete child lifecycle was
+established. The procedure below remains a future acceptance outline only if
+the host exposes an explicitly supported child lifecycle; do not execute it
+as a workaround for this rejection.
 
-## Manual lifecycle experiment after prerequisites are available
+## Manual lifecycle experiment after supported prerequisites are available
 
 1. Create a disposable project and evidence directory outside user maps.
    Record host executable/version, model/effort, initial state hash and test
@@ -116,7 +123,7 @@ unverified, not proven unsupported.
    each result as passed, failed or unverified. Record queue-only results as
    admission evidence, never lifecycle completion.
 
-Passing these steps only permits designing the controller. The next prototype
+Passing these steps only permits designing a persistent direct-publication controller, beyond the process-local parent-followup prototype. That separate prototype
 needs two linked cards and a general worker, one active action per map, durable
 card/session mapping, exact delivery capabilities, dependency invalidation and
 restart recovery. Exercise a contradiction, correction, worker loss and lost
@@ -157,5 +164,57 @@ disposable maps. Source/release mirror parity and installed Codex junctions
 were verified at 1.0.25. No push was performed.
 
 These results establish deterministic implementation checks for the selected
-P1/narrow-P2 scope only. The failed proxy prerequisite, real worker lifecycle,
-matched cost/quality comparison and later stages above remain open.
+P1/narrow-P2 scope only. The later corrected proxy probe establishes transport,
+while child lifecycle is blocked as recorded above. Matched cost/quality
+comparison and later stages remain open.
+
+## Additive diagnostic follow-up
+
+Delivery payloads and bounded trace records now carry `deliveryTraceId`,
+`actionIds`, `contextScope`, a live `mapRevision` hash and known scheduling
+`causes` (unknown remains explicit). Optional apply
+`telemetry.workerSessionId` copies an actual worker-environment UUID only;
+`workerSessionIds` are declared attribution, not verified ownership. Metadata
+is removed before multipart semantic validation. Parent-only apply/rearm and
+all existing freshness, epoch and token checks remain unchanged.
+
+`usageDeltaStatus` separates observed/incomplete windows from missing,
+interrupted, rebound or reset counters. `committedChanges` compares objective
+status, answer, verdict-text and topology fields; text changes alone do not
+prove substantive new judgment. Session-tree usage adds deduplicated model
+response counts with null/false for incomplete data. These observations do not
+establish exact per-event model cost or measured savings.
+
+`dev/session-audit.mjs` provides a reusable exclusive-cutoff audit with explicit
+metadata descendant links, aggregate-only output and read-only source access.
+It refuses output overwrite; use a new JSON file, never the frozen metrics.
+State must be a cutoff snapshot for historical comparison; a current state
+file can span other sessions and is not reconstructed at the cutoff. File-size
+snapshots are per file, not globally atomic. Missing metadata/usage remains
+incomplete. See [development instructions](../../development.md#session-cost-workflow-checks)
+for invocation and checks. This is instrumentation, not matched experimental
+acceptance of P3 reuse. The separate opt-in prototype is described below.
+
+## Default-disabled P3 prototype
+
+The current 1.0.26 work adds process-local same-question answer/discussion reuse
+through the parent's supported `collaboration.followup_task`. The parent retains
+the completed collaboration target and actual worker UUID mapping, consumes every
+event, and alone applies results. Missing mapping/capability or unknown actual
+worker telemetry selects a fresh worker. The host experiment retained a marker
+through followup to the same completed child; it does not establish grading
+quality, restart persistence, direct publication or token savings.
+
+Complete current evidence and refreshed code/external reads remain mandatory.
+Manifests bind current policy, instructions and delivery identity; policy changes
+during preparation reject the old result and redeliver preserved user work.
+Only valid numbered discussion intermediate parts omit acknowledgement. Unrelated
+stale tokens cannot remove the active delivery guard. Cancellation, restart and
+superseded asynchronous telemetry cannot restore an old reuse baseline.
+
+The reuse core/integration checks establish protocol behavior using synthetic
+metadata-proven usage, including actual eligible same-card reuse, rotation,
+acknowledgement rejection, policy redelivery and monitor refresh. API read metrics
+exclude filesystem reads. Real matched cost/quality sessions and semantic evidence
+checks remain required before enabling reuse generally. No benchmark claim or
+parent-free loop is implied; direct child input remains blocked by host policy.

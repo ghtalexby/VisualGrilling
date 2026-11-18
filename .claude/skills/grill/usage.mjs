@@ -25,8 +25,8 @@ async function locate(root, id, depth = 0) {
 
 function threadUsage(resolveBinding) {
   let key, file, searched = 0, checked = 0, cached = null, pending;
-  let offset = 0, remainder = "", seen = new Set(), totals = null, lastInput, fileIdentity;
-  const reset = () => { offset = 0; remainder = ""; seen = new Set(); totals = null; lastInput = undefined; fileIdentity = undefined; };
+  let offset = 0, remainder = "", seen = new Map(), incomplete = false, totals = null, lastInput, fileIdentity;
+  const reset = () => { offset = 0; remainder = ""; seen = new Map(); incomplete = false; totals = null; lastInput = undefined; fileIdentity = undefined; };
   async function update() {
     try {
       const binding = await resolveBinding();
@@ -54,21 +54,28 @@ function threadUsage(resolveBinding) {
           const lines = (remainder + chunk.toString("utf8", 0, bytesRead)).split("\n");
           remainder = lines.pop();
           // Usage records are ASCII; discard oversized transcript lines, never parse their contents.
-          if (remainder.length > LIMIT) remainder = "";
+          if (remainder.length > LIMIT) { remainder = ""; incomplete = true; }
           for (const line of lines) {
-            if (!line.includes('"token_usage_record"')) continue;
-            let record; try { record = JSON.parse(line); } catch { continue; }
+            if (!line.trim()) continue;
+            let record; try { record = JSON.parse(line); } catch { incomplete = true; continue; }
+            if (!record || typeof record !== "object") { incomplete = true; continue; }
+            if (record.type !== "token_usage_record") continue;
             const p = record.payload;
-            if (record.type !== "token_usage_record" || p?.thread_id !== binding.id || !valid(p.usage)) continue;
-            if (typeof p.response_id !== "string" || !p.response_id) continue;
-            if (seen.has(p.response_id)) continue;
-            seen.add(p.response_id);
+            if (p?.thread_id && p.thread_id !== binding.id) continue;
+            if (p?.thread_id !== binding.id || !valid(p.usage) || typeof p.response_id !== "string" || !p.response_id) { incomplete = true; continue; }
+            if (seen.has(p.response_id)) {
+              if (fields.some(k => seen.get(p.response_id)[k] !== p.usage[k])) incomplete = true;
+              continue;
+            }
+            seen.set(p.response_id, p.usage);
             totals ||= Object.fromEntries(fields.map(k => [k, 0]));
             for (const k of fields) totals[k] += p.usage[k];
             lastInput = p.usage.input_tokens;
           }
         }
-        if (totals && valid(totals)) return cached = { provider: "codex", scope: "session", ...totals, last_input_tokens: lastInput };
+        if (totals && valid(totals)) return cached = { provider: "codex", scope: "session", ...totals,
+          model_responses: incomplete || remainder.trim() ? null : seen.size,
+          model_responses_complete: !incomplete && !remainder.trim(), last_input_tokens: lastInput };
         const buffer = Buffer.alloc(Math.min(stat.size, LIMIT));
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, start);
         data = buffer.toString("utf8", 0, bytesRead);
@@ -93,7 +100,8 @@ function threadUsage(resolveBinding) {
             if (valid(old) && total.input_tokens > old.input_tokens) { input = total.input_tokens - old.input_tokens; break; }
           }
         }
-        return cached = { provider: "codex", scope: "session", ...Object.fromEntries(fields.map(k => [k, total[k]])), ...(input === undefined ? {} : { last_input_tokens: input }) };
+        return cached = { provider: "codex", scope: "session", ...Object.fromEntries(fields.map(k => [k, total[k]])),
+          model_responses: null, model_responses_complete: false, ...(input === undefined ? {} : { last_input_tokens: input }) };
       }
       return cached = null;
     } catch { file = null; reset(); return cached = null; }
@@ -106,6 +114,7 @@ function threadUsage(resolveBinding) {
   };
   read.identity = () => key;
   read.file = () => file;
+  read.fresh = () => pending || update();
   return read;
 }
 
@@ -187,20 +196,42 @@ export function sessionUsage(base, name = null) {
     // Telemetry must not hold server startup or API requests behind an archive scan.
     if (discovery) await Promise.race([discovery, new Promise(resolve => setTimeout(resolve, 100))]);
     if (identity !== key) return null;
-    if (!descendants.length && discoveryComplete) return main;
-    const workerUsage = Object.fromEntries(fields.map(k => [k, 0])); let available = 0;
+    if (!descendants.length && discoveryComplete && !discovery) return main;
+    const workerUsage = Object.fromEntries(fields.map(k => [k, 0])); let available = 0, responses = 0;
+    let responsesComplete = discoveryComplete && !discovery;
     for (const id of descendants) {
       if (!readers.has(id)) readers.set(id, threadUsage(async () => ({ provider: "codex", id, codexHome: home })));
-      const usage = await readers.get(id)(); if (!usage) continue;
+      const usage = await readers.get(id)(); if (!usage) { responsesComplete = false; continue; }
       available++;
       for (const k of fields) workerUsage[k] += usage[k];
+      if (usage.model_responses_complete) responses += usage.model_responses;
+      else responsesComplete = false;
     }
     const combined = Object.fromEntries(fields.map(k => [k, main[k] + workerUsage[k]]));
     if (!valid(combined)) return null;
-    return { ...main, ...combined, scope: "session-tree", tree: { workers: descendants.length, available,
-      complete: discoveryComplete && available === descendants.length, parent: Object.fromEntries(fields.map(k => [k, main[k]])), workerUsage } };
+    responsesComplete &&= Number.isSafeInteger(responses);
+    workerUsage.model_responses = responsesComplete ? responses : null;
+    workerUsage.model_responses_complete = responsesComplete;
+    const combinedResponses = responses + main.model_responses;
+    const combinedComplete = responsesComplete && main.model_responses_complete && Number.isSafeInteger(combinedResponses);
+    return { ...main, ...combined, model_responses: combinedComplete ? combinedResponses : null,
+      model_responses_complete: combinedComplete, scope: "session-tree", tree: { workers: descendants.length, available,
+      complete: discoveryComplete && available === descendants.length,
+      parent: { ...Object.fromEntries(fields.map(k => [k, main[k]])), model_responses: main.model_responses,
+        model_responses_complete: main.model_responses_complete }, workerUsage } };
   }
   const read = () => pending || (pending = update().finally(() => { pending = null; }));
   read.identity = () => parent.identity();
+  // Private accessor: require metadata-proven descent and complete response records.
+  // Aggregate/session totals cannot establish an individual worker's last input.
+  read.worker = async id => {
+    if (!UUID.test(id || "")) return null;
+    await read();
+    const owner = identity;
+    if (!descendants.includes(id) || !readers.has(id)) return null;
+    const usage = await readers.get(id).fresh();
+    if (identity !== owner || !usage?.model_responses_complete || !Number.isSafeInteger(usage.last_input_tokens)) return null;
+    return { lastInputTokens: usage.last_input_tokens, modelResponses: usage.model_responses };
+  };
   return read;
 }

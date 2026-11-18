@@ -1,1 +1,1 @@
-{"roles":{"griller":{"model":"inherit"}},"knowledge":{"rereadThreshold":5},"session":{"rolloverTokens":120000}}
+{"roles":{"griller":{"model":"inherit"}},"knowledge":{"rereadThreshold":5},"session":{"rolloverTokens":120000},"workerReuse":{"enabled":false,"maxEvents":3,"maxInputTokens":60000,"maxReadAmplification":2}}

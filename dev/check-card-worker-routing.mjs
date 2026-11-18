@@ -10,11 +10,11 @@ if (args.length !== 1 || args[0] !== "--probe") {
   let rpc;
   try {
     const executable = resolveCodexCommand();
-    rpc = new CodexRpc({ ...executable, args: [...executable.args, "app-server", "proxy"], timeoutMs: 5000 });
+    rpc = new CodexRpc({ ...executable, args: [...executable.args, "--no-daemon", "app-server", "proxy"], transport: "proxy", timeoutMs: 5000 });
     await rpc.initialize();
     console.log(JSON.stringify({ transport: "existing-host-proxy", initialization: "passed", lifecycle: "unverified", inferenceStarted: false }));
   } catch (error) {
-    console.error(JSON.stringify({ transport: "existing-host-proxy", initialization: "unavailable", lifecycle: "unverified", inferenceStarted: false, error: error.message }));
+    console.error(JSON.stringify({ transport: "existing-host-proxy", initialization: "unavailable", lifecycle: "unverified", inferenceStarted: false, error: "Proxy initialization failed" }));
     process.exitCode = 1;
   } finally {
     // Close only our stdio proxy, never the host or a model session.
