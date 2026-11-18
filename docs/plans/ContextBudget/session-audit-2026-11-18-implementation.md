@@ -1,6 +1,6 @@
 # Session audit implementation scope and host-routing gate
 
-Status: scoped implementation work; real card-worker lifecycle acceptance remains open.
+Status: P1/narrow-P2 released as 1.0.25; real card-worker lifecycle and matched cost/quality acceptance remain open.
 
 This record supplements the [frozen audit](session-audit-2026-11-18.md) and its
 [metrics](session-audit-2026-11-18.metrics.json). It does not revise the baseline:
@@ -140,3 +140,23 @@ conclusions, provenance and clarification coverage. The audit's 50% fewer
 parent responses and 30% fewer launches are experimental targets, not achieved
 savings. Deterministic fixture checks, including any fake transport tests,
 cannot establish real host lifecycle or end-to-end token/quality acceptance.
+
+## Validation summary for release 1.0.25
+
+Implementation commit: `5219dc2`. Two independent review passes completed; the
+second found no confirmed issues. The first pass's managed multipart and
+frozen-scope defects were fixed with regression coverage before that clean pass.
+
+Passed checks: result-preflight, discussion, followups, spec, reread,
+completeness, context, actions, worker-cost, workers, monitor, maps, usage,
+knowledge, Hub runtime/restart, and actions-simulator. The simulator exercised
+`gap`, `ok`, `verify`, discussion, more, finish, report and missing-header 403.
+The promo browser storyboard also passed with `--no-encode` (65.4 seconds,
+2510 frames); the repository clip was not replaced. Runtime checks used
+disposable maps. Source/release mirror parity and installed Codex junctions
+were verified at 1.0.25. No push was performed.
+
+These results establish deterministic implementation checks for the selected
+P1/narrow-P2 scope only. The failed proxy prerequisite, real worker lifecycle,
+matched cost/quality comparison and later stages above remain open.
+

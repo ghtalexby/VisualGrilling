@@ -2,21 +2,21 @@
 
 Project: VisualGrilling. Plan: docs/plans/ContextBudget/session-audit-2026-11-18.md.
 Plan SHA256: 81FBE61319AE3AA9E7B954BCF40A1FE36528E552C0016901F911D3A99575A740.
-Base: e8b930f5bb5150b7e4c572c214cea89ac1c1bf17. Iteration 1, phase 1. Limit: 5 iterations; mandatory review-until-clean overrides review cap.
+Base: e8b930f5bb5150b7e4c572c214cea89ac1c1bf17. Iteration 1 complete; phase 3 verified on 5219dc2. Selected scope complete; external acceptance remains blocked. Limit: 5 iterations; mandatory review-until-clean overrides review cap.
 User authorized implementation and archival on 2026-11-18. Previous ledger: boards-hub-before-session-audit-2026-11-18.md. Preserve unrelated README.md changes.
 
 ## Requirements
 | ID | Requirement / source | Acceptance | Status | Evidence |
 |---|---|---|---|---|
-| R1 | P1 waiting and bounded reads | 45–60s worker waits, 20–30s shell yield for 15s wait; bounded reads; synchronized modes | IN_PROGRESS | Pending |
-| R2 | P1 template and local preflight | Worker catches missing coverage.sources and ancestor intent before receipt; pure validation, multipart and identity checks | IN_PROGRESS | Pending |
-| R3 | Narrow P2 combined ancestors | Legacy discussion assessment accepts inline ancestors atomically; old-client omission fallback; reply-only has no grade | IN_PROGRESS | Pending |
-| R4 | P2 correctness boundaries | Preserve reread, stale revisions, ordering, frozen state and finish drain; negative regression checks | IN_PROGRESS | No branch-only reread suppression |
-| R5 | Owner prototype host gate | Inspect existing host routing; distinguish verified from unverified child create/resume/complete/restart | IN_PROGRESS | APIs exist; lifecycle unverified |
-| R6 | Release and synchronization | Docs, contracts and consumers synchronized; one version bump; installed version verified | TODO | Pending |
-| R7 | Independent review and checks | Fresh review until clean; relevant suites, simulator/API checks, fix commits | TODO | Pending |
+| R1 | P1 waiting and bounded reads | Longer waits and bounded reads | DONE | hybrid.md:12-13; handoff.md:27-29; independent workers check PASS |
+| R2 | P1 template and local preflight | Pure coverage/intent/identity/multipart validation | DONE | result-preflight.mjs:15-109; preflight tests PASS |
+| R3 | Narrow P2 combined ancestors | Atomic legacy inline ancestors and fallback | DONE | grill.mjs:1126-1145; check-discussion.mjs:160-196 PASS |
+| R4 | P2 correctness boundaries | Preserve required work and atomicity | DONE | grill.mjs:1133-1145; discussion structural/reread regressions; spec/actions/context/restart suites PASS |
+| R5 | Owner prototype host gate | Inspect existing host routing; distinguish verified from unverified child create/resume/complete/restart | BLOCKED | Proxy initialize timed out after 5s; lifecycle acceptance unverified |
+| R6 | Release and synchronization | Docs, mirror and installed version | DONE | 1.0.25 across package/source/mirror/extension/installed junctions; 40 mirrored files match |
+| R7 | Independent review and checks | Fresh clean review and verification | DONE | Two review passes, second clean; independent final plan verification; simulator/API and regression suites PASS |
 | R8 | Matched experiment | Equal cold/warm real scenarios; actor-specific tokens/model calls, semantic quality | BLOCKED | Controlled real-session experiment pending; baseline remains frozen |
-| R9 | Later gated P0/P3/P4/full P2 | Record prerequisites and remaining scope honestly | TODO | Recommended next scope P1 + narrow P2 + routing gate |
+| R9 | Later gated P0/P3/P4/full P2 | Record remaining scope honestly | DONE | Implementation record retains full-scope receipts, reuse, retrieval and measurement gates; frozen audit hash unchanged |
 
 ## Work units
 - W1 R1/R2: standalone preflight module, workflow files and focused tests; no grill.mjs/docs contract edits.
@@ -46,3 +46,12 @@ User authorized implementation and archival on 2026-11-18. Previous ledger: boar
 CHANGES_REQUESTED. Confirmed: managed multipart hubEpoch passes preflight but is rejected as staged data; frozen/live scope not checked for reevaluate/followup/idea; handoff trailing whitespace. Fresh fixer assigned, no prior implementer reused. Preserve authenticated epoch and token, add real managed multipart and frozen identity regressions. Commit iteration after fixes/checks; fresh review required.
 - Review1 fixes completed: authenticated hubEpoch removed before reducer staging; preflight checks effective frozen scope; whitespace removed. Added managed multipart HTTP regression with stale epoch/token and duplicate publication protection. Preflight, Hub runtime/restart, discussion and workers PASS after fixes. Knowledge and browser promo storyboard PASS centrally.
 - Iteration1 fix commit prepared; release remains 1.0.25. R1/R2/R3/R4/R6/R7 awaiting fresh review and final verification.
+
+
+## Review pass 2
+APPROVED on 5219dc2; no confirmed findings. Independent preflight/discussion/hub-runtime/workers/monitor/context/followups/reread checks PASS, source/mirror hashes match, diff whitespace clean. Central final monitor/worker-cost/actions-simulator PASS. Frozen audit SHA256 unchanged. Installed .codex and .agents junctions resolve to source version1.0.25 and contain preflight. Phase3 independent full-plan verification in progress.
+
+## Final independent verification
+Seven of nine ledger requirements DONE; R5 and R8 remain BLOCKED. No missing implementation requirement in selected P1/narrow-P2 scope. Conditional apply/next remains measurement-gated. Final verifier independently passed preflight, workers, disposable simulator, syntax, plan links, source/mirror/version and whitespace checks. One verifier worker-check invocation omitted registry isolation; its exact completed fixture registry record was removed and the isolated rerun passed. User maps and unrelated README were preserved.
+
+Review count: 2 passes, final clean. Implementation/fix commit: 5219dc2. No push. Resume at host-proxy prerequisite and matched real-session experiment; full audit program is not complete.
