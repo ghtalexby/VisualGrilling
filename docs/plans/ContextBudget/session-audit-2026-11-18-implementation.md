@@ -159,4 +159,3 @@ were verified at 1.0.25. No push was performed.
 These results establish deterministic implementation checks for the selected
 P1/narrow-P2 scope only. The failed proxy prerequisite, real worker lifecycle,
 matched cost/quality comparison and later stages above remain open.
-
