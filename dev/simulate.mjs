@@ -38,6 +38,13 @@ function G(args, input) {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const log = s => console.log(`[sim ${new Date().toLocaleTimeString()}] ${s}`);
 
+// Synthetic transport coverage reuses the target question; it is not semantic proof.
+function fixtureCoverage(id, status) {
+  const resolved = status === "ok";
+  return { resolved, reason: resolved ? "[sim] Scripted acceptance only; no semantic proof." : "[sim] The target question still requests the missing evidence; retain its problem grade.",
+    sources: [], gaps: resolved ? [] : [{ gap: "[sim] Evidence remains unverified", questionIds: [id] }] };
+}
+
 function grade(e) {
   const a = e.answer.toLowerCase();
   let status;
@@ -63,7 +70,7 @@ function grade(e) {
   const newRoot = status === "gap" && Math.random() < 0.3
     ? { area: "Риски", q: `[sim] Новый главный вопрос из ответа на «${e.question.slice(0, 40)}»`, why: "Проверка newRoot.", options: ["Да", "Нет"] }
     : null;
-  return { type: "answer", id: e.id, token: e.token, status, verdict, children, newRoot, ...(status === "ok" && !e.capturedForSpec ? { ancestors: [] } : {}) };
+  return { type: "answer", id: e.id, token: e.token, status, verdict, children, newRoot, coverage: fixtureCoverage(e.id, status), ...(!e.capturedForSpec ? { reviewAncestors: true } : {}) };
 }
 
 let moreRound = 0;
@@ -81,7 +88,7 @@ const handlers = {
   spec: e => ({ type: "spec", token: e.token, markdown: `# [sim] План реализации\n\n## Цель\nПроверка генерации: ${e.title}.\n\n## Требования\n${e.nodes.filter(n => n.answer || n.kind === "idea" || n.kind === "preview").map(n => n.kind === "preview" ? n.link ? "- [" + n.q + "](" + n.link + ") · " + n.commit : "- " + n.q + ": [sim] Not published at capture." : "- [" + n.status + "] " + (n.text || n.q) + ": " + (n.answer || n.verdict)).join("\n") || "Нет оценённых ответов."}\n\n## Шаги по компонентам\nЗаблокированы: симулятор не проектирует реализацию.\n\n## Зависимости\nНужен разбор реальным агентом.\n\n## Проверки\nФайл записан и доступен для обновления.\n\n## Открытые вопросы\n${e.nodes.filter(n => n.kind === "q" && !n.answer).map(n => "- " + n.q).join("\n") || "Нет."}` }),
   answer: e => grade(e),
   reevaluate: e => ({ type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
-    assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status === "open" ? "weak" : n.status, verdict: "[sim] Preserve grade: transport fixture does not establish new evidence." }; }) }),
+    assessments: e.ids.map(id => { const n = e.nodes.find(n => n.id === id); return { id, status: n.status === "open" ? "weak" : n.status, verdict: "[sim] Preserve grade: transport fixture does not establish new evidence.", coverage: fixtureCoverage(id, n.status === "open" ? "weak" : n.status) }; }) }),
   idea: e => {
     const ids = new Set([e.id]);
     for (let size = -1; size !== ids.size;) { size = ids.size; for (const n of contextCards(e)) if (ids.has(n.parentId)) ids.add(n.id); }
@@ -94,7 +101,7 @@ const handlers = {
       children: branch.length ? [] : [{ q: `[sim ${e.id}] Evidence?`, options: ["Measured evidence", "Needs checking"] }] };
   },
   // Project conversationId is routed by the server token; discussionChat is scoped.
-  discuss: e => ({ ...(e.message === "[questions]" ? { questions: Array.from({ length: 6 }, (_, i) => ({ key: "$discussion" + i, parentId: "root", q: `[sim ${e.token}] ${["Capacity", "Deployment", "Encryption", "Retention", "Billing", "Staffing"][i]}?`, options: ["Yes", "No"] })), links: Array.from({ length: 6 }, (_, i) => "$discussion" + i) } : {}), ...(e.message.match(/^\[answers:([^\]]+)\]/) ? { answers: e.message.match(/^\[answers:([^\]]+)\]/)[1].split(",").map((id, i) => ({ id, messageIds: [discussionChat(e).at(-1).id], status: i ? "verify" : "ok", verdict: "[sim] Independent target assessment" })) } : {}), type: "discuss", id: e.id, token: e.token, ...(e.message === "[reread]" ? { reread: true } : {}), ...(e.message.match(/^\[forward:([^\]]+)\] ([\s\S]+)$/) ? { forward: { id: e.message.match(/^\[forward:([^\]]+)\]/)[1], message: e.message.replace(/^\[forward:[^\]]+\] /, "") } } : {}), ...(e.scope === "question" && !focusCard(e).obsolete && !focusCard(e).pending && e.message.startsWith("[resolve] ") ? { assessment: { status: "ok", verdict: "[sim] Решение принято в обсуждении.", answer: e.message.slice(10) } } : {}), reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${discussionChat(e).length}. Картинок: ${e.images.length}. Уточнение сохранено.` }),
+  discuss: e => ({ ...(e.message === "[questions]" ? { questions: Array.from({ length: 6 }, (_, i) => ({ key: "$discussion" + i, parentId: "root", q: `[sim ${e.token}] ${["Capacity", "Deployment", "Encryption", "Retention", "Billing", "Staffing"][i]}?`, options: ["Yes", "No"] })), links: Array.from({ length: 6 }, (_, i) => "$discussion" + i) } : {}), ...(e.message.match(/^\[answers:([^\]]+)\]/) ? { answers: e.message.match(/^\[answers:([^\]]+)\]/)[1].split(",").map((id, i) => ({ id, messageIds: [discussionChat(e).at(-1).id], status: i ? "verify" : "ok", verdict: "[sim] Independent target assessment", coverage: fixtureCoverage(id, i ? "verify" : "ok"), reviewAncestors: true })) } : {}), type: "discuss", id: e.id, token: e.token, ...(e.message === "[reread]" ? { reread: true } : {}), ...(e.message.match(/^\[forward:([^\]]+)\] ([\s\S]+)$/) ? { forward: { id: e.message.match(/^\[forward:([^\]]+)\]/)[1], message: e.message.replace(/^\[forward:[^\]]+\] /, "") } } : {}), ...(e.scope === "question" && !focusCard(e).obsolete && !focusCard(e).pending && e.message.startsWith("[resolve] ") ? { assessment: { status: "ok", verdict: "[sim] Решение принято в обсуждении.", answer: e.message.slice(10), coverage: fixtureCoverage(e.id, "ok"), reviewAncestors: true } } : {}), reply: `[sim] Про «${e.question.slice(0, 60)}»: вы написали «${e.message.slice(0, 80)}». Сообщений в истории: ${discussionChat(e).length}. Картинок: ${e.images.length}. Уточнение сохранено.` }),
   question: e => ({ type: "question", id: e.id, token: e.token, question: { why: "[sim] User question", area: "Project", options: ["Есть данные", "Нужно проверить", "Не знаю"], recommendation: { option: "Нужно проверить", reason: "[sim] Сначала проверить допущение." } } }),
   more: e => ({ type: "more", questions: [1, 2, 3].map(i => ({
     area: ["Рост", "Команда", "Юридическое"][i - 1],

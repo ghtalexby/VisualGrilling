@@ -1,6 +1,6 @@
 import { contextCards, discussionChat } from "./context-fixture.mjs";
 import { knowledgeFixture } from "./knowledge-fixture.mjs";
-// Exercise the whole-map reread against a real server in a disposable project.
+// Exercise discussion transactions against a real server in a disposable project.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -156,6 +156,62 @@ try {
   await reply(e, { answers: [{ ...discussionAnswer, ancestors: [{ id: inlineParent, status: "ok", verdict: "Weakness resolved" }] }] });
   assert.equal((await state()).nodes.find(n => n.id === inlineParent).status, "ok");
   assert.equal((await state()).queueLength, 0);
+  // Explanation-only replies leave grades and the internal work queue untouched.
+  e = await begin(inlineChild, "Explain the grade");
+  const explanationBefore = (await state()).nodes.find(n => n.id === inlineParent);
+  await reply(e);
+  assert.deepEqual((await state()).nodes.find(n => n.id === inlineParent), explanationBefore);
+  assert.equal((await state()).queueLength, 0);
+
+  // Legacy current-card assessment uses the same atomic ancestor contract as answers[].
+  const resolved = { resolved: true, reason: "Evidence reviewed", gaps: [], sources: [] };
+  const parentAssessment = { id: inlineParent, status: "ok", verdict: "Parent evidence checked", coverage: resolved };
+  e = await begin(inlineChild, "Confirm the existing evidence");
+  const assessment = { status: "ok", verdict: "Existing evidence confirmed", coverage: resolved };
+  const assessmentBefore = (await state()).nodes;
+  for (const invalid of [
+    { ancestors: [{ ...parentAssessment, id: "root" }] },
+    { ancestors: [parentAssessment, parentAssessment] },
+    { ancestors: [], reviewAncestors: true },
+    { reviewAncestors: "false" },
+    { ancestors: [{ ...parentAssessment, coverage: { ...resolved, sources: undefined } }] },
+    { ancestors: [], coverage: { ...resolved, sources: undefined } }
+  ]) {
+    await reply(e, { assessment: { ...assessment, ...invalid } }, 400);
+    assert.deepEqual((await state()).nodes, assessmentBefore);
+  }
+  await reply(e, { assessment: { ...assessment, ancestors: [parentAssessment] } });
+  assert.equal((await state()).nodes.find(n => n.id === inlineParent).verdict, parentAssessment.verdict);
+  assert.equal((await state()).queueLength, 0);
+  e = await begin(inlineChild, "No ancestor change");
+  await reply(e, { assessment: { ...assessment, ancestors: [], reviewAncestors: false } });
+  assert.equal((await state()).queueLength, 0);
+  // Both omitted intent and an explicit separate-review request retain compatibility.
+  for (const intent of [{}, { reviewAncestors: true }]) {
+    e = await begin(inlineChild, "Review ancestors separately");
+    await reply(e, { assessment: { ...assessment, ...intent } });
+    const review = await request("wait?timeout=5");
+    assert.equal(review.type, "reevaluate"); assert.deepEqual(review.ids, [inlineParent]);
+    await request("apply", { type: "reevaluate", token: review.token, assessments: [parentAssessment] });
+    assert.equal((await state()).queueLength, 0);
+  }
+  // Coverage-generated clarification branches cannot disappear behind ancestors:[].
+  e = await begin(inlineChild, "A new uncertainty");
+  await reply(e, { assessment: { status: "weak", verdict: "Needs measurement", ancestors: [], coverage: {
+    resolved: false, reason: "Missing evidence", sources: [], gaps: [{ gap: "Measurement", questionIds: ["$measure"] }],
+    questions: [{ key: "$measure", q: "What is the measured recovery time?", why: "Verify the claim", options }]
+  } } });
+  const structuralReview = await request("wait?timeout=5");
+  assert.equal(structuralReview.type, "reevaluate");
+  assert.ok(structuralReview.ids.includes(inlineParent)); assert.ok(structuralReview.ids.includes(inlineChild));
+  await request("apply", { type: "reevaluate", token: structuralReview.token,
+    assessments: structuralReview.ids.map(id => ({ id, status: "ok", verdict: "Branch checked", coverage: resolved })) });
+  // Replacing genuine user evidence still requires the independent map-wide reread.
+  e = await begin(inlineChild, "Corrected measurement: recovery takes ten minutes");
+  await reply(e, { answers: [{ id: inlineChild, messageIds: [discussionChat(e).at(-1).id], status: "ok", verdict: "Correction accepted", ancestors: [] }] });
+  const correctionReview = await wait(true);
+  assert.equal(correctionReview.type, "reread");
+  await reread(correctionReview);
   // Explicit context-limit errors must not starve independent queued answers.
   await request("init", { title: "Large map", questions: [{ q: "Original leaf", options }] });
   const leaf = (await state()).nodes.find(n => n.kind === "q").id;

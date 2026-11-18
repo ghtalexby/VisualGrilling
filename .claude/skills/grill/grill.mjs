@@ -1123,18 +1123,26 @@ ${S.notes || "—"}
         recordVerdict(assessed, a.status, clean(a.verdict, 400));
         if (!assessed.answer) { assessed.answer = clean(a.answer, 2000); assessed.semanticsStale = true; }
       }
-      if (b.assessment) cover(result.nodes, n.id, b.assessment.coverage);
+      let assessmentInline = false;
+      if (b.assessment) {
+        cover(result.nodes, n.id, b.assessment.coverage);
+        assessmentInline = inlineAncestors(result.nodes, n.id, b.assessment, ancestorIds(S.nodes, n.id));
+      }
       validateCoverageTree(S.nodes, result.nodes);
       applySemantics(result.nodes, n.id, b.semantics, clean);
+      // New clarification branches need review even when an earlier inline assessment
+      // acknowledged the delivered branch. Include additions made by any coverage entry.
+      const addedQuestions = result.nodes.filter(x => x.kind === "q" && !S.nodes.some(old => old.id === x.id)).map(x => x.id);
       S.nodes = preview.branchCopies(result.nodes); n = get(b.id);
       if (b.assessment !== undefined) {
         // Preserve submitted answers and frozen specifications; this evaluates live discussion evidence.
-        queueReview(S.nodes, n.id);
+        if (!assessmentInline) queueReview(S.nodes, n.id);
         queueIdea(ideaOf(S.nodes, n.id));
       }
       n.chat = [...(n.chat || []), { id: randomUUID(), from: "claude", ...(n.kind === "root" ? { conversationId: n.discussConversation || n.chat?.at(-1)?.conversationId || "main" } : {}), text: reply, links: result.links, at: Date.now() }]; n.discuss = null;
       delete n.discussDraft; delete n.discussMapRevision; delete n.discussMessageIds; delete n.discussConversation;
       for (const id of result.touched) { if (!result.inline.includes(id)) queueReview(S.nodes, id); queueIdea(ideaOf(S.nodes, id)); }
+      for (const id of addedQuestions) { queueReview(S.nodes, id); queueIdea(ideaOf(S.nodes, id)); }
       delete n.discussRevision;
       if (forwarded) {
         const target = get(forwarded.target.id), { message } = forwarded;
@@ -2172,7 +2180,8 @@ ${S.notes || "—"}
         if (transferring() && S.sessionTransfer.phase !== "requested") throw [409, "Обработка остановлена для перехода в новую сессию."];
         const rearm = b.rearm;
         if (rearm !== undefined && (rearm !== true || !monitor || clean(b.owner, 80) !== monitor.owner || codexConnection(BASE, NAME).id !== monitor.owner)) throw [409, "Для --rearm нужен монитор привязанной сессии"];
-        const { rearm: ignored, owner, ...body } = b;
+        // Transport credentials were checked above; they are not discussion part data.
+        const { rearm: ignored, owner, hubEpoch, ...body } = b;
         let result;
         applying = true;
         const receipt = b.token && S.actionReceipts?.[b.token];

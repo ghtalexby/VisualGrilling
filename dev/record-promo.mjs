@@ -106,14 +106,27 @@ function respond(e) {
   const cards = [...(e.context?.focus || []), ...(e.context?.related || [])], focus = cards.find(n => n.id === e.id);
   if (e.type === "answer") {
     const a = ANSWERS[focus.q]; assert.ok(a, "No scripted verdict for: " + focus.q);
-    return { type: "answer", id: e.id, token: e.token, status: a.status, verdict: a.verdict, children: a.children, semantics: { topics: a.topics } };
+    return { type: "answer", id: e.id, token: e.token, status: a.status, verdict: a.verdict, ancestors: [],
+      coverage: { resolved: a.status === "ok", reason: a.verdict, sources: [],
+        gaps: a.children.map((q, i) => ({ gap: q.why, questionIds: ["$clarify" + i] })),
+        questions: a.children.map((q, i) => ({ key: "$clarify" + i, ...q })) }, semantics: { topics: a.topics } };
   }
-  if (e.type === "discuss") return { type: "discuss", id: e.id, token: e.token, ...REPLY, semantics: { topics: ["no-shows", "pricing"] } };
+  if (e.type === "discuss") return { type: "discuss", id: e.id, token: e.token, ...REPLY,
+    assessment: { ...REPLY.assessment, ancestors: [], coverage: { resolved: false, reason: "Three pilots establish a baseline but do not establish its prevalence.", sources: [],
+      gaps: [{ gap: "The pilot sample may not represent other restaurants.", questionIds: ["$sample"] }],
+      questions: [{ key: "$sample", q: "What larger sample confirms the pilot result?", why: "Check whether the measured loss generalizes beyond three pilots.", options: ["Ten more booking logs", "Only the original pilots", "Not measured"] }] } }, semantics: { topics: ["no-shows", "pricing"] } };
   if (e.type === "followup") {
     const cards = [...(e.context?.focus || []), ...(e.context?.related || [])], n = cards.find(n => n.id === e.id);
     const child = cards.find(n => n.parentId === e.id && n.kind === "q");
     return { type: "followup", id: e.id, token: e.token, status: n.status, verdict: n.verdict, coverage: { resolved: false, reason: "Demo clarification remains necessary", sources: [], gaps: [{ gap: n.verdict, questionIds: [child?.id || "$proof"] }], questions: child ? [] : [{ key: "$proof", q: "What larger sample confirms the pilot result?", why: "Check the pilot assumption", options: ["Measured", "Not measured"] }] } };
   }
+  if (e.type === "reevaluate") return { type: "reevaluate", token: e.token, capturedForSpec: e.capturedForSpec,
+    assessments: e.ids.map(id => {
+      const n = e.nodes.find(n => n.id === id);
+      assert.ok(n?.gapCoverage, "Missing scripted coverage for: " + id);
+      return { id, status: n.status, verdict: n.verdict,
+        coverage: { resolved: n.gapCoverage.resolved, reason: n.gapCoverage.reason, sources: [], gaps: n.gapCoverage.gaps } };
+    }) };
   if (e.type === "knowledge") return { type: "knowledge", token: e.token, files: [] };
   if (e.type === "finish") return { type: "finish", token: e.token, summary: SUMMARY };
   // Anything else means the storyboard drifted: fail instead of improvising map content.

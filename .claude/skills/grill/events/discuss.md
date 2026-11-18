@@ -2,6 +2,8 @@
 
 - `{"type":"discuss", ...}`: answer in the map language, using `message`, `images`, and `context.focus`/`related` plus the index. `scope` is question, project, or idea; root and ideas are never graded as questions. Inspect images with your image-reading tool; if unavailable say so without guessing. Quoted messages preserve `[Про вариант ответа «…»]` and `[Про вердикт «…»]` protocol prefixes. Delivered `images` and images in context card chats are absolute file paths; open them directly. Inspect existing answers, descendants and pending work before drawing conclusions.
 
+Explanation-only requests receive reply-only results unless new evidence or a changed judgment requires grading. Do not repeat an unchanged assessment merely to explain it.
+
 ### Questions and answers from discussion
 
 Every substantive question requiring a user answer must appear as a card, automatically, in question, project and idea discussions. Read focus and related; scan the index for the same object or decision and fetch every plausible match with `G node` before creating a question, recording another card's answer, or claiming a decision is missing. Consider those answers and reuse existing IDs. For each new question choose the best existing parent anywhere on the map (`q`, `idea`, or root); use root when no suitable parent exists. Explanations without questions add no cards. Do not impose a question quota or put necessary discussion questions in reserve; the separate reread issuance limits remain unchanged.
@@ -33,7 +35,7 @@ An oversized discussion context returns HTTP 400, records `node.discussError`, a
 
 Replacing an existing answer with different discussion text also queues an automatic incremental reread, as a direct Answer-tab edit does, so decisions in other branches can be reconsidered. The replacement is already graded, so this reread is settled (not cancelable as a withdrawn pending answer). Identical text does not trigger an edit reread; finish-pending/finished maps retain the existing automatic-reread suppression.
 
-Each `answers` entry may include `ancestors:[{id,status,verdict}]` (empty means checked, unchanged). IDs must be answered current ancestors of that target. Omission or `reviewAncestors:true` requests separate reassessment; never combine it with `ancestors`. Assess substantive resolution as in answer grading.
+Each `answers` entry and legacy `assessment` must explicitly choose `ancestors:[{id,status,verdict}]` (empty means checked, unchanged). IDs must be answered current ancestors of that target. Use `reviewAncestors:true` when necessary evidence is missing. Legacy clients may omit both to request separate reassessment; worker preflight rejects that omission; never combine it with `ancestors`. Assess substantive resolution as in answer grading.
 
 Project events include `conversationId`; root focus chat contains only that conversation. Reply using the normal root ID/token; the server routes the reply. Other conversations remain available for whole-map reread, but must not be treated as new messages in this event.
 
