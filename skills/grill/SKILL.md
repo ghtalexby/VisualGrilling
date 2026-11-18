@@ -191,6 +191,6 @@ User mutations are accepted into a durable FIFO journal, including during reread
 
 Preview preparation includes the optional user `request` from the setup Chat tab (up to 3000 characters). Use it with the captured branch context to suggest relevant options; preparation still waits for an explicit build request.
 
-Mandatory clarification coverage follows [worker.md](worker.md) and [coverage.md](coverage.md) for every weak/gap/verify grading path, including ancestor and reread assessments. Handle `followup` events through [events/followup.md](events/followup.md). Cover all gaps at every depth without quotas; preserve original answers, provenance and frozen snapshots.
+Mandatory clarification coverage follows [worker.md](worker.md) and [coverage.md](coverage.md) for every weak/gap/verify grading path, including ancestor and reread assessments. Handle `followup` events through [events/followup.md](events/followup.md). Reuse clarification in the assessed card without a duplicate, as specified in coverage.md. Cover all gaps at every depth without quotas; preserve original answers, provenance and frozen snapshots.
 
 Delegated Codex events and results use [file handoff](handoff.md); the parent keeps only receipts. The compact knowledge index preserves exclusions and warnings; full inventory remains available on demand. Session usage includes discovered child workers when supported, and labels incomplete telemetry.

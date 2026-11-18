@@ -22,7 +22,7 @@ export function coverageResult(nodes, id, input, { mkQ, clean }) {
   const all = [...nodes, ...additions], used = new Set();
   const checked = gaps.map(g => {
     const gap = text(g?.gap, 1000), ids = list(g.questionIds).map(id => refs.get(id) || id);
-    if (!ids.length || new Set(ids).size !== ids.length || ids.some(target => target === n.id || !all.some(q => q.id === target && q.kind === "q" && !q.obsolete))) bad();
+    if (!ids.length || new Set(ids).size !== ids.length || ids.some(target => !all.some(q => q.id === target && q.kind === "q" && !q.obsolete))) bad();
     ids.forEach(id => used.add(id)); return { gap, questionIds: ids };
   });
   if (additions.some(q => !used.has(q.id))) bad();

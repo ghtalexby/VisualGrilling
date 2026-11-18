@@ -55,6 +55,26 @@ try {
   await start();
   assert.equal((await fetch(url + "api/state")).status, 403);
   assert.equal(await new Promise(resolve => { http.get(url + "api/state", { headers: { "x-grill": "1", Host: "evil.example" } }, r => { r.resume(); resolve(r.statusCode); }); }), 403);
+  // A clarification already asked in the assessed card needs no duplicate.
+  await api("init", { title: "Same-card clarification", questions: [question("Which path format is used?")], reserve: [] });
+  const self = (await state()).nodes.find(n => n.kind === "q");
+  await answer(self.id, "Not specified yet", { status: "weak", verdict: "Path format missing", ancestors: [] });
+  let selfEvent = await wait(); assert.equal(selfEvent.type, "followup");
+  const selfCoverage = { ...covered(self.id), reason: "The original question already requests the missing path format" };
+  await apply(selfEvent, { status: "weak", verdict: "Awaiting this card's clarification", coverage: selfCoverage });
+  assert.equal((await state()).nodes.filter(n => n.kind === "q").length, 1);
+  assert.deepEqual((await node(self.id)).gapCoverage.gaps[0].questionIds, [self.id]);
+  await stop(); await start();
+  assert.equal((await node(self.id)).followup, undefined);
+  assert.equal((await node(self.id)).answer, "Not specified yet");
+  await api("discuss", { id: self.id, message: "The path uses stable group codes" }); selfEvent = await wait();
+  await apply(selfEvent, { reply: "This resolves the path format", assessment: { status: "ok", verdict: "Stable group codes", coverage: { ...resolved, sources: [{ id: self.id, answer: "Not specified yet", contribution: "Self is not an external source" }] } } }, 400);
+  assert.equal((await node(self.id)).status, "weak");
+  await apply(selfEvent, { reply: "This resolves the path format", assessment: { status: "ok", verdict: "Stable group codes", coverage: resolved } });
+  assert.equal((await node(self.id)).status, "ok");
+  assert.equal((await node(self.id)).answer, "Not specified yet");
+  assert.equal((await node(self.id)).followup, undefined);
+  assert.equal((await state()).nodes.filter(n => n.kind === "q").length, 1);
   await api("init", { title: "Followups", questions: [question("Primary decision?"), question("Other branch evidence?"), question("Keep open?")], reserve: [] });
   let cards = (await state()).nodes.filter(n => n.kind === "q"); const [parent, source, spare] = cards;
   const first = await answer(parent.id, "Original", { status: "weak", verdict: "Missing specifics", ancestors: [] });

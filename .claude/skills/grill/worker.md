@@ -59,7 +59,7 @@ Grades: `ok` specific, convincing facts/numbers/checked evidence/clear mechanism
 
 ## Mandatory gap coverage
 
-For every current question graded weak/gap/verify, and every reassessment of it (answer, discussion, ancestors, reread), identify concrete gaps; search the whole map and read full plausible questions/answers; reuse existing questions; supplement with directly resolving evidence; reassess; cover every remaining gap with existing or new questions. Follow [coverage.md](coverage.md) for the shared contract. No question quota, batch waiting or depth cutoff applies to mandatory clarifications. Topics/links and answered children alone prove nothing. Preserve verify until evidence tests the assumption. Never merge different questions just to import evidence.
+For every current question graded weak/gap/verify, and every reassessment of it (answer, discussion, ancestors, reread), identify concrete gaps; search the whole map and read full plausible questions/answers; reuse questions, including self; supplement with directly resolving evidence; reassess; cover every remaining gap with existing or new questions. Follow [coverage.md](coverage.md) for the shared contract. No question quota, batch waiting or depth cutoff applies to mandatory clarifications. Topics/links and answered children alone prove nothing. Preserve verify until evidence tests the assumption. Never merge different questions just to import evidence.
 
 ## Pass JSON safely
 
