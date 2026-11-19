@@ -299,6 +299,8 @@ Session-cost checks extend context, completeness, discussion, monitor, watch, us
 
 Project conversation regression checks in `check-discussion.mjs` cover legacy history, isolated delivery, pending-work conflicts, reset isolation and restart. `check-discussion-browser.mjs` checks the dropdown, +, separate drafts and history.
 
+The discussion browser check also sends real pointer-down/up events around a forced panel refresh for project chat, question discussion and answers. It verifies that refreshes preserve the pressed control, slow submissions immediately show a disabled Sending state, repeated clicks do not duplicate requests, and rejected submissions preserve drafts and unlock Send.
+
 
 ## Durable action queue acceptance
 

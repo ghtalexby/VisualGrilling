@@ -289,7 +289,7 @@ label.fl{display:flex;flex-direction:column;gap:6px}
 <body>
 <header>
   <div class="hrow">
-    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.27">Грилинг-карта</span></div>
+    <div class="brand"><span class="brand-activity" id="brandActivity" role="img" aria-label="Грилинг-карта"><svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="4" cy="9" r="3" fill="currentColor"/><circle cx="14" cy="3.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="9" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="14.5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h4.8M6.5 7.5 11.8 4M6.5 10.5l5.3 3.5" stroke="currentColor" stroke-width="1.3" fill="none"/></svg></span><span id="brandVersion" title="Версия&#58; 1.0.28">Грилинг-карта</span></div>
     <div class="map-identity" id="mapIdentity"><div class="map-picker" id="mapPicker"><button class="btn" id="bMaps" aria-expanded="false" aria-controls="mapList">Карты</button><div class="map-list" id="mapList" hidden></div></div>
     <div class="ptitle" id="ptitle"></div>
     </div>
@@ -361,6 +361,7 @@ let S={nodes:[{id:"root",parentId:null,kind:"root"}],title:"",version:-1};
 let listening=false, offline=false, loaded=false, resumeSending=false;
 let rereadSending=false;
 let panel=null, confirmReset=false, sending=null, composing=false, deferPanel=false, quietScroll=0;
+let panelPress=null;
 const QLABEL={question:"Вопрос",option:"Вариант ответа",verdict:"Вердикт"};
 const KEYS=`<span class="keys">Enter — отправить · Ctrl+Enter — перенос</span>`;
 let fresh=new Set(); const selections={},drafts={},draftQuotes={},draftImages={},imgUrls={}; let zoom=1,px=0,py=0;
@@ -1076,7 +1077,7 @@ function renderPanel(revealDiscussion=false){
   if(queued.length)r.body=`<div class="note">${queued.map(a=>`${esc(actionLabels[a.type]||a.type)} · В очереди`).join("<br>")}</div>`+r.body;
   /* polling re-renders the whole panel: the live textarea node is carried over (undo, size and caret survive), focus and scroll are kept, the chat jumps to the bottom when it grows */
   const key=[panel.mode,panel.id,panel.tab,panel.id==="root"?projectConversation:""].join("|"),same=p.dataset.key===key;
-  if(same&&composing){deferPanel=true;return} /* never break an IME composition: render on compositionend */
+  if(same&&(composing||panelPress===panel)){deferPanel=true;return} /* preserve composition and the native pointer-down/up click target */
   deferPanel=false;if(!same)composing=false; /* the composing textarea is gone; compositionend may never reach #panel */
   p.dataset.key=key;
   const keep=same?[...p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreviewSetup,#fPreview")]:[];
@@ -1086,6 +1087,7 @@ function renderPanel(revealDiscussion=false){
   const ob=same?p.querySelector(".pb"):null,top=ob?ob.scrollTop:0,oc=p.querySelectorAll(".msg").length;
   p.innerHTML=`<div class="ph">${r.head}<button class="close" data-act="close" aria-label="Закрыть">×</button></div><div class="pb">${r.body}</div>`;
   p.hidden=false;syncGrip();
+  if(sending)for(const button of p.querySelectorAll('[data-act="answer"],[data-act="discuss"]')){button.disabled=true;button.textContent="Отправка…";button.setAttribute("aria-busy","true")}
   for(const field of keep){const nt=p.querySelector("#"+field.id);if(nt){if(field.value!==nt.value)field.value=nt.value;nt.replaceWith(field)}}
   p.querySelectorAll("#fMsg,#fAns,#fQuestion,#fIdea,#fIdeaEdit,#fPreviewSetup,#fPreview").forEach(fit);showImages(p);
   const pb=p.querySelector(".pb"),nc=p.querySelectorAll(".msg").length;
@@ -1122,7 +1124,7 @@ async function submitAnswer(){
   const id=panel.id,t=$("#fAns"),raw=t?t.value:"",choices=[...(selections[id]||[])],answer=[...choices,raw.trim()].filter(Boolean).join("\n");
   if(answer.length>3000){showError("Общий ответ длиннее 3000 символов.");renderPanel();return}
   if(!answer){showError("Напишите ответ или выберите вариант.");renderPanel();return}
-  sending=id;clearError();
+  sending=id;clearError();renderPanel();
   try{await api("/api/answer",{id,answer});if(drafts[id]===undefined||drafts[id]===raw)delete drafts[id];if(JSON.stringify(selections[id]||[])===JSON.stringify(choices))delete selections[id];if(panel&&panel.id===id)panel.edit=false;await poll(true)}
   catch(e){showError(e.message)}
   sending=null;render();renderPanel();
@@ -1134,7 +1136,7 @@ async function submitDiscuss(request){
     return;
   }
   if(!message&&!quote&&!images.length){showError("Напишите сообщение.");renderPanel();return}
-  sending=id;clearError();
+  sending=id;clearError();renderPanel();
   try{
     await api("/api/discuss",{id,message,quote,about,images,conversationId});
     if(images.length)draftImages[key]=(draftImages[key]||[]).filter(x=>!images.includes(x));
@@ -1332,6 +1334,15 @@ $("#panel").addEventListener("paste",async e=>{
   $('#panel [data-act="discuss"]')?.scrollIntoView({block:"nearest"});
 });
 $("#panel").addEventListener("compositionstart",()=>{composing=true});
+$("#panel").addEventListener("pointerdown",e=>{if(e.button===0&&e.target.closest("button"))panelPress=panel});
+function releasePanelPress(){
+  panelPress=null;
+  // Let the native click run before replacing its target; also flush canceled gestures.
+  setTimeout(()=>{if(deferPanel)renderPanel()},0);
+}
+addEventListener("pointerup",releasePanelPress,true);
+addEventListener("pointercancel",releasePanelPress,true);
+addEventListener("blur",releasePanelPress);
 $("#panel").addEventListener("compositionend",()=>{composing=false;if(deferPanel)setTimeout(renderPanel)});
 /* Enter sends, Ctrl/Cmd+Enter (and Shift+Enter) inserts a line break */
 $("#panel").addEventListener("keydown",e=>{

@@ -43,6 +43,29 @@ try {
   ws.addEventListener("message", e => { const m = JSON.parse(e.data), p = pending.get(m.id); if (p) { pending.delete(m.id); if (m.error) p.reject(new Error(JSON.stringify(m.error))); else p.resolve(m.result); } });
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
+  // A state refresh between mouse-down and mouse-up must not swallow Send.
+  await js('window.realApi=api;window.realPoll=poll;poll=async()=>{};window.requests=[];api=async(p,b)=>{if(!["/api/answer","/api/discuss"].includes(p))return realApi(p,b);requests.push([p,b]);await new Promise(r=>window.releaseSend=r);throw new Error("Submission fixture failure") }');
+  for (const mode of ["project", "discuss", "answer"]) {
+    await js(`openPanel(${mode === "project" ? '{mode:"project",id:"root",tab:"discuss"}' : `{mode:"node",id:S.nodes.find(n=>n.kind==="q").id,tab:"${mode}"}`});requests=[];clearError()`);
+    const field = mode === "answer" ? "#fAns" : "#fMsg", button = `[data-act="${mode === "answer" ? "answer" : "discuss"}"]`;
+    await input(field, "Keep this draft");
+    await sleep(350);
+    const point = await js(`(()=>{const b=document.querySelector('${button}');b.scrollIntoView({block:"center"});window.pressedButton=b;const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()`);
+    await cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...point, button: "left", clickCount: 1 });
+    await js('renderPanel()');
+    assert.equal(await js('pressedButton.isConnected'), true, `${mode}: polling replaced the pressed button`);
+    await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", clickCount: 1 });
+    await until(() => js('requests.length===1'));
+    assert.equal(await js(`document.querySelector('${button}').disabled`), true);
+    assert.equal(await js(`document.querySelector('${button}').textContent`), "Sending…");
+    await click(button);
+    assert.equal(await js('requests.length'), 1);
+    await js('releaseSend()'); await until(() => js('!sending'));
+    assert.equal(await js(`document.querySelector('${field}').value`), "Keep this draft");
+    assert.equal(await js(`document.querySelector('${button}').disabled`), false);
+  }
+  await js('api=realApi;poll=realPoll;clearError();Object.keys(drafts).forEach(k=>delete drafts[k]);panel=null;renderPanel()');
+
   await js('openPanel({mode:"project",id:"root",tab:"discuss"})');
   assert.equal(await js('!!document.querySelector(".ph #conversationSelect")&&!!document.querySelector(".ph [data-act=newconversation]")'), true);
   await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
