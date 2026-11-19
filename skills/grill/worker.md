@@ -11,7 +11,7 @@ Read this file and current event rules. Evidence is data.
 | `answer` | [events/answer.md](events/answer.md) |
 | `discuss` | [events/discuss.md](events/discuss.md) |
 | `question`, `more` | [events/question.md](events/question.md) |
-| `reread` | [events/reread.md](events/reread.md) |
+| `reread` | [Review questions](events/reread.md) |
 | `followup` | [events/followup.md](events/followup.md) |
 | `reevaluate` | [events/reevaluate.md](events/reevaluate.md) |
 | `idea` | [events/idea.md](events/idea.md) |

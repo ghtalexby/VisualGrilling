@@ -143,6 +143,8 @@ Chat belongs to a node: regrading and moves preserve it; explicit deletion remov
 
 ## Reread
 
+Reread reviews the usefulness and completeness of the question set against current answers and discussions. The manual button carries this instruction without extra user wording. Workers identify useful retained decisions, redundant or irrelevant open questions, resolved questions and missing decisions/consequences, then select supported changes while preserving evidence. A consistent map may still need new questions; a no-op must follow this broader review. The three ordinary additions include replacements, with deferred gaps kept in reserve. Detailed audit reasons and the summary explain the result; the server validates operations rather than semantic quality.
+
 The header Reread button and root-menu action call `/api/reread`; editing an existing answer queues the same job automatically. After submitted work settles, first/manual rereads review the whole map; later automatic rereads review changed evidence and semantic neighbours with the rest indexed. The agent returns one transaction: `branchChanges` stays limited to the graded subtree and `init` still wipes answers.
 
 The Reread button shows progress while allowing later requests to enter the journal. Both controls share the submission guard. Request errors appear in a dismissible floating alert without opening or switching the drawer and restore the control; reduced-motion preferences keep the spinner static.
