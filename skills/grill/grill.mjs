@@ -12,9 +12,9 @@
 //   node grill.mjs node <id>... | branch <id> | index [--questions] | search <text> | search --topic <topic> | related <id> [--token <readToken>]
 //   node grill.mjs state                  inspect cards to identify a chat-command target
 //   node grill.mjs apply [--rearm] < {"type":"answer"|"discuss"|"question"|"idea"|"more"|"reread"|"finish"|"spec"|"notes", ...}   send agent's result to the map
-//   node grill.mjs apply --file result.json --token expected [--rearm]   apply a delegated result without printing it
+//   node grill.mjs apply --file result.json --token expected [--rearm]   apply a local result without printing it
 //   node grill.mjs knowledge [--compact] | knowledge-import | knowledge-retry | knowledge-skip | spec-migrate
-//   node grill.mjs config                                       print merged griller model config
+//   node grill.mjs config                                       print active session configuration
 //   node grill.mjs spec                                         request an implementation plan
 //   node grill.mjs transfer [--status | --prepare | --claim | --error message] [--id request]
 //   node grill.mjs status | report | stop
@@ -40,7 +40,6 @@ import { previews } from "./preview.mjs";
 import { registerBoard, updateObservation } from "./hub/registry.mjs";
 import { sessionUsage } from "./usage.mjs";
 import { validateWorkerReuseSettings, validateWorkerContextAck } from "./worker-reuse.mjs";
-import { workerRuntime } from "./worker-runtime.mjs";
 import { bindSession, requestResume, codexConnection, requestWake, requestTransfer, transferBinding, ResumeError } from "./connection.mjs";
 import { previewDocument } from "./preview-view.mjs";
 import { knowledge, digest, agentIndex } from "./knowledge.mjs";
@@ -110,7 +109,6 @@ async function serve() {
   const readUsage = async () => latestUsage = await usageReader();
   await readUsage();
   const settings = config(false);
-  const reuse = workerRuntime(settings.workerReuse, id => usageReader.worker(id));
   let S = readJSON(STATE) || freshState();
   const lifecycleFile = path.join(DIR, "hub-lifecycle.json");
   let lifecycle = readJSON(lifecycleFile) || { managed: false, paused: false, epoch: null };
@@ -128,7 +126,6 @@ async function serve() {
   };
   const fence = (managed = lifecycle.managed) => {
     stopping = true;
-    reuse.discard();
     if (managed) supersedeTransfer();
     lifecycle = { managed, paused: managed, epoch: randomUUID(), attached: null };
     atomicWrite(lifecycleFile, JSON.stringify(lifecycle));
@@ -245,7 +242,6 @@ async function serve() {
   const save = () => {
     syncFollowups();
     if (currentWork && !workIsCurrent()) {
-      if (!applying) reuse.discard();
       currentWork = null;
       // Some mutations only save (chat reset, deletion, previews). Recover after
       // their complete transaction, not recursively from the middle of apply.
@@ -817,8 +813,8 @@ ${S.notes || "—"}
     total.count++;
     for (const key of ["characters", "focus", "related", "index"]) total[key] += entry[key];
   }
-  function workerManifestInput() {
-    const knowledgeIndex = memory.index();
+  function deliveryRevisions(checkKnowledge = true) {
+    const knowledgeIndex = checkKnowledge ? memory.index() : null;
     const instructionFiles = [...fs.readdirSync(HERE).filter(file => file.endsWith(".md")).sort(), ...fs.readdirSync(path.join(HERE, "events")).filter(file => file.endsWith(".md")).sort().map(file => `events/${file}`)];
     const instructions = instructionFiles.map(file => [file, fs.readFileSync(path.join(HERE, file), "utf8")]);
     for (let directory = process.cwd();;) {
@@ -826,8 +822,9 @@ ${S.notes || "—"}
       if (fs.existsSync(file)) instructions.push([file, fs.readFileSync(file, "utf8")]);
       const parent = path.dirname(directory); if (parent === directory) break; directory = parent;
     }
-    return { mapKey: DIR, nodes: S.nodes, brief: S.brief || "", arch: S.arch || "", language: S.locale.language,
-      ignoreRevision: digest(JSON.stringify(knowledgeIndex.ignored)), knowledgeRevision: knowledgeIndex.documentsRevision,
+    return { projectRevision: digest(JSON.stringify([S.brief || "", S.arch || ""])),
+      policyRevision: digest(S.locale.language),
+      ...(knowledgeIndex ? { knowledgeRevision: digest(JSON.stringify([knowledgeIndex.ignored, knowledgeIndex.documentsRevision])) } : {}),
       instructionRevision: digest(JSON.stringify(instructions)) };
   }
   function takeEvent() {
@@ -837,22 +834,16 @@ ${S.notes || "—"}
     if (S.actionPaused) return null;
     const context = knowledgeContext();
     const deliver = p => {
+      const revisions = deliveryRevisions();
       if (!p.token) p.token = randomUUID();
       const job = traceJob(p);
       const { token, readToken, ...evidence } = p;
       const evidenceRevision = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
       Object.assign(p, { deliveryTraceId: randomUUID(), actionIds: activeActions(S).map(a => a.id), contextScope: p.capturedForSpec || p.type === "spec" ? "frozen" : "live", mapRevision: mapRevision(), evidenceRevision, causes: structuredClone(job?.causes || [{ kind: "unknown" }]) });
       (S.actionTasks ||= []).push({ deliveryTraceId: p.deliveryTraceId, contextScope: p.contextScope, mapRevision: p.mapRevision, evidenceRevision: p.evidenceRevision, causes: p.causes, workerSessionIds: [], workerAttribution: "missing", id: p.token, type: p.type, target: p.id, actionIds: activeActions(S).map(a => a.id), status: "running", at: Date.now() });
-      currentWork = { type: p.type, id: p.id, token: p.token, capturedForSpec: p.capturedForSpec };
+      currentWork = { type: p.type, id: p.id, token: p.token, capturedForSpec: p.capturedForSpec, revisions };
       closeStats();
       const event = { ...p, ...(lifecycle.managed ? { hubEpoch: lifecycle.epoch } : {}), knowledge: context, language: S.locale.language, ...(sessionHint() ? { sessionHint: sessionHint() } : {}) };
-      if (settings.workerReuse.enabled) {
-        try {
-          reuse.deliver(event, workerManifestInput());
-        } catch (error) {
-          reuse.discard(); event.workerContext = { reuse: false, reason: "manifest-unavailable", reuseUnavailable: error.message };
-        }
-      }
       recordContext(event);
       save(); return event;
     };
@@ -1975,7 +1966,7 @@ ${S.notes || "—"}
           nodes = S.specJob.gradingNodes;
         }
         const id = clean(url.searchParams.get("id"), 80), ids = url.searchParams.getAll("id").map(id => clean(id, 80));
-        const contextSend = body => { reuse.read(p, ids, body); return send(res, 200, body); };
+        const contextSend = body => send(res, 200, body);
         if (p === "/api/node") {
           if (!ids.length || ids.length > 20 || new Set(ids).size !== ids.length) throw [400, "Укажите от 1 до 20 уникальных ID"];
           if (ids.some(id => !nodes.some(n => n.id === id))) throw [404, "Карточка не найдена"];
@@ -2250,7 +2241,17 @@ ${S.notes || "—"}
         try {
           if (workerSessionId && (!currentWork || currentWork.token !== b.token || !workIsCurrent())) throw [409, "Результат устарел, получите событие через wait"];
           const traceTask = (S.actionTasks || []).find(task => task.id === b.token && task.status === "running");
-          reuse.validate(b, workerManifestInput);
+          // Keep policy freshness independent of the retired worker manifest protocol.
+          if (b.type !== "notes" && currentWork?.token === b.token) {
+            let revisions, revisionError;
+            // Knowledge validates document/exclusion freshness in its own blocked/retry transaction.
+            try { revisions = deliveryRevisions(!(b.type === "knowledge" && currentWork.type === "knowledge")); } catch (error) { revisionError = clean(error.message, 300); }
+            if (!revisions || Object.keys(revisions).some(key => revisions[key] !== currentWork.revisions[key])) {
+              const error = [409, revisionError ? `Не удалось проверить политику или инструкции: ${revisionError}. Получите событие заново` : "Политика или инструкции изменились, получите событие заново"];
+              error.deliveryContextStale = true;
+              throw error;
+            }
+          }
           result = apply(body);
           const traceEntry = traceTask && S.contextStats.recent.find(entry => entry.deliveryTraceId === traceTask.deliveryTraceId);
           if (traceTask && workerSessionId) for (const record of [traceTask, traceEntry].filter(Boolean)) { record.workerSessionIds = [...new Set([...(record.workerSessionIds || []), workerSessionId])]; record.workerAttribution = "declared"; }
@@ -2270,12 +2271,11 @@ ${S.notes || "—"}
         catch (error) {
           transaction = false;
           if (error[0] === 409) {
-            if (error.workerContextStale) {
-              reuse.discard();
+            if (error.deliveryContextStale) {
               for (const task of S.actionTasks || []) if (task.id === b.token && task.status === "running") { task.status = "stale"; task.completedAt = Date.now(); }
               currentWork = null;
               recoverDeliveries();
-            } else reuse.invalidateBaseline();
+            }
             save();
           }
           else { S = beforeApply; currentWork = failedWork; }
@@ -2287,7 +2287,7 @@ ${S.notes || "—"}
           if (!rearm && monitor) pump();
           throw error;
         }
-        try { await reuse.complete(b, result, workerSessionId); } finally { applying = false; }
+        applying = false;
         const event = monitor?.event;
         if (event && (event.type === b.type && event.id === b.id || b.type === "failure") && event.token === b.token && !workIsCurrent()) monitor.completed = true;
         if (rearm && !result.staged && !workIsCurrent()) result.monitor = rearmMonitor(b.type === "finish");
@@ -2423,7 +2423,7 @@ function requestedLocale() {
 }
 
 function config(print = true) {
-  let model, rereadThreshold, rolloverTokens, workerReuse = validateWorkerReuseSettings();
+  let rereadThreshold, rolloverTokens, legacy = false;
   for (const [file, optional] of [[path.join(HERE, "config.default.json"), false], [path.join(BASE, "config.json"), true]]) {
     let input;
     try { input = JSON.parse(fs.readFileSync(file, "utf8")); }
@@ -2437,7 +2437,7 @@ function config(print = true) {
       throw new Error(`Некорректная конфигурация ${file}: ожидается объект roles.griller`);
     }
     if (Object.hasOwn(input, "workerReuse")) {
-      try { validateWorkerReuseSettings(input.workerReuse); workerReuse = validateWorkerReuseSettings({ ...workerReuse, ...input.workerReuse }); }
+      try { validateWorkerReuseSettings(input.workerReuse); legacy = true; }
       catch (error) { throw new Error(`Некорректная конфигурация ${file}: ${error.message}`); }
     }
     if (Object.hasOwn(input, "session")) {
@@ -2456,14 +2456,15 @@ function config(print = true) {
         rereadThreshold = value;
       }
     }
+    if (input.roles?.griller) legacy = true;
     if (input.roles?.griller && Object.hasOwn(input.roles.griller, "model")) {
       const value = input.roles.griller.model;
       if (!["inherit", "opus", "sonnet", "haiku"].includes(value)) throw new Error(`Некорректная модель в ${file}: ${JSON.stringify(value)}`);
-      model = value;
+      legacy = true;
     }
   }
-  if (model === undefined) throw new Error(`Модель roles.griller.model не задана после слияния ${path.join(HERE, "config.default.json")} и ${path.join(BASE, "config.json")}`);
-  const result = { roles: { griller: { model } }, knowledge: { rereadThreshold: rereadThreshold ?? 5 }, session: { rolloverTokens: rolloverTokens ?? 120000 }, workerReuse };
+  if (legacy) console.error("Устаревшие workerReuse/roles.griller игнорируются: события обрабатывает текущая сессия.");
+  const result = { knowledge: { rereadThreshold: rereadThreshold ?? 5 }, session: { rolloverTokens: rolloverTokens ?? 120000 } };
   if (print) console.log(JSON.stringify(result));
   return result;
 }

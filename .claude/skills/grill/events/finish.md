@@ -13,10 +13,10 @@ EOF
 G report
 ```
 
-`G report` saves the report in the map directory (`.grill/<name>/report.md` or `.grill/report.md`) and prints its path. Tell the user the one-line verdict and path. Return to the dispatcher; it owns all waiting and stop commands.
+`G report` saves the report in the map directory (`.grill/<name>/report.md` or `.grill/report.md`) and prints its path. Tell the user the one-line verdict and path. Stop listening at the finish boundary.
 
 
 
 Finish events carry `ideas` as context separately from question counts. Finish waits for saved knowledge or explicit user skip.
 
-A new finish closes the executable boundary. Later actions stay saved but paused; do not drain or re-arm them. Only an explicit user continuation releases them through `G start --continue`; plain `G start` keeps them paused. In Codex hybrid or pure monitor delegation return only prepared summary JSON; the main session applies, stops listening and writes the report.
+A new finish closes the executable boundary. Later actions stay saved but paused; do not drain or re-arm them. Only an explicit user continuation releases them through `G start --continue`; plain `G start` keeps them paused. The current session prepares and preflights summary JSON, applies it, stops listening and writes the report. Failed finish also stops at the persisted boundary.

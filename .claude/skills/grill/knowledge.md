@@ -1,10 +1,10 @@
-# Project knowledge worker protocol
+# Project knowledge protocol
 
-Read this file before handling `knowledge`, with the shared worker procedure.
+Read this file before handling `knowledge`, with the shared current-session procedure.
 
 ## Context selection
 
-Use the shared [worker context-selection rules](worker.md#context-selection).
+Use the shared [shared context-selection rules](worker.md#context-selection).
 
 ## Extraction
 

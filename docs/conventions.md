@@ -27,7 +27,7 @@ When adding an endpoint:
 | UI source phrases, locale validation, or language selection | `locales/en.json`, `i18n.mjs`, `SKILL.md`, `docs/contract.md`, simulator options, and locale checks |
 | The `report()` format | The similar UI `toMarkdown()` implementation if matching output is needed |
 | Reserve, coverage, ancestor reassessment, read receipts, or reread rules/event/transaction | `worker.md`, `events/*`, `SKILL.md`, `docs/contract.md`, `dev/simulate.mjs`, `dev/check-reread.mjs`, UI lock and result states |
-| Worker event rules or delegation | `worker.md`, `events/*`, `SKILL.md`, selected mode files, contract, simulator, installer and `check-workers.mjs` |
+| Shared event rules or execution flow | `worker.md`, `events/*`, `SKILL.md`, selected mode files, contract, simulator, installer and `check-workers.mjs` |
 | Config keys or models | `config.default.json`, config validation, `SKILL.md`, contract and worker checks |
 | CLI commands | The header comment in `grill.mjs`, its `commands` object, `SKILL.md`, `docs/contract.md` |
 | Repository structure or scripts | `AGENTS.md`, `CLAUDE.md`, `README.md`, `docs/overview.md`, `docs/development.md` |
@@ -37,7 +37,7 @@ When adding an endpoint:
 
 - Keep the `spec` contract synchronized across the server, UI, `SKILL.md`, documentation, and simulator. The server writes Markdown supplied by the agent through `apply`; the request does not choose the filename. Preserve the ownership marker, symlink checks, and delivery token. The snapshot is captured at execution after predecessor actions; later journal entries must not leak into it.
 - `requeue()` is declared in `grill.mjs` but unused.
-- Run at most one `wait` or `watch` per map at a time, including across sessions. A second call returns another agent's work from `thinking` to the queue and can take its events. A lease is postponed to a later persistent-worker step.
+- Run at most one `wait` or `watch` per map at a time, including across sessions. A second call returns another agent's work from `thinking` to the queue and can take its events.
 - There is no processing timeout. Each new `wait` or `watch` returns everything still in `thinking` (answers in `pending.stage`, discussions in `node.discuss`) to the front of the queue. The agent follows `wait/watch → apply → wait/watch`, so such work is assumed to have been abandoned by a dead session.
 - `apply answer` preserves descendants by default. `children` is additive; only explicit validated `branchChanges.remove` deletes existing nodes. Preserve IDs and state on moves; validate the whole candidate tree and frozen spec projection before writing.
 - `init` completely overwrites a map, preserving its `version` for UI change detection and the specification ownership/write metadata described in the contract.
@@ -54,7 +54,7 @@ Codex monitor is mutually exclusive with wait/watch. Hybrid composes them sequen
 
 Keep `skills/grill/hub/{registry,service,codex}.mjs`, runtime lifecycle gates, per-map connection/usage readers, `hub/` native transport/installer/extension and [the contract](contract.md) synchronized. Copy the whole skill package, including its `hub/` directory. Hub packaging is a separate Windows step described in [hub/README.md](../hub/README.md); do not claim Store distribution or reboot acceptance from staging tests.
 
-Preserve stable board IDs independently of port, missing registry entries, ID-checked rebind, per-map session ownership and atomic epoch fences. Never refresh a stale worker's credentials from disk or interpret queued resume as connected. Keep Hub Stop distinct from finish; preserve terminal sessions and terminate only owned background processes. Hub question counts exclude obsolete and non-question cards; Active means unfinished. Preserve native caller-origin checks and service installation-secret/epoch admission in addition to existing map API protections.
+Preserve stable board IDs independently of port, missing registry entries, ID-checked rebind, per-map session ownership and atomic epoch fences. Never refresh a stale session's credentials from disk or interpret queued resume as connected. Keep Hub Stop distinct from finish; preserve terminal sessions and terminate only owned background processes. Hub question counts exclude obsolete and non-question cards; Active means unfinished. Preserve native caller-origin checks and service installation-secret/epoch admission in addition to existing map API protections.
 
 Run the Hub checks and affected connection, transfer, monitor, usage, workers and maps checks with a disposable `GRILL_HUB_HOME`, so fixture registrations never pollute the user's registry. Test real Chrome startup, background Codex login/approvals and reboot separately; preserve user boards throughout.
 
@@ -79,9 +79,9 @@ In single-session modes (Codex monitor and levels 0/1), each extra tool round tr
 
 Action admission must preserve the input before acknowledgement. Never prune journal IDs/receipts or archived evidence automatically. Keep actions.mjs, the admission UI, locale dictionary, worker ownership and check-actions.mjs synchronized. Perform image pruning only after the archive and result transaction is committed. Do not count paused post-finish actions as executable drain work.
 
-Delegated Codex events use inbox file receipts at every size; results use `apply --file --token`. Keep handoff.md, worker/mode instructions and CLI validation synchronized. Preserve both full and compact knowledge indexes, including warnings/exclusions. Usage changes must include parent/descendant fixtures and explicit partial telemetry; never infer thread ownership by cwd.
+All active modes use local inbox/result files at every size; results use `apply --file --token`. Keep handoff.md, worker/mode instructions and CLI validation synchronized. Preserve both full and compact knowledge indexes, including warnings/exclusions. Usage changes must include parent/descendant fixtures and explicit partial telemetry; never infer thread ownership by cwd.
 
 Session transfer must keep connection.mjs, server ownership/delivery gates, the split connection control/locales, session-transfer.md, SKILL.md, hybrid/monitor instructions, simulator and transfer checks synchronized. Never create a task twice after ambiguous transport/host success, fork the accumulated history, archive descendants automatically, or reset state to hand off a map. Preserve browser action admission while delivery is paused.
 
 
-Worker reuse is an opt-in process-local experiment. Keep `worker-reuse.mjs`, `worker-runtime.mjs`, config validation/defaults, private usage accessor, preflight/file/server acknowledgements, inbox headers, handoff/hybrid/monitor instructions, installer and reuse checks synchronized. Never infer worker identity from cwd or accept estimated tokens, reuse a frozen/cross-map context, truncate manifests silently, call host transport directly, or let a worker consume/apply. Complete current evidence and refreshed source reads remain mandatory; unknown measurements and missing collaboration-target mapping select fresh workers. Preserve legacy clients with reuse disabled and final-only multipart acknowledgement.
+Single-session preparation is mandatory in every active mode. Keep config compatibility, local preflight/file apply, generated wake/continuation prompts, skill/mirror/installer files and regression checks synchronized. Valid legacy reuse/model settings must remain inactive, and old pending deliveries require settlement or safe restart/requeue at upgrade. Never mix old/new live consumers. Preserve historical descendant accounting and exact ownership, epoch, revision and frozen-read validation.

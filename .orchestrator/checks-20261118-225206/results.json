@@ -1,0 +1,51 @@
+[
+  {
+    "check": "check-workers",
+    "exitCode": 0,
+    "seconds": 31.96,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-workers.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-aa8d4ec9-34bd-4818-b9eb-0fdae41796ed"
+  },
+  {
+    "check": "check-knowledge",
+    "exitCode": 0,
+    "seconds": 4.41,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-knowledge.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-68465574-11b0-4be0-b484-5a6f739bceed"
+  },
+  {
+    "check": "check-worker-reuse",
+    "exitCode": 0,
+    "seconds": 0.09,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-worker-reuse.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-eb0ce0b9-b36c-4d5c-b3d9-75fa64532aeb"
+  },
+  {
+    "check": "check-worker-reuse-integration",
+    "exitCode": 0,
+    "seconds": 1.95,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-worker-reuse-integration.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-5a387279-9cdc-4ce8-a9e0-2533e8afd981"
+  },
+  {
+    "check": "check-result-preflight",
+    "exitCode": 0,
+    "seconds": 0.22,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-result-preflight.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-1c9a88a1-f7b1-4cec-8762-aafd58b8f169"
+  },
+  {
+    "check": "check-monitor",
+    "exitCode": 0,
+    "seconds": 26.98,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-monitor.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-dee8a814-8bd7-4d22-b724-358ca739bf37"
+  },
+  {
+    "check": "check-single-session-comparison",
+    "exitCode": 0,
+    "seconds": 1.19,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-225206\\check-single-session-comparison.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-bfd2d56c-debd-4821-baa1-838245755d22"
+  }
+]

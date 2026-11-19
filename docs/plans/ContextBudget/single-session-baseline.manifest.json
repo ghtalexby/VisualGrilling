@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-11-19T06:46:02.072Z",
+  "status": "baseline-captured-no-real-runs",
+  "baseCommit": "c48bc94911c2007445e6ee5fd2ed2243b89fa7f4",
+  "baseline": {
+    "path": "D:/programming/my/Programming/VisualGrilling/skills/grill",
+    "version": {
+      "version": "1.0.29"
+    },
+    "defaults": {
+      "roles": {
+        "griller": {
+          "model": "inherit"
+        }
+      },
+      "knowledge": {
+        "rereadThreshold": 5
+      },
+      "session": {
+        "rolloverTokens": 120000
+      },
+      "workerReuse": {
+        "enabled": false,
+        "maxEvents": 3,
+        "maxInputTokens": 60000,
+        "maxReadAmplification": 2
+      }
+    },
+    "sha256": "16a50fa720593d494c22392c40a449b98645905f3774c61ae33c63cf29115a61",
+    "files": {
+      "SKILL.md": "84865e6d8746fed599f692589d35da78072bf36f29f95229b971a2c70c3a5264",
+      "actions.mjs": "e477ddc226d579e1e12859f9591a68c38100d4fd48a46978da5fe5184edad563",
+      "config.default.json": "e3fbb48722ea3181f5ce8a137b73c80ba8755c63df73d532edb433e7e8891bba",
+      "connection.mjs": "9146407579d7cf5c484c0c2fa5252ad26876b46c47c6f9a92d12b51211a956d1",
+      "context.mjs": "8acc5defa5d7b76d6e4ba2a933eb35e23dc2087a62a5d77ac36ce85ca602d162",
+      "coverage.md": "d39fdd906587bf9c19057daf595c248f36f2169c4438ad7c67a06c18d65123c3",
+      "discussion.mjs": "d3640a4fe2e50e8d57c92ff383ae94d34906322683fd73972e6d7e0ddc56c41c",
+      "dispatcher.md": "a22fbe20dfa7ad8bd9a1bfc3b1e4eb70b593311370f498cd98067d7326b58883",
+      "events/answer.md": "02739068d7ff4f8fa741995c67bc59ad6d2eef4da4104a1d160b4dda0d65176c",
+      "events/discuss.md": "54174ff7492803a7a4bb9aefd2024216e06bd0d5868f7b2369f2de4e1e6bdaee",
+      "events/finish.md": "608b44f66bcc5443ac0af99af8d34d0ed9827f204e77d24e883a9d2955e6e49d",
+      "events/followup.md": "a6352cc12b3bb6b0ee507f1e72130acf1c5759066fe0d1de600000fea17721d0",
+      "events/idea.md": "5da82bf281a076228ff188940f4e7c7944954d728043200fd82710a0fbaeef74",
+      "events/question.md": "e947311ce0e852c4946222d34d77af305d6c046a85846a50631660c16602607c",
+      "events/reevaluate.md": "231b4cad71bae207592cb8d03f67246748a56af4111faf50d640bebcb93e1613",
+      "events/reread.md": "e023efbb0b368b4faa8fcb2cfd590f4b9c028522e8e50d89b20486db7bdd34f1",
+      "events/spec.md": "1e58825437f57fba063cc843ae28ac2ec76e6c66a87d56f403fa2197350ec722",
+      "followups.mjs": "c5fefb1f3733e077c54ec4213858cbba771ab15fecbc2a93ac042ca0a0ff55be",
+      "grill.mjs": "2c23c863b6a990ec27a9527dfed8481cab952e34efd90c9b1de17787fef36c25",
+      "handoff.md": "533e9c43b7b961ab3e4a5d2af7d77204f9ae9b63aa798d1cb96d703c7e81c449",
+      "hub/codex.mjs": "42bb52d66c84bb1ea293d9377e05e8856984f14284d496e386de7ba185efd2e1",
+      "hub/registry.mjs": "156e0264bfa408510c67c179993511dcebe33aa10a5f7de3f7426901fa5b6075",
+      "hub/service.mjs": "77a50ac173e59907a2f311e2bde68785f252f1275207f8cf7c281c2229bd85a9",
+      "hub/websocket.mjs": "14cff5a89af440143e4a0d4dab8fa4b0726ebe3969987ec861ca5e1864d6e8dd",
+      "hybrid.md": "aa0b359b579881f126f5e359a7028200f4bbfff3ee7b1c8f499a0f1d703e25ea",
+      "i18n.mjs": "1facd54353568110eb135e4a0c61083535462cc525d9ff996ba85e0de5ce7b53",
+      "knowledge.md": "eb2692010097c244964fe8ba783d03f7605cf0055fd71b1ddfebd1778f097d8e",
+      "knowledge.mjs": "1b9f7046664bcd65f021bdb1268984a33068ad92092cda36f877dc48988a47fa",
+      "locales/en.json": "d434520ba6058bc1083523275e68efc1c9424c1a6d0334ba560f6b17deb94e95",
+      "monitor.md": "15bfe78308779442ff824e45ca0be5b81f37d43b05c5780aee3c48ca0f7c2c89",
+      "parallel-maps.md": "dcdd8c44ed82f09a1e70815129bd3bfb22b6c3cbd48aa65f59dd98b10414f322",
+      "preview-format.md": "70dabe961c710b621aef8b260097ad1ad6d03d2c41f4afdac75111ec5aaa3450",
+      "preview-view.mjs": "4b76b572a1c798808320e13a3da851cac4a4399fe87543c1bd7694318fb39aa7",
+      "preview.mjs": "8fe2a05fec2d9af5acde517fc9c4a9242e5026e5cf5062dc79748bd594e96a5e",
+      "result-preflight.mjs": "cd45dec72b42150666c14c5cf11e69e1688c15fcd80c29adf0ed632e3e3d5c14",
+      "session-transfer.md": "282598ab1d33726489975194175302c55b49751422ba390ee7431b5e9bcbd761",
+      "shell-json.md": "202cdf676883fb1bfe239e228664f52ba137a71c1be1e7883bf02fcae380cc2d",
+      "telemetry.mjs": "c5183612e655e34016e65b794fadb15e2f0903a8dd0f58bd3f1b89a0e9ded362",
+      "ui.html": "5128ca0639af3732f252031209e84591dcb396c2cc0aab17261f09ced7e685dc",
+      "usage.mjs": "a3c681b79418db601452f8f20fb681f5dd2f950a31a1ef1d972ad1893974d0c8",
+      "version.json": "619d00784a6314c7ede6b1a98200b8b412418d4ced854b83e0cdcbce89d1cbd7",
+      "worker-reuse.mjs": "42d4832923978b961926e01d1298465b2d6cfe7859670e6055d740ffc4ad7254",
+      "worker-runtime.mjs": "ea3981b3d66dee67147c8717438824d491a27fde42c96243d8fc947766c07769",
+      "worker.md": "044a84dda4487b7816eb7c1e839043cb50fc77efe0dc2f095beafd30bf53601c"
+    }
+  },
+  "candidate": null,
+  "environment": {
+    "host": null,
+    "hostVersion": null,
+    "model": null,
+    "effort": null,
+    "mode": null,
+    "language": "en",
+    "reason": "Real acceptance sessions not scheduled or measured"
+  },
+  "references": {
+    "TokenEfficiency/SPEC.md": {
+      "path": "D:/programming/my/Programming/VisualGrilling/docs/plans/TokenEfficiency/SPEC.md",
+      "sha256": "30fdd4675195b9bb10e24f3aecfe5a916ebefe05706db30499ad9897e3cdd124",
+      "trackedAtBase": false
+    },
+    "ContextBudget/session-audit-2026-11-18.md": {
+      "path": "D:/programming/my/Programming/VisualGrilling/docs/plans/ContextBudget/session-audit-2026-11-18.md",
+      "sha256": "81fbe61319ae3aa9e7b954bcf40a1fe36528e552c0016901f911d3a99575a740",
+      "trackedAtBase": false
+    },
+    "ContextBudget/languages-session-audit-2026-11-18.md": {
+      "path": "D:/programming/my/Programming/VisualGrilling/docs/plans/ContextBudget/languages-session-audit-2026-11-18.md",
+      "sha256": "dc24e77a412852cf00b26daeb3dd81e9a55b50e628ff270adcbdca110957f5de",
+      "trackedAtBase": false
+    }
+  },
+  "S11": "pending",
+  "measuredSavings": null
+}

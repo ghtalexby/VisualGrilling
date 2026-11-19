@@ -105,10 +105,15 @@ try {
   assert.ok(performance.now() - t0 >= 5900, "Expiry should respect max-wait");
   assert.ok(performance.now() - t0 < 8000);
   w = watch();
-  await sleep(500);
+  await until(async () => (await request("hub")).waiting);
   await request("stop", {});
   await server.done;
-  assert.equal((await w.done).code, 2);
+  // Stop fences an active waiter with HTTP 409 before exiting; only a new
+  // consumer sees an unreachable server (exit 2). The old assertion conflated them.
+  const fenced = await w.done;
+  assert.equal(fenced.code, 1, fenced.stderr);
+  assert.equal(fenced.stdout, "", "A fenced waiter must not print an event");
+  assert.equal(fenced.stderr.trim(), "Ошибка 409: {\"error\":\"Обработка карты остановлена\"}");
   assert.equal((await watch().done).code, 2);
   // Restart also preserves an event that was taken but never applied.
   await start();

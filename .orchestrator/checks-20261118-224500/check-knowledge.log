@@ -1,0 +1,20 @@
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: {"error":"Политика или инструкции изменились, получите событие заново"}
+
+409 !== 200
+
+    at api (file:///D:/programming/my/Programming/VisualGrilling-single-session/dev/check-knowledge.mjs:31:10)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async file:///D:/programming/my/Programming/VisualGrilling-single-session/dev/check-knowledge.mjs:221:12 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: 409,
+  expected: 200,
+  operator: 'strictEqual',
+  diff: 'simple'
+}
+
+Node.js v22.19.0

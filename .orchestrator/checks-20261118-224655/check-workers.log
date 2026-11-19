@@ -1,0 +1,20 @@
+shared answer instructions: 10994 bytes
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+  assert.ok(result.stderr.includes(configFile))
+
+    at file:///D:/programming/my/Programming/VisualGrilling-single-session/dev/check-workers.mjs:175:10
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  generatedMessage: true,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v22.19.0

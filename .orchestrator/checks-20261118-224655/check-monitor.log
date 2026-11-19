@@ -1,0 +1,18 @@
+node:fs:1201
+  binding.rmdir(path);
+          ^
+
+Error: EBUSY: resource busy or locked, rmdir 'C:\Users\yxang\AppData\Local\Temp\grill-monitor-EgG7Ji'
+    at rmdirSync (node:fs:1201:11)
+    at _rmdirSync (node:internal/fs/rimraf:236:5)
+    at rimrafSync (node:internal/fs/rimraf:194:7)
+    at Object.rmSync (node:fs:1247:10)
+    at file:///D:/programming/my/Programming/VisualGrilling-single-session/dev/check-monitor.mjs:330:6
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5) {
+  errno: -4082,
+  code: 'EBUSY',
+  syscall: 'rmdir',
+  path: 'C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-monitor-EgG7Ji'
+}
+
+Node.js v22.19.0

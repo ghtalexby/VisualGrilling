@@ -53,7 +53,7 @@ The initial page includes its locale revision. `/api/state` supplies `localeRevi
 
 ## Multiple maps
 
-A map is a directory containing `state.json`. A named map (`--name arch`) uses `.grill/arch/`; an unnamed legacy map uses `.grill/`. Each has its own `serve` process and port (`start` tries 4777 and then the next available port). `SKILL.md` requires names for new maps. Levels 1/2 can serve multiple maps in one session; level 0 and Codex monitor mode keep a separate session per map. The dispatcher tracks each map and its watch task, routes by the short line's name and task root, and handles events sequentially with one foreground worker at a time. Other maps' watches stay armed during grading. Finished maps are unwatched after their queue drains, leaving their servers readable. Explicit continuation clears the dispatcher row's finished/drain flags and keeps it serving until the next applied finish. The persisted server `finished` flag and summary are retained and must not trigger dispatcher drain checks on their own.
+A map is a directory containing `state.json`. A named map (`--name arch`) uses `.grill/arch/`; an unnamed legacy map uses `.grill/`. Each has its own `serve` process and port (`start` tries 4777 and then the next available port). `SKILL.md` requires names for new maps. Level 1 can serve multiple maps in one session; level 0 and Codex monitor mode keep a separate session per map. The dispatcher tracks each map and its watch task, routes by the short line's name and task root, and handles events sequentially with one event at a time in the primary session. Other maps' watches stay armed during grading. Finished maps are unwatched at the persisted finish boundary, including failed finish, leaving their servers readable. Explicit continuation clears the session row's finished flag and keeps it serving until the next applied finish. The persisted server `finished` flag and summary are retained and must not trigger completion checks on their own.
 
 A stale `server.json` may point to another map's port. `alive()` checks the `/api/ping` `pid` against the saved `pid`; this also works through `subst` or junction paths. Older servers without `pid` are checked by `dir`, case-insensitively on Windows. `api()` calls `alive()` before requests to avoid taking another map's events.
 
@@ -187,20 +187,16 @@ The server validates the candidate on a clone, independently confirms that every
 - Limit request bodies to 1 MB, except `/api/discuss`, which allows about 44 MB for its images.
 - Escape user content with `esc()`; validate translation dictionaries before persisting or rendering.
 
-## Per-event workers
+## Single-session event preparation
 
 ```text
-Browser -> queue -> watch --inbox -> inbox.json
-                         | short event line
-                         v
-                    Dispatcher -> foreground worker -> apply / report
-                         ^              |
-                         +-- one line --+
+Browser -> queue -> wait/watch/monitor -> inbox.json
+                   bound primary session -> local result -> preflight -> apply
 ```
 
-Level 2 requires verified background completion wake-up and a foreground subagent with shell access. Each event gets a fresh worker reading `worker.md`, its routed event rules, `session.md` and inbox; the dispatcher reads only the compact line. A worker must finish before the dispatcher re-arms: a new waiter requeues thinking work. There is no lease; a second session can still steal events. Hosts without these capabilities retain level 1/0, using the same worker rules in the main session.
+The same session consumes, prepares and applies every event. It reads `worker.md`, the routed event rules and complete required inbox evidence. Level 2 is retired; other hosts retain inline levels 0/1. Never fetch another event during preparation. Hybrid uses a 15-second wait then monitor only on timeout; pure monitor is explicitly selectable. No child UUID or model dispatch is needed.
 
-`S.notes` is a bounded complete replacement, independent of queued work. The server writes session context at startup, init, notes updates and locale changes; init clears notes. Model selection is dispatcher-only; the server also reads the knowledge extraction threshold from the same configuration: installed `config.default.json`, overridden by project `<--dir>/config.json`, never a per-map file.
+`S.notes` is a bounded complete replacement, independent of queued work. Update only changed durable facts; remove stale unfinished-artifact statements after completion. The server writes session context at startup, init, notes updates and locale changes; init clears notes. Configuration contains knowledge/session settings; validated legacy griller/reuse entries are inactive. Project overrides remain `<--dir>/config.json`, shared across maps.
 
 On restart, saved custom-language dictionaries retain their existing translations and use English for newly missing UI phrases. Explicit locale files and API locale updates still require complete dictionaries. An explicit startup language/locale replaces the saved locale before its validation. Locale checks cover older dictionaries and replacement on restart.
 
@@ -255,7 +251,7 @@ The header brand icon shows map-wide pending work independently of the open draw
 
 ## Host session connection
 
-The default Codex mode, `monitor`, registers one subscription inside the map server. `pump()` reserves one event using `takeEvent()`, keeps its full payload in process memory and sends a fixed notification through `connection.mjs`. Codex fetches it with a separate delivery UUID and delegates preparation to one fresh worker. The main session checks and applies the result, then re-arms. No timeout reaches the model, no extra polling process is launched, and normal wait/watch transport stays available as a mutually exclusive fallback. Status is exposed through protected `/api/monitor`; no delivery credentials are added to browser state.
+Codex hybrid waits up to 15 seconds, then arms `monitor` on timeout. Pure monitor arms immediately only on request. `pump()` reserves one event through `takeEvent()`, keeps its payload in memory and sends a fixed notification through `connection.mjs`. The bound session fetches the exact delivery with `--inbox`, prepares and preflights local files, then applies. Hybrid stops the completed subscription before another wait; pure monitor uses final `--rearm`. Idle armed time needs no model calls. Protected `/api/monitor` exposes status; browser state contains no delivery credentials.
 
 Subscription identity guards asynchronous transport completion: a late queue result cannot change a newer subscription. Failed or warned submissions are not retried automatically. Restart drops the subscription and existing recovery requeues work, so old notifications cannot fetch a new event. The original bound thread owns arming; rebinding is detected before dispatch and event retrieval. See [contract.md](contract.md#codex-event-monitor) for lifecycle and recovery details.
 
@@ -305,18 +301,18 @@ Mandatory clarification coverage is implemented in `followups.mjs`, called by ev
 
 ## Worker context and session-tree cost
 
-See [the contract](contract.md#worker-context-and-session-tree-cost) and [resumable task](plans/TokenEfficiency/TASK.md). Agent navigation uses a compact index; delegated Codex events/results use file receipts; usage sums observed descendant sessions with explicit partial-data reporting. Discovery runs in the background with bounded filesystem concurrency so metadata scans do not hold server startup.
+See [the contract](contract.md#worker-context-and-session-tree-cost) and [resumable task](plans/TokenEfficiency/TASK.md). Agent navigation uses a compact index; the primary session reads inbox evidence and prepares local result files; usage sums observed descendant sessions with explicit partial-data reporting. Discovery runs in the background with bounded filesystem concurrency so metadata scans do not hold server startup.
 
 ## Fresh-session transfer
 
 The connection dropdown sends a control request to the existing Codex session through connection.mjs. The server persists sessionTransfer and pauses further event delivery while allowing the reserved result and notes to complete. The old session prepares a file handoff, creates one fresh host task using create_thread, and ends its map loop. The new session claims the same map, updates the binding and resumes the normal loop. The browser URL, state and action journal remain intact. Persisted sessionOwner fences old wait/monitor/apply/init/stop requests. Creation is performed by the host agent, not a nested CLI model process; host failures remain visible and never trigger an automatic duplicate. See contract.md and skills/grill/session-transfer.md.
 
-## Bounded worker preparation and conservative assessment scheduling
+## Bounded session preparation and conservative assessment scheduling
 
-Workers read their routed event rules and a bounded inventory before fetching only required full evidence. They inspect sizes before printing instructions, inbox sections or histories; long replies and tool output remain file artifacts. Known local validation failures are repaired by the same worker before handoff. The standalone `result-preflight.mjs` checks result structure without contacting or mutating the server; authoritative validation remains in apply. Parents use interruptible completion waits up to the host communication interval (normally 45–60 seconds), rather than repeated ten-second model turns. This does not change the hybrid map wait of 15 seconds or authorize overlapping consumers.
+The bound session canonicalizes instruction aliases and reads its routed rules once per known version/context. After compaction or uncertain coverage it reloads bounded relevant sections. It inspects field sizes before reading complete required evidence; truncation must be repaired. Local structural errors are corrected and preflighted before apply. Complete multipart results are preflighted before their first apply. Uncertain apply outcomes require status/receipt inspection; successful apply is never replayed for a later note/report failure.
 
-Discussion can assess ancestors in its existing atomic transaction through `assessment.ancestors`, as already supported for `answers[]`. Explicit unchanged acknowledgements avoid a redundant separate ancestor assessment; omitted intent and `reviewAncestors:true` retain it. Newly created clarification branches still schedule review, and actual answer edits still request automatic reread. This narrow optimization does not introduce revision receipts, dependency coalescing, persistent workers or direct worker publication. Frozen specification and finish draining remain unchanged.
+Discussion can assess ancestors in its existing atomic transaction through `assessment.ancestors`, as already supported for `answers[]`. Explicit unchanged acknowledgements avoid a redundant separate ancestor assessment; omitted intent and `reviewAncestors:true` retain it. Newly created clarification branches still schedule review, and actual answer edits still request automatic reread. This narrow optimization does not introduce revision receipts, dependency coalescing, persistent workers or direct worker publication. Frozen specification and persisted finish boundaries remain unchanged.
 
 Delivery traces correlate action IDs, scheduling causes, live-map revision hashes and declared worker UUIDs with bounded context statistics. `telemetry.mjs` closes observational usage windows and computes objective committed field changes; it does not control scheduling or ownership. Response counts in `usage.mjs` remain null when unavailable or incomplete. The offline `dev/session-audit.mjs` writes aggregate-only reports with an exclusive cutoff and explicit snapshot limitations; see [the contract](contract.md#observational-delivery-traces).
 
-The persistent-card-worker proposal requires a separate host lifecycle gate. Correct WebSocket proxy framing now passes the safe initialization probe; the historical timeout was a protocol mismatch. A real child UUID rejected direct app-server input with `-32600`, `direct app-server input is not allowed for multi-agent v2 sub-agents`, before turn admission. Direct child routing is blocked by host policy; there is no workaround in this implementation. Bounded P3 reuse through supported parent followup is implemented as a default-disabled process-local prototype; matched cost/quality acceptance remains open. Direct publication remains unimplemented; see the [implementation record](plans/ContextBudget/session-audit-2026-11-18-implementation.md). Current Codex workers remain prepare-only and the parent owns apply.
+Per-event workers and reuse activation are retired. Historical lifecycle experiments remain documented in the audit records; they do not authorize delegation. Current processing uses the bound primary session. Fixed WebSocket transport and explicit user-requested transfer remain supported; context growth never triggers automatic transfer.

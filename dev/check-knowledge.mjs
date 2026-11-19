@@ -220,7 +220,20 @@ try {
   fs.writeFileSync(path.join(cwd, "docs/vgril/new-profile.md"), record({ ...meta, author: historicalAuthor }));
   result = await api("apply", { type: "knowledge", token: event.token, files: [] });
   assert.equal(result.ok, false); // Navigation changed during analysis, even for a no-op.
+  assert.equal((await api("state")).knowledgePending.stage, "blocked");
   await api("knowledge-retry", {}); event = await wait();
+  await api("knowledge-ignore", { path: "README.md", ignored: true });
+  result = await api("apply", { type: "knowledge", token: event.token, files: [] });
+  assert.equal(result.ok, false, "exclusion changes retain knowledge's blocked retry lifecycle");
+  assert.equal((await api("state")).knowledgePending.stage, "blocked");
+  await api("knowledge-ignore", { path: "README.md", ignored: false });
+  await api("knowledge-retry", {}); event = await wait();
+  fs.writeFileSync(path.join(cwd, "AGENTS.md"), "Knowledge preparation policy changed\n");
+  await api("apply", { type: "knowledge", token: event.token, files: [] }, 409);
+  const oldPolicyToken = event.token;
+  event = await wait();
+  assert.equal(event.type, "knowledge");
+  assert.notEqual(event.token, oldPolicyToken);
   const rereadDocument = store.read("docs/vgril/new-profile.md");
   result = await api("apply", { type: "knowledge", token: event.token, files: [{ path: rereadDocument.path, expected: rereadDocument.version,
     body: "\n# Profile\nDefinition refined; original provenance retained.\n", sourcesAdd: [{ card: updatedEvidence.card, version: updatedEvidence.version }] }] });

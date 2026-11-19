@@ -35,18 +35,29 @@ for (const file of ["hybrid.md", "monitor.md", "dispatcher.md", "parallel-maps.m
   assert.ok(instruction(file).trim(), `Missing workflow: ${file}`);
   assert.ok(instruction("SKILL.md").includes(`](${file})`), `Missing mode route: ${file}`);
 }
+// Active procedures must remain local; historical usage and explicit transfer are separate.
+for (const file of ["SKILL.md", "worker.md", "handoff.md", "hybrid.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles, "knowledge.md"]) {
+  assert.doesNotMatch(instruction(file), /spawn_agent|followup_task|wait_agent|prepare-only (?:worker|subagent)|start one fresh foreground worker|Delegate preparation|return(?:ing)? (?:a |the )receipt/i, `Active delegation instruction in ${file}`);
+}
+const handoffRules = instruction("handoff.md");
+assert.match(handoffRules, /canonical real path/);
+assert.match(handoffRules, /truncated output is incomplete/);
+assert.match(handoffRules, /complete ordered multipart set before applying its first part/);
+assert.match(handoffRules, /exit-code AND result-status branching/);
+const localAnswerBytes = ["worker.md", "handoff.md", "events/answer.md", "coverage.md", "shell-json.md"].reduce((sum, file) => sum + Buffer.byteLength(instruction(file)), 0);
+assert.ok(localAnswerBytes < 21000, `Complete local answer instructions exceed budget: ${localAnswerBytes} bytes`);
 const answerInstructionBytes = Buffer.byteLength(workerRules) + Buffer.byteLength(instruction("events/answer.md"));
 assert.ok(answerInstructionBytes < 12000, `Answer instructions exceed budget: ${answerInstructionBytes} bytes`);
 assert.ok(answerInstructionBytes <= 11000, `Keep at least 1000 bytes of instruction headroom: ${answerInstructionBytes} bytes`);
 // Every local Markdown link in the split instruction package must resolve.
-for (const file of ["SKILL.md", "worker.md", "knowledge.md", "preview-format.md", "hybrid.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles]) {
+for (const file of ["SKILL.md", "worker.md", "handoff.md", "coverage.md", "shell-json.md", "session-transfer.md", "knowledge.md", "preview-format.md", "hybrid.md", "monitor.md", "dispatcher.md", "parallel-maps.md", ...eventFiles]) {
   for (const match of instruction(file).matchAll(/\]\(([^)]+)\)/g)) {
     const target = match[1].split("#")[0];
     if (!target || /^[a-z]+:/i.test(target)) continue;
     assert.ok(fs.existsSync(path.resolve(skillRoot, path.dirname(file), target)), `${file}: missing link ${target}`);
   }
 }
-console.log(`answer worker instructions: ${answerInstructionBytes} bytes`);
+console.log(`shared answer instructions: ${answerInstructionBytes} bytes`);
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "grill-workers-check-"));
 const dir = path.join(cwd, "maps");
 const children = new Set();
@@ -103,17 +114,17 @@ const init = { title: "Worker check", brief: "Product brief", arch: "Node archit
 try {
   let result = await run(["config"]).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "inherit" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 }, workerReuse: { enabled: false, maxEvents: 3, maxInputTokens: 60000, maxReadAmplification: 2 } });
+  assert.deepEqual(JSON.parse(result.stdout), { knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
   fs.mkdirSync(dir, { recursive: true });
   const configFile = path.join(dir, "config.json");
   for (const model of ["sonnet", "opus", "haiku", "inherit"]) {
     fs.writeFileSync(configFile, JSON.stringify({ ignored: true, roles: { ignored: {}, griller: { model, ignored: 1 } } }));
     result = await run(["config"]).done;
     assert.equal(result.code, 0, result.stderr);
-    assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 }, workerReuse: { enabled: false, maxEvents: 3, maxInputTokens: 60000, maxReadAmplification: 2 } });
+    assert.deepEqual(JSON.parse(result.stdout), { knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
   }
   fs.writeFileSync(configFile, JSON.stringify({ roles: { griller: { ignored: 1 } } }));
-  assert.equal(JSON.parse((await run(["config"]).done).stdout).roles.griller.model, "inherit");
+  assert.equal(JSON.parse((await run(["config"]).done).stdout).roles, undefined);
   for (const text of ['{"roles":{"griller":{"model":"bad"}}}', '{', 'null', '{"roles":[]}', '{"roles":{"griller":{"model":null}}}']) {
     fs.writeFileSync(configFile, text);
     result = await run(["config"]).done;
@@ -129,7 +140,7 @@ try {
     result = await run(["config"]).done;
     assert.equal(result.code, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).knowledge.rereadThreshold, threshold);
-    assert.equal(JSON.parse(result.stdout).roles.griller.model, "inherit");
+    assert.equal(JSON.parse(result.stdout).roles, undefined);
   }
   for (const threshold of [0, 501, 1.5, "5", null]) {
     fs.writeFileSync(configFile, JSON.stringify({ knowledge: { rereadThreshold: threshold } }));
@@ -156,16 +167,16 @@ try {
   fs.cpSync(path.dirname(cli), skillCopy, { recursive: true });
   const copiedCli = path.join(skillCopy, "grill.mjs");
   const defaults = path.join(skillCopy, "config.default.json");
-  fs.writeFileSync(defaults, '{"roles":{"griller":{}}}');
+  fs.writeFileSync(defaults, '{"knowledge":{"rereadThreshold":0}}');
   result = await run(["config"], copiedCli).done;
   assert.equal(result.code, 1);
   assert.equal(result.stdout, "");
   assert.ok(result.stderr.includes(defaults));
-  assert.ok(result.stderr.includes(configFile));
-  fs.writeFileSync(configFile, '{"roles":{"griller":{"model":"sonnet"}}}');
+  fs.writeFileSync(defaults, "{}");
+  fs.writeFileSync(configFile, '{"knowledge":{"rereadThreshold":5}}');
   result = await run(["config"], copiedCli).done;
   assert.equal(result.code, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { roles: { griller: { model: "sonnet" } }, knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 }, workerReuse: { enabled: false, maxEvents: 3, maxInputTokens: 60000, maxReadAmplification: 2 } });
+  assert.deepEqual(JSON.parse(result.stdout), { knowledge: { rereadThreshold: 5 }, session: { rolloverTokens: 120000 } });
   fs.unlinkSync(configFile);
   assert.equal((await watch("--inbox").done).code, 2);
   await start();

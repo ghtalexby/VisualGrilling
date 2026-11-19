@@ -22,7 +22,7 @@ The interaction takes place on a browser map:
 7. Branches can drift apart, or an answer in one branch can settle a question in another. Reread in the header makes the agent review the whole map: it closes what was answered elsewhere, merges matching answers, and turns disagreements into new cards, without losing your answers. It also removes resolved, duplicate or obsolete reserve candidates and issues zero to three useful questions. With no active open questions, the next batch is scheduled after pending work finishes. Editing an existing answer queues an automatic incremental review after the first full review.
 8. If the session closes or the agent stops after about 30 idle minutes in blocking mode, ask it to `continue grilling`. State and queued events are preserved.
 
-A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At levels 1/2, one session can serve several maps; level 0 and Codex monitor mode require separate sessions. Use the header switcher to visit sibling maps. Finishing processes earlier actions, then stops at a persisted boundary; later actions remain queued until explicit continuation.
+A project can have several named maps, such as `arch` and `money`, each in `.grill/<name>/`. Ask which grillings exist to list them (`grill.mjs list`), or `continue grilling money` to resume one. At level 1, one session can serve several maps; level 0 and Codex monitor mode require separate sessions. Use the header switcher to visit sibling maps. Finishing processes earlier actions, then stops at a persisted boundary; later actions remain queued until explicit continuation.
 
 ## Language
 
@@ -55,9 +55,9 @@ skills/grill/          working skill; edit this copy
   events/              rules loaded only for the current event
   hybrid.md            Default Codex 15-second wait, then monitor workflow
   monitor.md           Explicit pure monitor workflow
-  dispatcher.md        level 2 foreground worker dispatch
-  parallel-maps.md     multi-map routing for levels 1/2
-  config.default.json  griller model (inherit) and knowledge threshold
+  dispatcher.md        retired compatibility pointer
+  parallel-maps.md     multi-map routing for level 1
+  config.default.json  knowledge threshold and session rollover settings
   grill.mjs            HTTP server and CLI bridge
   hub/                 stable registry, local controller and Codex adapter
   context.mjs          evidence projection, index and semantic navigation
@@ -124,7 +124,7 @@ Hover over the map name/title to copy a ready-to-paste continuation request for 
 The project chat keeps its conversation dropdown on the left and compact + button on the right in the fixed drawer header. The controls match light/dark themes and truncate long titles without widening the drawer. Start a new conversation or return to an older one; labels use each conversation’s first message. Existing chat remains the first conversation. Each conversation preserves its own browser draft and saved messages. All conversations can queue messages; the server processes adjacent messages from one conversation together in FIFO order.
 
 
-Every mutation receives a durable action receipt before execution. The header queue circle counts waiting messages and internal tasks, separately from current work and the 20-action admission limit. Hover to inspect, click to pin, and use the problem icon to revisit errors. Root offers an archive of removed cards and preserved inputs; reread reviews that evidence. Submission remains available while the agent works. Codex monitor delegates each event to a fresh prepare-only worker and keeps apply/rearm in the main session.
+Every mutation receives a durable action receipt before execution. The header queue circle counts waiting messages and internal tasks, separately from current work and the 20-action admission limit. Hover to inspect, click to pin, and use the problem icon to revisit errors. Root offers an archive of removed cards and preserved inputs; reread reviews that evidence. Submission remains available while the agent works. Every waiting mode prepares and applies events in the bound session without per-event children.
 
 Accepted actions update the browser immediately: submitted answers, chat messages, idea edits, new cards and deletions are visible while processing waits in FIFO order. Pending cards remain read-only until created. Cancellation or failure restores canonical content; failures are available in queue problems.
 
@@ -133,6 +133,6 @@ The Notifications button immediately before the agent status shows the number of
 
 Every weak/gap/verify question receives a gap review across the map. Existing questions are reused; checked answers from other branches appear as sourced supplements beside the original answer and in exports. All necessary missing clarifications appear as ordinary children at any depth. If a grading result omits this check, a separate durable follow-up task repairs it without another user submission. Closed children alone never prove the original answer; ordinary reserve issuance still uses its existing batch size.
 
-Codex delegates via event/result file receipts to avoid accumulating evidence in the parent history. Agents use the compact knowledge index; the full inventory remains available. Usage includes discovered descendant sessions and labels missing worker telemetry. See [token-efficiency task](plans/TokenEfficiency/TASK.md).
+The bound session reads complete required evidence and writes/preflights token-specific local results before applying them. The compact knowledge index aids navigation; historical descendant usage remains counted with completeness labels. Real matched cost/quality acceptance is separate from deterministic checks.
 
 The arrow next to Check connection offers **Continue in a new session** for Codex. It finishes reserved work, saves notes and asks the current agent to create one fresh task and transfer this same map. Browser submissions remain queued during transfer. The old task stops serving the map and retains its history; it is not deleted or recursively archived. The menu and notifications show progress or an actionable transport/host error. Automatic creation requires the host create_thread tool. The title copy button supports untransferred maps and prepared manual handoffs. After attachment, use the connection dropdown again for another session switch; title-copy alone cannot rebind a protected map.
