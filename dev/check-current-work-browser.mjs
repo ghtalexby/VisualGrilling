@@ -73,12 +73,32 @@ try {
   await cdp("Emulation.setEmulatedMedia", { features: [] });
 
   // The split spec control keeps read-only navigation independent of generation.
-  await js('window.specPoll=poll;poll=async()=>{};window.specAct=act;window.specCalls=[];act=async p=>{specCalls.push(p)}');
+  await js('window.specPoll=poll;poll=async()=>{};window.specAct=act;window.specCalls=[];act=async p=>{specCalls.push(p);await new Promise(r=>window.releaseSpec=r)}');
   assert.equal(await js('document.querySelector("#bSpec").textContent'), "Create spec");
   assert.equal(await js('document.querySelector(".actions").lastElementChild.id'), "specControl");
   await js('openPanel({mode:"summary"});document.querySelector("#bSpec").click()');
   assert.deepEqual(await js('specCalls'), ["/api/spec"]);
   assert.equal(await js('panel.mode'), "summary");
+  assert.equal(await js('document.querySelector("#bSpec").textContent'), "Sending…");
+  assert.equal(await js('document.querySelector("#bSpec").disabled'), true);
+  assert.equal(await js('document.querySelector("#bSpec").getAttribute("aria-busy")'), "true");
+  assert.equal(await js('getComputedStyle(document.querySelector("#bSpec"),"::before").animationName'), "reread-spin");
+  await js('renderHeader();document.querySelector("#bSpec").click();document.querySelector("#bSpecMenu").click()');
+  assert.deepEqual(await js('specCalls'), ["/api/spec"], "Repeated clicks during admission do not submit again");
+  assert.equal(await js('document.querySelector("#specMenu").hidden'), false);
+  await cdp("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] });
+  assert.equal(await js('getComputedStyle(document.querySelector("#bSpec"),"::before").animationName'), "none");
+  await cdp("Emulation.setEmulatedMedia", { features: [] });
+  await js('S.specPending={stage:"queued"};releaseSpec()');
+  await until(() => js('!specSending'));
+  assert.equal(await js('document.querySelector("#bSpec").textContent'), "Spec in progress…");
+  assert.equal(await js('document.querySelector("#bSpec").getAttribute("aria-busy")'), "true");
+  await js('delete S.specPending;window.specApi=api;api=async()=>{throw new Error("Spec admission failed")};act=specAct;document.querySelector("#bSpec").click()');
+  await until(() => js('!specSending'));
+  assert.equal(await js('document.querySelector("#bSpec").disabled'), false);
+  assert.equal(await js('document.querySelector("#bSpec").getAttribute("aria-busy")'), "false");
+  assert.equal(await js('document.querySelector("#errorToastText").textContent'), "Spec admission failed");
+  await js('api=specApi;clearError();closeSpecMenu();act=async p=>{specCalls.push(p)}');
   await js('S.specUpdatedAt=Date.now();renderHeader()');
   assert.equal(await js('document.querySelector("#bSpec").textContent'), "Update spec");
   await js('S.specPending={stage:"thinking"};renderHeader();document.querySelector("#bSpecMenu").focus()');
