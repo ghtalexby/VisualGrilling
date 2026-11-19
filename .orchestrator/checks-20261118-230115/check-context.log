@@ -1,0 +1,16 @@
+type	characters	focus	related	index
+answer	10598	6499	2	2993
+discuss	12708	6422	2	5317
+question	4363	765	2	2654
+idea	7998	241	2	6620
+reevaluate	7599	0	6499	2
+reread	31884	30454	237	2
+more	1863	0	1098	0
+spec	23212	0	22256	0
+preview	1899	936	0	0
+knowledge	35663	0	34497	0
+finish	9047	0	8218	0
+reevaluate	3488	0	1610	978
+reevaluate telemetry overhead	291	(total diagnostics include telemetry)
+incremental reread	9437	full 31884
+Context accounting, bounded history, restart and reset checks passed

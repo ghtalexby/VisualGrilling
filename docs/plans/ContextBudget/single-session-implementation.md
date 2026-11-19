@@ -16,3 +16,8 @@ When installation is explicitly requested, first settle or safely requeue reserv
 ## Rollback
 
 Preserve the original baseline runtime (commit above, version 1.0.29) and baseline manifest. Stop the candidate consumer after settling work or allowing normal restart requeue. Keep current map state, action journal, knowledge and artifacts; never overwrite them with old snapshots. Before resuming the baseline, use an independent disposable copy of current state to verify old-reader compatibility and pending-work recovery. Only then resume the preserved original map with its valid baseline configuration and existing ownership/Hub epoch procedure. Candidate delivery tokens and notifications cannot authorize a baseline consumer. Retain all aggregate measurements, including adverse outcomes. Global installation and any Hub rollback remain explicit separate actions.
+## Verified outcome
+
+Implementation commits: `3152fcf` and `0d640a7`. Three fresh review passes; the third was clean. A separate full-plan verifier approved S1-S10 and S12 for implementation/deterministic scope. S11 remains pending real paired host sessions, long-history behavior and human semantic review. No savings are claimed.
+
+All 30 required deterministic suites passed on disposable state, plus `node dev/check-worker-reuse-integration.mjs --baseline c48bc94` against the actual historical runtime. See the [final check summary](../../../.orchestrator/single-session-final-checks.json) and [requirement evidence](../../../.orchestrator/state.md). Earlier failed checks and their fixes remain in the ledger/logs. The original baseline runtime hashes, audit references, installed junctions and unrelated original README change are preserved.

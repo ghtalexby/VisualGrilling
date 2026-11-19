@@ -1,0 +1,72 @@
+[
+  {
+    "check": "check-session-audit",
+    "exitCode": 0,
+    "seconds": 0.16,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-session-audit.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-a615530e-13e4-43a2-84ec-fac205d7cb12"
+  },
+  {
+    "check": "check-delivery-trace",
+    "exitCode": 0,
+    "seconds": 2.91,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-delivery-trace.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-cea45d7f-b8ae-4657-bcc0-9c4569781fb4"
+  },
+  {
+    "check": "check-worker-cost",
+    "exitCode": 0,
+    "seconds": 22.0,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-worker-cost.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-349a6fa4-1bfe-4b73-ad1c-65b0bf60efc5"
+  },
+  {
+    "check": "check-worker-reuse",
+    "exitCode": 0,
+    "seconds": 0.08,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-worker-reuse.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-5b99732b-8661-44f5-b5f0-8aa247643e76"
+  },
+  {
+    "check": "check-worker-reuse-integration",
+    "exitCode": 0,
+    "seconds": 2.0,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-worker-reuse-integration.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-f1110482-6673-46a0-bce4-a1caf002b4a6"
+  },
+  {
+    "check": "check-connection",
+    "exitCode": 0,
+    "seconds": 2.59,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-connection.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-2386dd7e-3f7c-4e35-9325-5642fd855409"
+  },
+  {
+    "check": "check-codex-websocket",
+    "exitCode": 0,
+    "seconds": 0.16,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-codex-websocket.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-2b93caf9-fcee-49d5-aa52-9220b1c779f5"
+  },
+  {
+    "check": "check-hub-codex",
+    "exitCode": 0,
+    "seconds": 8.69,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-hub-codex.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-86ad7b72-2b4d-4c63-a97f-5b71dd718519"
+  },
+  {
+    "check": "check-locale",
+    "exitCode": 0,
+    "seconds": 5.59,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-locale.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-7f7024ea-dd0d-41dc-a72d-c680c6bf464b"
+  },
+  {
+    "check": "check-single-session-comparison",
+    "exitCode": 0,
+    "seconds": 1.17,
+    "log": "D:\\programming\\my\\Programming\\VisualGrilling-single-session\\.orchestrator\\checks-20261118-230135\\check-single-session-comparison.log",
+    "hub": "C:\\Users\\yxang\\AppData\\Local\\Temp\\grill-single-session-0826f601-1163-48aa-8b17-bb2b9101c52a"
+  }
+]

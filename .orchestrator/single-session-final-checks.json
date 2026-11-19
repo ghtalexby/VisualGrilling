@@ -1,0 +1,152 @@
+[
+  {
+    "check": "check-result-preflight",
+    "exitCode": 0,
+    "seconds": 0.23
+  },
+  {
+    "check": "check-workers",
+    "exitCode": 0,
+    "seconds": 30.11
+  },
+  {
+    "check": "check-monitor",
+    "exitCode": 0,
+    "seconds": 27.27
+  },
+  {
+    "check": "check-watch",
+    "exitCode": 0,
+    "seconds": 24.57
+  },
+  {
+    "check": "check-actions",
+    "exitCode": 0,
+    "seconds": 76.06
+  },
+  {
+    "check": "check-actions-simulator",
+    "exitCode": 0,
+    "seconds": 4.3
+  },
+  {
+    "check": "check-context",
+    "exitCode": 0,
+    "seconds": 40.82
+  },
+  {
+    "check": "check-discussion",
+    "exitCode": 0,
+    "seconds": 3.63
+  },
+  {
+    "check": "check-followups",
+    "exitCode": 0,
+    "seconds": 6.08
+  },
+  {
+    "check": "check-reread",
+    "exitCode": 0,
+    "seconds": 13.46
+  },
+  {
+    "check": "check-completeness",
+    "exitCode": 0,
+    "seconds": 71.9
+  },
+  {
+    "check": "check-spec",
+    "exitCode": 0,
+    "seconds": 2.51
+  },
+  {
+    "check": "check-knowledge",
+    "exitCode": 0,
+    "seconds": 5.03
+  },
+  {
+    "check": "check-ideas",
+    "exitCode": 0,
+    "seconds": 8.23
+  },
+  {
+    "check": "check-preview",
+    "exitCode": 0,
+    "seconds": 11.91
+  },
+  {
+    "check": "check-maps",
+    "exitCode": 0,
+    "seconds": 12.77
+  },
+  {
+    "check": "check-session-transfer",
+    "exitCode": 0,
+    "seconds": 3.35
+  },
+  {
+    "check": "check-hub-runtime",
+    "exitCode": 0,
+    "seconds": 2.66
+  },
+  {
+    "check": "check-hub-service",
+    "exitCode": 0,
+    "seconds": 13.87
+  },
+  {
+    "check": "check-usage",
+    "exitCode": 0,
+    "seconds": 13.44
+  },
+  {
+    "check": "check-session-audit",
+    "exitCode": 0,
+    "seconds": 0.16
+  },
+  {
+    "check": "check-delivery-trace",
+    "exitCode": 0,
+    "seconds": 2.91
+  },
+  {
+    "check": "check-worker-cost",
+    "exitCode": 0,
+    "seconds": 22.0
+  },
+  {
+    "check": "check-worker-reuse",
+    "exitCode": 0,
+    "seconds": 0.08
+  },
+  {
+    "check": "check-worker-reuse-integration",
+    "exitCode": 0,
+    "seconds": 2.0
+  },
+  {
+    "check": "check-connection",
+    "exitCode": 0,
+    "seconds": 2.59
+  },
+  {
+    "check": "check-codex-websocket",
+    "exitCode": 0,
+    "seconds": 0.16
+  },
+  {
+    "check": "check-hub-codex",
+    "exitCode": 0,
+    "seconds": 8.69
+  },
+  {
+    "check": "check-locale",
+    "exitCode": 0,
+    "seconds": 5.59
+  },
+  {
+    "check": "check-single-session-comparison",
+    "exitCode": 0,
+    "seconds": 1.17
+  }
+]

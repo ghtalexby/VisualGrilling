@@ -1,0 +1,1 @@
+Hub service checks passed: auth/rotation, singleton, real saved server Play/Stop, shared success/error, independent status/counts, missing/restart retention (fake Codex adapter; no model turns).
