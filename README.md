@@ -23,7 +23,26 @@ The page and agent replies use the language in which you ask to start grilling. 
 
 The optional Windows **Boards Hub** lists registered maps across projects in a Chrome extension, with search, project groups and an Active filter that includes every unfinished board, even when stopped. Open returns to a running map; Play resumes Codex or starts an owned background session. Hub Stop stops that board's server and processing while retaining saved work and pending events. It does not request the map's finish report. Completion, server availability, agent state and observation time are shown separately.
 
-See [the Hub installation guide](hub/README.md) for the per-user Windows installer and manual Chrome **Load unpacked** step. The Chrome Web Store listing is not published; clean-machine, real Codex lifecycle and post-reboot acceptance remain separate checks. Existing maps enter the registry on their next server start; the installer does not scan historical projects.
+### Chrome extension (Windows Boards Hub)
+
+The extension source is in [hub/extension](hub/extension). To install the local component and load the extension:
+
+1. Install Node.js 18+ and Codex. The installer also requires the Windows .NET Framework C# compiler.
+2. From this repository's root, run:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File hub/install.ps1
+   ```
+
+3. Open `chrome://extensions` in Chrome and enable **Developer mode**.
+4. Click **Load unpacked** and select the installed extension folder printed by the installer. By default it is `%LOCALAPPDATA%\VisualGrilling\Hub\install\extension`; if `GRILL_HUB_HOME` is set, it is `<GRILL_HUB_HOME>\install\extension`.
+5. Open **VisualGrilling — Доски** from Chrome's extensions menu to view your boards. The extension binds to the local component automatically; no secret copying is needed.
+
+Loading only the source folder does not install the local component required for board commands. After reinstalling, reload the extension in `chrome://extensions`. See [the Hub installation guide](hub/README.md) for Codex executable configuration and troubleshooting.
+
+The Chrome Web Store listing is not published; clean-machine, terminal Codex lifecycle and post-reboot acceptance remain separate checks. Existing maps enter the registry on their next server start; the installer does not scan historical projects.
+
+### Agent skill
 
 Requires Node.js 18+ and an installed Claude Code or Codex. No dependency installation or build step is needed.
 
