@@ -54,6 +54,13 @@ try {
   assert.equal(args.at(-1), "--resume");
   assert.ok(args[4].includes(JSON.stringify(base)) && args[4].includes('"one"'));
   assert.ok(!args[4].includes("arbitrary prompt"));
+  assert.doesNotMatch(args[4], /levels? 1\/2|level 2|finish\/drain/i);
+  assert.match(args[4], /At level 1 resume this map without duplicating its watcher; Codex keeps one map per session/);
+  assert.match(args[4], /reset only the session-local finished flag and run grill\.mjs start --continue/);
+  assert.match(args[4], /Preserve the historical server finished flag and summary/);
+  assert.match(args[4], /Prepare and apply events in this same session using worker\.md and handoff\.md/);
+  assert.match(args[4], /including failed finish, stop listening at the persisted actionQueue\.paused boundary/);
+  assert.match(args[4], /leave later actions queued until another explicit continuation/);
   assert.equal((await api("state")).listening, false);
   assert.deepEqual((await api("state")).nodes, before.nodes);
   const first = read(path.join(map, "resume-request.json"));
@@ -87,6 +94,7 @@ try {
   await until(() => output.includes('"notifications/claude/channel"'));
   const events = () => output.trim().split("\n").map(JSON.parse).filter(v => v.method === "notifications/claude/channel");
   assert.equal(events().length, 1); assert.equal(events()[0].params.meta.map, "one");
+  assert.equal(events()[0].params.content, args[4], "Both host transports must deliver the same single-session continuation rules");
   await api("resume", {}); await sleep(650); assert.equal(events().length, 1);
   bindSession(base, "two");
   await requestResume(base, "two"); await until(() => events().length === 2);
