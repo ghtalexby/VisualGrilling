@@ -44,7 +44,7 @@ try {
   await cdp("Page.navigate", { url }); await until(() => js("typeof loaded!=='undefined'&&loaded"));
 
   // A state refresh between mouse-down and mouse-up must not swallow Send.
-  await js('window.realApi=api;window.realPoll=poll;poll=async()=>{};window.requests=[];api=async(p,b)=>{if(!["/api/answer","/api/discuss"].includes(p))return realApi(p,b);requests.push([p,b]);await new Promise(r=>window.releaseSend=r);throw new Error("Submission fixture failure") }');
+  await js('window.realFetch=fetch;window.realPoll=poll;poll=async()=>{};window.requests=[];window.fetch=async(p,o)=>{if(!["/api/answer","/api/discuss"].includes(p))return realFetch(p,o);requests.push([p,JSON.parse(o.body)]);await new Promise(r=>window.releaseSend=r);return new Response(JSON.stringify({error:"Submission fixture failure"}),{status:429})}');
   for (const mode of ["project", "discuss", "answer"]) {
     await js(`openPanel(${mode === "project" ? '{mode:"project",id:"root",tab:"discuss"}' : `{mode:"node",id:S.nodes.find(n=>n.kind==="q").id,tab:"${mode}"}`});requests=[];clearError()`);
     const field = mode === "answer" ? "#fAns" : "#fMsg", button = `[data-act="${mode === "answer" ? "answer" : "discuss"}"]`;
@@ -56,15 +56,25 @@ try {
     assert.equal(await js('pressedButton.isConnected'), true, `${mode}: polling replaced the pressed button`);
     await cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...point, button: "left", clickCount: 1 });
     await until(() => js('requests.length===1'));
-    assert.equal(await js(`document.querySelector('${button}').disabled`), true);
-    assert.equal(await js(`document.querySelector('${button}').textContent`), "Sending…");
-    await click(button);
+    assert.equal(await js('!!sending'), false);
+    if(mode==="answer")assert.equal(await js('document.querySelector(".atext").textContent.includes("Keep this draft")'),true);
+    else {
+      assert.equal(await js(`document.querySelector('${button}').disabled`),false);
+      assert.equal(await js(`document.querySelector('${field}').value`),"");
+      await click(button);
+    }
     assert.equal(await js('requests.length'), 1);
-    await js('releaseSend()'); await until(() => js('!sending'));
-    assert.equal(await js(`document.querySelector('${field}').value`), "Keep this draft");
-    assert.equal(await js(`document.querySelector('${button}').disabled`), false);
+    await js('releaseSend()'); await until(() => js('outbox[0]?.rejected&&!outboxDelivery'));
+    assert.equal(await js('outbox[0].input.answer||outbox[0].input.message'),"Keep this draft");
+    assert.equal(await js('!!document.querySelector("#panel [data-outbox-retry]")'),true);
+    if(mode==="answer")await click('[data-act="edit"]');
+    await input(field,"Next draft");
+    await js('window.realConfirm=confirm;window.confirm=()=>true;removeOutbox(outbox[0].actionId);window.confirm=realConfirm');
+    await until(()=>js('outbox.length===0&&!outboxDelivery'));
+    assert.equal(await js(`document.querySelector('${field}').value`),"Next draft");
+    assert.equal(await js(`document.querySelector('${button}').disabled`),false);
   }
-  await js('api=realApi;poll=realPoll;clearError();Object.keys(drafts).forEach(k=>delete drafts[k]);panel=null;renderPanel()');
+  await js('window.fetch=realFetch;poll=realPoll;clearError();Object.keys(drafts).forEach(k=>delete drafts[k]);panel=null;renderPanel()');
 
   await js('openPanel({mode:"project",id:"root",tab:"discuss"})');
   assert.equal(await js('!!document.querySelector(".ph #conversationSelect")&&!!document.querySelector(".ph [data-act=newconversation]")'), true);
@@ -86,7 +96,7 @@ try {
   await click('[data-act="discuss"]');
   await until(async () => (await api("state")).actionQueue.slots === 1);
   await api("wait?timeout=5"); await js("poll(true)");
-  await until(() => js('!sending&&document.querySelectorAll(".chat .msg").length===1'));
+  await until(() => js('outbox.length===0&&document.querySelectorAll(".chat .msg").length===1'));
   await js('document.querySelector("#conversationSelect").value="main";document.querySelector("#conversationSelect").dispatchEvent(new Event("change",{bubbles:true}))');
   assert.equal(await js('document.querySelectorAll(".chat .msg").length'), 0);
   assert.equal(await js('document.querySelector("#fMsg").value'), "First draft");
