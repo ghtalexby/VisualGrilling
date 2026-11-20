@@ -51,7 +51,9 @@ try {
   for (const width of [1280, 700, 390]) {
     await cdp("Emulation.setDeviceMetricsOverride", { width, height:800, deviceScaleFactor:1, mobile:false });
     assert.ok(await js('(()=>{const h=document.querySelector("header").getBoundingClientRect(),p=document.querySelector("#panel").getBoundingClientRect();return Math.abs(p.top-h.bottom)<1&&Math.abs(p.bottom-innerHeight)<1})()'));
+    await js("openSpecMenu()");
     assert.equal(await js('(()=>{const b=document.querySelector("#bSummary"),r=b.getBoundingClientRect();return document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)===b})()'), true);
+    await js("closeSpecMenu()");
     if(width>560)assert.equal(await js('document.querySelector("#panelGrip").getBoundingClientRect().top'), await js('document.querySelector("#panel").getBoundingClientRect().top'));
   }
   await cdp("Emulation.setDeviceMetricsOverride", { width:1280, height:800, deviceScaleFactor:1, mobile:false });
@@ -66,7 +68,7 @@ try {
   await cdp("Emulation.clearDeviceMetricsOverride");
 
   // Freeze polling and record API writes so each UI scenario has deterministic state.
-  await js(`window.originalApi=api;window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{if(path==="/api/state")return {listening:false};writes.push({path,body});return {ok:true}};
+  await js(`window.originalApi=api;window.originalRequestApi=requestApi;requestApi=(path,body)=>api(path,body);window.originalPoll=poll;poll=async()=>{};window.writes=[];api=async(path,body)=>{if(path==="/api/state")return {listening:false};writes.push({path,body});return {ok:true}};
     S.coverage={shown:5,reserve:5,percent:50};
     window.qid=S.nodes.find(n=>n.kind==="q").id;
     S.nodes.push({id:"idea",parentId:"root",kind:"idea",text:"Idea",status:"weak",chat:[]});
@@ -111,7 +113,7 @@ try {
   assert.equal(await js('panel.id'), await js('qid'));
   assert.equal(await js('document.querySelector("#fAns").value'), 'Retained draft');
   await js('listening=true;renderHeader()');
-  for(const selector of ['#bSpec','#bStop','[data-act="answer"]']){
+  for(const selector of ['#bSpec','#bStop']){
     await click(selector);
     await until(()=>js('!sending&&!document.querySelector("#errorToast").hidden'));
     assert.equal(await js('panel.id'), await js('qid'));
@@ -119,7 +121,7 @@ try {
     assert.equal(await js('document.querySelector("#panel .err")'), null);
   }
   await js('api=savedApi');
-  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["notificationControl", "conn", "queueControl", "session-usage", "bConnection", "bStop"]);
+  assert.deepEqual(await js('[...document.querySelector(".agent-controls").children].map(n=>n.id||n.className)'), ["notificationControl", "conn", "queueControl", "session-usage", "connectionControl", "bStop"]);
   await js('listening=false;renderHeader()');
   assert.equal(await js('document.querySelector("#bStop").disabled'), true);
   assert.equal(await js('document.querySelector("#bConnection").disabled'), false);
@@ -156,8 +158,10 @@ try {
   await click('[data-chip="Yes"]'); await click('[data-chip="No"]');
   assert.equal(await js('document.querySelectorAll(".chip[aria-pressed=true]").length'), 2);
   assert.equal(await js('document.querySelector("#fAns").value'), "Unicode comment: ё猫\nsecond line");
-  await click('[data-act="answer"]'); await until(()=>js('!sending'));
+  await js('canonicalState=structuredClone(S)');
+  await click('[data-act="answer"]'); await until(()=>js('!outboxDelivery&&outbox.every(a=>a.accepted)'));
   assert.equal(await js('writes.at(-1).body.answer'), "Yes\nNo\nUnicode comment: ё猫\nsecond line");
+  await js("outbox.length=0;refreshLocalView()");
   await input("#fAns", "Keep comment");
   await click('[data-chip="Yes"]'); await click('.chip.idk');
   assert.deepEqual(await js('selections[qid]'), ["I don't know"]);
@@ -176,19 +180,25 @@ try {
   assert.equal(await js('document.querySelector("#fAns").value'), "Draft persists");
   await click('[data-tab="discuss"]'); await input('#fMsg', '  Original draft\nwith whitespace  ');
   await js('draftQuotes[qid]={about:"option",text:"No"};panel.quote=draftQuotes[qid]');
-  await click('[data-act="explainquestion"]'); await until(()=>js('!sending'));
+  await js('canonicalState=structuredClone(S)');
+  await click('[data-act="explainquestion"]'); await until(()=>js('!outboxDelivery&&outbox.every(a=>a.accepted||a.error)'));
   assert.equal(await js('writes.at(-1).path'), '/api/discuss');
   assert.equal(await js('writes.at(-1).body.about'), 'question');
   assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
   assert.equal(await js('panel.quote.text'), 'No');
+  // The frozen API fixture acknowledges transport without changing its canonical tree.
+  await js('outbox.length=0;refreshLocalView()');
   // Busy and HTTP rejection preserve the exact draft and quote; retry stays explicit.
-  await js('get(qid).discuss="thinking"'); await click('[data-act="explainquestion"]');
+  await js('get(qid).discuss="thinking";canonicalState=structuredClone(S)'); await click('[data-act="explainquestion"]');
+  await until(()=>js('!outboxDelivery&&outbox.every(a=>a.accepted)'));
+  await js('outbox.length=0;refreshLocalView()');
   assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
   await js('get(qid).discuss=null;window.goodApi=api;api=async()=>{throw new Error("HTTP 409")};');
-  await click('[data-act="explainquestion"]'); await until(()=>js('!sending'));
+  await js('canonicalState=structuredClone(S)');
+  await click('[data-act="explainquestion"]'); await until(()=>js('!outboxDelivery&&outbox.every(a=>a.accepted||a.error)'));
   assert.match(await js('document.querySelector("#errorToastText").textContent'), /409/);
   assert.equal(await js('document.querySelector("#fMsg").value'), '  Original draft\nwith whitespace  ');
-  await js('api=goodApi');
+  await js('api=goodApi;requestApi=originalRequestApi;outbox.length=0;transportQueue.length=0;refreshLocalView()');
   // Block-level copy retains Unicode/newlines, and rejection gets visible feedback.
   await js('window.copied=[];Object.defineProperty(navigator,"clipboard",{configurable:true,value:{writeText:async t=>copied.push(t)}})');
   // Board menus copy full question/answer text without opening a drawer or submitting work.
@@ -298,17 +308,17 @@ try {
   await js('originalPoll(true)');
   assert.equal(await js('document.querySelector("#errorToast").hidden'), true);
   await js('window.originalFetch=fetch;fetch=async()=>new Response(JSON.stringify({error:"not found"}),{status:404})');
-  assert.match(await js('originalApi("/api/reread",{}).catch(e=>e.message)'), /Could not reread the map.*Restart the map server/);
-  assert.match(await js('originalApi("/api/spec",{}).catch(e=>e.message)'), /could not find this command/);
+  assert.match(await js('originalRequestApi("/api/reread",{}).catch(e=>e.message)'), /Could not reread the map.*Restart the map server/);
+  assert.match(await js('originalRequestApi("/api/spec",{}).catch(e=>e.message)'), /could not find this command/);
   await js('fetch=async(p)=>p==="/api/state"?new Response(JSON.stringify({listening:false})):new Response(JSON.stringify({error:"The Claude Code channel is offline. Open the session with the grill channel and try again."}),{status:409});api=originalApi;poll=async()=>{};listening=false;renderHeader()');
   await click('#bConnection'); await until(()=>js('!resumeSending'));
   assert.match(await js('document.querySelector("#errorToastText").textContent'), /Claude Code channel is offline.*Open the session/);
   assert.equal(await js('listening'), false);
   assert.equal(await js('document.querySelector("#resumeNotice").hidden'), true);
   await js('fetch=async()=>new Response(JSON.stringify({error:"Question missing"}),{status:404})');
-  assert.equal(await js('originalApi("/api/question",{}).catch(e=>e.message)'), "Question missing");
+  assert.equal(await js('originalRequestApi("/api/question",{}).catch(e=>e.message)'), "Question missing");
   await js('fetch=async()=>{throw new TypeError("Failed to fetch")}');
-  assert.match(await js('originalApi("/api/answer",{}).catch(e=>e.message)'), /Could not reach the map server/);
+  assert.match(await js('originalRequestApi("/api/answer",{}).catch(e=>e.message)'), /Could not reach the map server/);
   for(const [status,body,expected] of [
     [403,JSON.stringify({error:"missing x-grill header"}),/Reload the map/],
     [500,JSON.stringify({error:"ENOENT: open private-path"}),/check the file, access permissions/],
@@ -319,7 +329,7 @@ try {
     [200,"null",/unexpected response/]
   ]){
     await js(`fetch=async()=>new Response(${JSON.stringify(body)},{status:${status}})`);
-    assert.match(await js('originalApi("/api/answer",{}).catch(e=>e.message)'),expected);
+    assert.match(await js('originalRequestApi("/api/answer",{}).catch(e=>e.message)'),expected);
   }
   await js('showError("The discussion is too long")');
   assert.match(await js('document.querySelector("#errorToastText").textContent'), /100 messages.*reset the discussion/);
