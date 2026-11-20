@@ -573,5 +573,8 @@
   "У этой карты включена защита сессии. Перед командой запуска прочитай инструкцию передачи из": "This map has session ownership protection. Before starting, read the transfer instructions from",
   "и проверь": "and check",
   "В фазе создания новая сессия сначала выполняет": "In the creating phase, the new session must first run",
-  "с указанным идентификатором. Если карта уже передана другой сессии, для следующего перехода используй меню кнопки связи на доске. Не обходи защиту и не меняй привязку вручную.": "with the specified ID. If the map already belongs to another session, use the connection dropdown on the board for the next transfer. Do not bypass ownership protection or change the binding manually."
+  "с указанным идентификатором. Если карта уже передана другой сессии, для следующего перехода используй меню кнопки связи на доске. Не обходи защиту и не меняй привязку вручную.": "with the specified ID. If the map already belongs to another session, use the connection dropdown on the board for the next transfer. Do not bypass ownership protection or change the binding manually.",
+  "Сначала повторите отправку в очереди.": "Retry the pending submission in the queue first.",
+  "Повторить отправку": "Retry sending",
+  "Удалить неотправленное действие?": "Delete the unsent action?"
 }
