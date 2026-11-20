@@ -92,6 +92,52 @@ try {
     await api("apply",{type:"answer",id:e.id,token:e.token,status:"ok",verdict:"Checked"});
     await js("poll(true)");
     assert.equal(await js('document.querySelector("#queueCount").textContent'),"4");
+    // Hold transport before admission: feedback and navigation must stay immediate.
+    await api("init", { title: "Slow transport", questions: [{ q: "First?", options: ["Yes"] }, { q: "Second?" }] });
+    const slowIds=(await api("state")).nodes.filter(n=>n.kind==="q").map(n=>n.id);
+    await js("poll(true)");
+    await js('window.transportFetch=fetch;window.heldPosts=[];window.fetch=(p,o)=>["/api/answer","/api/discuss"].includes(p)?new Promise((resolve,reject)=>heldPosts.push({p,o,resolve,reject})):transportFetch(p,o)');
+    await js('openPanel({mode:"node",id:'+JSON.stringify(slowIds[0])+'});document.querySelector("[data-chip=Yes]").click();submitAnswer()');
+    assert.equal(await js('document.querySelector(".atext").textContent.includes("Yes")'),true);
+    await until(()=>js('heldPosts.length===1'));
+    assert.equal((await api("state")).actionQueue.actions.length,0);
+    await js('openPanel({mode:"node",id:'+JSON.stringify(slowIds[1])+',tab:"discuss"});document.querySelector("#fMsg").value="First local";submitDiscuss()');
+    assert.equal(await js('document.querySelector("#fMsg").value'),"");
+    assert.equal(await js('document.querySelector("[data-act=discuss]").disabled'),false);
+    await js('document.querySelector("#fMsg").value="Second local";submitDiscuss();document.querySelector("#fMsg").value="Keep typing";document.querySelector("#fMsg").dispatchEvent(new Event("input",{bubbles:true}));poll(true)');
+    assert.equal(await js('document.querySelectorAll(".chat .msg.user").length'),2);
+    assert.equal(await js('heldPosts.length'),1);
+    // Server accepts but response is lost. Retry must use the exact same action ID.
+    await js('(async()=>{const h=heldPosts.shift();await transportFetch(h.p,h.o);h.reject(new Error("Lost acknowledgement"))})()');
+    await until(()=>js('!!outbox[0]?.error'));
+    await js('poll(true)');
+    assert.equal(await js('document.querySelector("#queueIssues").hidden'),false);
+    await js('showQueue(true)');
+    assert.equal(await js('!!document.querySelector("[data-outbox-retry]")'),true);
+    assert.equal(await js('document.querySelector("#fMsg").value'),"Keep typing");
+    await js('window.fetch=transportFetch;retryOutbox(outbox[0].actionId)');
+    await until(()=>js('outbox.length===0'));
+    assert.equal((await api("state")).actionQueue.actions.filter(a=>a.type==="answer").length,1);
+    assert.equal(await js('document.querySelectorAll(".chat .msg.user").length'),2);
+    assert.equal(await js('document.querySelector("#fMsg").value'),"Keep typing");
+    // Definitive rejection retains input and permits an explicit discard.
+    await js('window.fetch=(p,o)=>p==="/api/discuss"?Promise.resolve(new Response(JSON.stringify({error:"Queue full"}),{status:429})):transportFetch(p,o);submitDiscuss()');
+    await until(()=>js('outbox[0]?.rejected'));
+    assert.equal(await js('document.querySelector(".chat").textContent.includes("Keep typing")'),true);
+    await js('window.savedConfirm=confirm;window.confirm=()=>true;removeOutbox(outbox[0].actionId);window.confirm=savedConfirm;window.fetch=transportFetch');
+    await until(()=>js('outbox.length===0&&!outboxDelivery'));
+    // Polling may remove an accepted prefix while the next POST is still pending.
+    await js('window.heldPosts=[];window.fetch=(p,o)=>p==="/api/discuss"?new Promise((resolve,reject)=>heldPosts.push({p,o,resolve,reject})):transportFetch(p,o);for(const text of ["Prefix A","Prefix B","Prefix C"]){document.querySelector("#fMsg").value=text;submitDiscuss()}');
+    await until(()=>js('heldPosts.length===1'));
+    await js('(async()=>{const h=heldPosts.shift();h.resolve(await transportFetch(h.p,h.o))})()');
+    await until(()=>js('heldPosts.length===1&&outbox.some(a=>a.input.message==="Prefix A"&&a.accepted)'));
+    await js('poll(true)');
+    assert.equal(await js('outbox.some(a=>a.input.message==="Prefix A")'),false);
+    await js('(async()=>{const h=heldPosts.shift();h.resolve(await transportFetch(h.p,h.o))})()');
+    await until(()=>js('heldPosts.length===1'));
+    assert.equal(await js('JSON.parse(heldPosts[0].o.body).message'),"Prefix C");
+    await js('(async()=>{const h=heldPosts.shift();h.resolve(await transportFetch(h.p,h.o));window.fetch=transportFetch})()');
+    await until(()=>js('outbox.length===0&&!outboxDelivery'));
     // Accepted inputs must be visible before the current delivery completes.
     await api("init", { title: "Immediate view", questions: [{ q: "Busy?" }, { q: "Next?", options: ["Yes", "No"] }] });
     const ids=(await api("state")).nodes.filter(n=>n.kind==="q").map(n=>n.id);
@@ -135,7 +181,7 @@ try {
     await js('S.nodes=S.nodes.filter(n=>n.id!==panel.id);render();finishCreation()');
     assert.equal(await js('panel.id'),"root");
     // Navigating during preview admission must preserve the newly chosen drawer.
-    await js('window.realApi=api;api=async(p,b)=>{const r=await window.realApi(p,b);if(p==="/api/preview/prepare")openPanel({mode:"project",id:"root",tab:"discuss"});return r};openPanel({mode:"previewSetup",id:"root"});document.querySelector("[data-preview-branch]").checked=true;previewAction("prepare")');
+    await js('window.realApi=api;api=async(p,b)=>{const r=await window.realApi(p,b);if(p==="/api/preview/prepare")openPanel({mode:"project",id:"root",tab:"discuss"});return r};openPanel({mode:"previewSetup",id:"root",previewTab:"branches"});document.querySelector("[data-preview-branch]").click();previewAction("prepare")');
     assert.equal(await js('panel.mode'),"project");
     await js('finishCreation()');assert.equal(await js('panel.mode'),"project");
     await js('api=window.realApi;actionResult=window.realActionResult');
@@ -147,7 +193,7 @@ try {
     assert.equal(await js('counts().open'),2);
     assert.equal(await js('toMarkdown().includes("undefined")'),false);
     assert.equal(await js('toMarkdown().includes('+JSON.stringify(language==="en"?"[Queued]":"[В очереди]")+')'),true);
-    await js('openPanel({mode:"previewSetup",id:"root"})');
+    await js('openPanel({mode:"previewSetup",id:"root",previewTab:"branches"})');
     assert.equal(await js('Array.from(document.querySelectorAll("[data-preview-branch]")).some(e=>e.dataset.previewBranch.startsWith("queued-"))'),false);
     const effects=(await api("state")).actionQueue.effects;
     await js('openPanel({mode:"node",id:'+JSON.stringify("queued-"+effects.find(e=>e.type==="idea").actionId)+'})');
