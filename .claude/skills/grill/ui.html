@@ -446,11 +446,17 @@ function stateErrors(state){
   ].filter(([,error])=>error));
 }
 
+const queuedRoute=/^\/api\/(answer|discuss|chatreset|question|more|reread|spec|finish|idea(?:\/(analyze|edit|delete))?|knowledge-import|spec-migrate|preview\/(prepare|build|policy|delete|save|restore))$/;
 async function api(p,body){
-  const queuedRoute=/^\/api\/(answer|discuss|chatreset|question|more|reread|spec|finish|idea(?:\/(analyze|edit|delete))?|knowledge-import|spec-migrate|preview\/(prepare|build|policy|delete|save|restore))$/.test(p);
+  if(body&&queuedRoute.test(p))return new Promise((resolve,reject)=>{
+    transportQueue.push({path:p,body:structuredClone(body),resolve,reject});
+    setTimeout(()=>deliverOutbox(),0);
+  });
+  return requestApi(p,body);
+}
+async function requestApi(p,body){
   let retryKey;
-  if(body&&queuedRoute&&!body.actionId){
-    if(outbox.length){await deliverOutbox();if(outbox.some(a=>!a.accepted))throw new Error("Сначала повторите отправку в очереди.")}
+  if(body&&queuedRoute.test(p)&&!body.actionId){
     const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify([p,body]))))).map(x=>x.toString(16).padStart(2,"0")).join("");
     retryKey="grill-action:"+location.origin+":"+(S.mapKey||"")+":"+hash;
     let id;try{id=localStorage.getItem(retryKey)}catch{}
@@ -1131,7 +1137,7 @@ function openPanel(o){clearTimeout(clickTimer);panel=o;if(o.id&&draftQuotes[o.id
 /* ---------- actions ---------- */
 // Local feedback precedes transport. Keep immutable inputs and IDs until a fresh
 // post-acknowledgement snapshot replaces them; ambiguous retries reuse the ID.
-const outbox=[];
+const outbox=[],transportQueue=[];
 let canonicalState=null,outboxDelivery=null,pollSequence=0,appliedPoll=0;
 function refreshLocalView(){
   if(!canonicalState)return;
@@ -1140,6 +1146,7 @@ function refreshLocalView(){
 function enqueueLocal(type,input){
   const action={actionId:crypto.randomUUID(),type,input,at:Date.now(),images:input.images||[]};
   outbox.push(action);
+  transportQueue.push({action});
   // A task boundary lets the browser paint the submitted content first.
   setTimeout(()=>deliverOutbox(),0);
   return action;
@@ -1151,7 +1158,9 @@ $("#panel").addEventListener("click",e=>{const b=e.target.closest("[data-outbox-
 function removeOutbox(id){
   const index=outbox.findIndex(a=>a.actionId===id&&a.rejected);
   if(index<0||!confirm("Удалить неотправленное действие?"))return;
-  outbox.splice(index,1);refreshLocalView();setTimeout(()=>deliverOutbox(),0);
+  const [action]=outbox.splice(index,1),queued=transportQueue.findIndex(entry=>entry.action===action);
+  if(queued>=0)transportQueue.splice(queued,1);
+  refreshLocalView();setTimeout(()=>deliverOutbox(),0);
 }
 function retryOutbox(id){
   const action=outbox.find(a=>a.actionId===id);if(!action)return;
@@ -1161,13 +1170,25 @@ function deliverOutbox(){
   if(outboxDelivery)return outboxDelivery;
   outboxDelivery=(async()=>{
     for(;;){
-      const action=outbox.find(a=>!a.accepted);
-      if(!action)break;
-      if(action.error)break;
+      const entry=transportQueue[0];if(!entry)break;
+      const action=entry.action;
+      if(!action){
+        try{entry.resolve(await requestApi(entry.path,entry.body))}catch(error){entry.reject(error)}
+        transportQueue.shift();continue;
+      }
+      if(action.error){
+        // Release callers whose earlier input failed; their existing error UI
+        // retains drafts. A retry is a new user intent at the current queue tail.
+        for(let i=transportQueue.length-1;i>0;i--)if(!transportQueue[i].action){
+          transportQueue.splice(i,1)[0].reject(new Error("Сначала повторите отправку в очереди."));
+        }
+        break;
+      }
       try{
-        await api("/api/"+action.type,{...action.input,actionId:action.actionId});
+        await requestApi("/api/"+action.type,{...action.input,actionId:action.actionId});
         action.accepted=true;action.afterPoll=pollSequence;
-      }catch(error){action.error=error.message;action.rejected=!!error.rejected;showError(error.message);refreshLocalView();break}
+        transportQueue.shift();
+      }catch(error){action.error=error.message;action.rejected=!!error.rejected;showError(error.message);refreshLocalView()}
     }
   })().finally(()=>{outboxDelivery=null;void poll(true)});
   return outboxDelivery;

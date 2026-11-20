@@ -138,6 +138,20 @@ try {
     assert.equal(await js('JSON.parse(heldPosts[0].o.body).message'),"Prefix C");
     await js('(async()=>{const h=heldPosts.shift();h.resolve(await transportFetch(h.p,h.o));window.fetch=transportFetch})()');
     await until(()=>js('outbox.length===0&&!outboxDelivery'));
+    // A later local message cannot overtake a reset/finish already requested.
+    for(const boundary of ["chatreset","finish"]){
+      await js('window.heldPosts=[];window.fetch=(p,o)=>p==="/api/discuss"?new Promise((resolve,reject)=>heldPosts.push({p,o,resolve,reject})):transportFetch(p,o);document.querySelector("#fMsg").value="Before boundary";submitDiscuss()');
+      await until(()=>js('heldPosts.length===1'));
+      await js('window.boundaryDone=false;api('+JSON.stringify("/api/"+boundary)+','+JSON.stringify(boundary==="chatreset"?{id:slowIds[1]}:{})+').then(()=>window.boundaryDone=true);document.querySelector("#fMsg").value="After boundary";submitDiscuss();void 0');
+      await js('(async()=>{const h=heldPosts.shift();h.resolve(await transportFetch(h.p,h.o))})()');
+      await until(()=>js('boundaryDone&&heldPosts.length===1'));
+      assert.equal(await js('JSON.parse(heldPosts[0].o.body).message'),"After boundary");
+      await js('(async()=>{const h=heldPosts.shift();h.resolve(await transportFetch(h.p,h.o));window.fetch=transportFetch})()');
+      await until(()=>js('outbox.length===0&&!outboxDelivery'));
+      const journal=(await api("actions")).actions;
+      assert.deepEqual(journal.slice(-3).map(a=>a.route),["/api/discuss","/api/"+boundary,"/api/discuss"]);
+      if(boundary==="chatreset")assert.equal(await js('document.querySelectorAll(".chat .msg.user").length'),1);
+    }
     // Accepted inputs must be visible before the current delivery completes.
     await api("init", { title: "Immediate view", questions: [{ q: "Busy?" }, { q: "Next?", options: ["Yes", "No"] }] });
     const ids=(await api("state")).nodes.filter(n=>n.kind==="q").map(n=>n.id);
