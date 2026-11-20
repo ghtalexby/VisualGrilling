@@ -7,7 +7,7 @@
     "service_worker": "background.js"
   },
   "description": "Локальные доски проектов и управление Codex",
-  "version": "1.0.30",
+  "version": "1.0.31",
   "permissions": [
     "nativeMessaging",
     "storage"
