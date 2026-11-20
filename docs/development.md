@@ -301,7 +301,7 @@ Session-cost checks extend context, completeness, discussion, monitor, watch, us
 
 Project conversation regression checks in `check-discussion.mjs` cover legacy history, isolated delivery, pending-work conflicts, reset isolation and restart. `check-discussion-browser.mjs` checks the dropdown, +, separate drafts and history.
 
-The discussion browser check also sends real pointer-down/up events around a forced panel refresh for project chat, question discussion and answers. It verifies that refreshes preserve the pressed control, slow submissions immediately show a disabled Sending state, repeated clicks do not duplicate requests, and rejected submissions preserve drafts and unlock Send.
+The discussion browser check also sends real pointer-down/up events around a forced panel refresh for project chat, question discussion and answers. It verifies that refreshes preserve the pressed control, slow submissions immediately display local input while keeping chat Send available, empty repeated clicks do not duplicate requests, and rejected submissions retain their input with retry controls while preserving the next draft.
 
 
 ## Durable action queue acceptance
@@ -321,7 +321,7 @@ The action browser check also verifies immediate queued answer/chat display, edi
 
 Run `node dev/check-followups.mjs` for missing-coverage recovery, restart/redelivery, five required children at depth five, cross-branch reuse and supplementation, atomic limits, every grading path and HTTP/Host protection. Run completeness, discussion, reread, spec, actions, workers, monitor, maps and locale checks plus the disposable simulator harness. The shared test fixture supplies explicit transport-only coverage; it does not establish semantic quality. A real agent session must separately verify all gaps are identified, unrelated answers do not close them, and verified evidence can close the original without rewriting the user's answer.
 
-`node dev/check-followups-browser.mjs` verifies sourced supplements beside the original answer, escaping, queue visibility and Markdown export in EN/RU. `check-actions-browser.mjs` currently has an unrelated baseline failure at its preview-admission fixture (line 138: branch checkbox queried on the default chat tab); this reproduces on commit `4446d86`.
+`node dev/check-followups-browser.mjs` verifies sourced supplements beside the original answer, escaping, queue visibility and Markdown export in EN/RU.
 
 
 ## Worker context and session-tree cost
