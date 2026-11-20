@@ -152,6 +152,18 @@ try {
       assert.deepEqual(journal.slice(-3).map(a=>a.route),["/api/discuss","/api/"+boundary,"/api/discuss"]);
       if(boundary==="chatreset")assert.equal(await js('document.querySelectorAll(".chat .msg.user").length'),1);
     }
+    // An ambiguous boundary failure must also hold later local submissions.
+    for(const boundary of ["chatreset","finish"]){
+      await js('window.boundaryFailed=false;window.transportCalls=[];window.fetch=(p,o)=>{transportCalls.push(p);return p==='+JSON.stringify("/api/"+boundary)+'?Promise.reject(new Error("Connection lost")):transportFetch(p,o)};api('+JSON.stringify("/api/"+boundary)+','+JSON.stringify(boundary==="chatreset"?{id:slowIds[1]}:{})+').catch(()=>window.boundaryFailed=true);document.querySelector("#fMsg").value="After failed boundary";submitDiscuss();void 0');
+      await until(()=>js('boundaryFailed&&!outboxDelivery'));
+      assert.equal(await js('transportCalls.includes("/api/discuss")'),false);
+      assert.equal(await js('outbox.some(a=>a.displayOnly&&a.error)'),true);
+      await js('window.boundaryKey=outbox.find(a=>a.displayOnly).retryKey;window.fetch=transportFetch;showQueue(true);document.querySelector("#queueWindow [data-outbox-retry]").click()');
+      await until(()=>js('outbox.length===0&&!outboxDelivery'));
+      assert.equal(await js('localStorage.getItem(boundaryKey)'),null);
+      const journal=(await api("actions")).actions;
+      assert.deepEqual(journal.slice(-2).map(a=>a.route),["/api/"+boundary,"/api/discuss"]);
+    }
     // Accepted inputs must be visible before the current delivery completes.
     await api("init", { title: "Immediate view", questions: [{ q: "Busy?" }, { q: "Next?", options: ["Yes", "No"] }] });
     const ids=(await api("state")).nodes.filter(n=>n.kind==="q").map(n=>n.id);

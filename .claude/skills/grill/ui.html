@@ -454,7 +454,7 @@ async function api(p,body){
   });
   return requestApi(p,body);
 }
-async function requestApi(p,body){
+async function requestApi(p,body,entry){
   let retryKey;
   if(body&&queuedRoute.test(p)&&!body.actionId){
     const hash=Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(JSON.stringify([p,body]))))).map(x=>x.toString(16).padStart(2,"0")).join("");
@@ -463,6 +463,7 @@ async function requestApi(p,body){
     id||=crypto.randomUUID();try{localStorage.setItem(retryKey,id)}catch{}
     body={...body,actionId:id};
   }
+  if(entry){entry.body=body;entry.retryKey=retryKey}
   let r,t;
   try{
     r=await fetch(p,{method:body?"POST":"GET",headers:{"content-type":"application/json","x-grill":"1"},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(15000)});
@@ -492,8 +493,9 @@ function showQueue(pin=false){archiveOpen=false;queuePinned=pin||queuePinned;$("
 function renderQueue(){
   const q=S.actionQueue||{actions:[],internal:[],waiting:0},running=q.actions.filter(a=>a.status==="running"),issues=q.actions.filter(a=>["failed","needs-decision"].includes(a.status));
   const local=outbox.filter(a=>!a.accepted&&(a.error||!q.actions.some(b=>b.id===a.actionId)));
+  const waiting=q.waiting+local.filter(a=>!q.actions.some(b=>b.id===a.actionId)).length;
   $("#queueCount").hidden=!q.waiting&&!S.currentWork&&!running.length&&!local.length;
-  $("#queueCount").textContent=q.waiting+local.length?String(q.waiting+local.length):"◌";
+  $("#queueCount").textContent=waiting?String(waiting):"◌";
   $("#queueIssues").hidden=!issues.length&&!local.some(a=>a.error);
   if(!q.waiting&&!running.length&&!S.currentWork)$("#queueNotice").textContent="";
   const win=$("#queueWindow");if(win.hidden||archiveOpen)return;
@@ -1173,8 +1175,14 @@ function deliverOutbox(){
       const entry=transportQueue[0];if(!entry)break;
       const action=entry.action;
       if(!action){
-        try{entry.resolve(await requestApi(entry.path,entry.body))}catch(error){entry.reject(error)}
-        transportQueue.shift();continue;
+        try{entry.resolve(await requestApi(entry.path,entry.body,entry));transportQueue.shift()}
+        catch(error){
+          // A boundary with an unknown outcome keeps its original queue position.
+          // Its caller can finish displaying the error while delivery stays paused.
+          entry.action={actionId:entry.body.actionId||crypto.randomUUID(),type:entry.path.slice(5),input:entry.body,images:[],at:Date.now(),error:error.message,rejected:!!error.rejected,displayOnly:true,retryKey:entry.retryKey};
+          outbox.push(entry.action);entry.reject(error);refreshLocalView();
+        }
+        continue;
       }
       if(action.error){
         // Release callers whose earlier input failed; their existing error UI
@@ -1186,6 +1194,7 @@ function deliverOutbox(){
       }
       try{
         await requestApi("/api/"+action.type,{...action.input,actionId:action.actionId});
+        if(action.retryKey){try{if(localStorage.getItem(action.retryKey)===action.actionId)localStorage.removeItem(action.retryKey)}catch{}}
         action.accepted=true;action.afterPoll=pollSequence;
         transportQueue.shift();
       }catch(error){action.error=error.message;action.rejected=!!error.rejected;showError(error.message);refreshLocalView()}
@@ -1242,7 +1251,7 @@ async function submitQuestion(){
 // Replay admitted inputs only into this browser view. Worker evidence remains canonical.
 function projectQueuedState(state){
   const known=new Set((state.actionQueue?.actions||[]).map(a=>a.id));
-  const local=outbox.filter(a=>!known.has(a.actionId)).map(a=>({...a,local:true}));
+  const local=outbox.filter(a=>!a.displayOnly&&!known.has(a.actionId)).map(a=>({...a,local:true}));
   for(const effect of [...(state.actionQueue?.effects||[]),...local]){
     const b=effect.input,type=effect.type,n=state.nodes.find(n=>n.id===b.id);
     const target=n||state.nodes.find(n=>n.id===(b.sourceId||b.parentId||"root"));
@@ -1289,7 +1298,7 @@ async function poll(force){
     if(d.localeRevision && d.localeRevision!==PAGE_LOCALE){location.reload();return}
     const wasOffline=offline;offline=false;
     S.sessionUsage=d.sessionUsage;S.sessionHint=d.sessionHint;renderUsage();
-    if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded){
+    if(force||d.version!==S.version||d.listening!==listening||wasOffline||!loaded||outbox.some(a=>a.accepted&&sequence>a.afterPoll)){
       const before=panelSig(),oldIds=new Set(S.nodes.map(n=>n.id));
       const first=!loaded,previousErrors=stateErrors(S);
       for(let i=outbox.length-1;i>=0;i--)if(outbox[i].accepted&&sequence>outbox[i].afterPoll)outbox.splice(i,1);
@@ -1305,7 +1314,7 @@ async function poll(force){
       else if(wasOffline)showImages($("#panel")); /* the signature ignores connectivity: retry images that failed during the outage */
       setTimeout(()=>fresh.clear(),2000);
     }
-  }catch(e){if(!offline){offline=true;renderHeader()}}
+  }catch(e){if(sequence<appliedPoll)return;if(!offline){offline=true;renderHeader()}}
 }
 
 /* ---------- events ---------- */
